@@ -58,30 +58,59 @@ function nextClassDay(s, fromMs){
   return null;
 }
 // 이번 회차 시작일: 수동값 → 직전 정산 다음 수업일 → 학생 시작일
+// 날짜를 그날 00:00 ms로
+function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+
+// 이번 클래스(현재 회차 묶음) 정보: 시작·종료·세션/결석/보강 날짜
+// 규칙: 출석(정규수업)+보강 = 회차로 카운트, 결석은 카운트 제외(그만큼 밀림)
+function currentClassInfo(s){
+  const plan=s.plan||0;
+  const info={start:null, end:null, sessions:[], absents:[], makeups:[], windowDates:new Set()};
+  if(!plan || !s.days || !s.days.length) return info;
+  const absentSet=new Set((absentLog[s.id]||[]).map(dayKey));
+  const makeupSet=new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)));
+  const done=Math.min(cycleDone[s.id]||0, plan);
+  const todayK=dayKey(now.getTime());
+  const isSession=(d)=>{ const k=dayKey(d.getTime());
+    if(makeupSet.has(k)) return true;
+    if(s.days.includes(d.getDay()) && !absentSet.has(k)) return true;
+    return false; };
+  // 1) 이번 클래스 시작일: 수동값 우선, 없으면 오늘 기준 완료 회차만큼 뒤로 세기
+  let start=null;
+  if(s.cycleStart){ start=dayKey(s.cycleStart); }
+  else if(done<=0){
+    for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i); if(isSession(dd)){ start=dayKey(dd.getTime()); break; } }
+  } else {
+    const found=[];
+    for(let i=0;i<800 && found.length<done;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()-i); if(isSession(dd)) found.push(dayKey(dd.getTime())); }
+    start = found.length ? found[found.length-1] : todayK;
+  }
+  if(start==null) start=todayK;
+  info.start=start;
+  // 2) 시작부터 앞으로 plan개 세션 수집 (결석은 표시만, 카운트 제외 → 밀림)
+  let count=0;
+  for(let i=0;i<800 && count<plan;i++){
+    const dd=new Date(start); dd.setDate(dd.getDate()+i);
+    const k=dayKey(dd.getTime());
+    if(s.days.includes(dd.getDay()) && absentSet.has(k) && !makeupSet.has(k)){ info.absents.push(k); info.windowDates.add(k); continue; }
+    if(isSession(dd)){
+      info.sessions.push(k);
+      if(makeupSet.has(k)) info.makeups.push(k);
+      info.windowDates.add(k);
+      count++; if(count===plan) info.end=k;
+    }
+  }
+  return info;
+}
+// 이번 회차 시작일: 수동값 → 이번 클래스 계산
 function cycleStartOf(s){
   if(s.cycleStart) return s.cycleStart;
-  const hist=packHistory[s.id]||[];
-  if(hist.length){
-    const last=hist[hist.length-1];
-    if(last && last.settledDate) return nextClassDay(s, new Date(last.settledDate).getTime());
-  }
-  return s.startDate || null;
+  return currentClassInfo(s).start;
 }
-// 이번 회차 예상 종료일: 수동값 → 남은 회차를 기본 스케줄에 얹어 계산
+// 이번 회차 종료일: 수동값 → 이번 클래스 8회째 날(결석 밀림·보강 반영)
 function cycleEndOf(s){
   if(s.cycleEnd) return s.cycleEnd;
-  const remain=Math.max(0, (s.plan||0)-(cycleDone[s.id]||0));
-  if(remain<=0 || !s.days || !s.days.length) return null;
-  const cs=cycleStartOf(s);
-  let base=new Date();
-  if(cs && cs>base.getTime()) base=new Date(cs);
-  base=new Date(base.getFullYear(),base.getMonth(),base.getDate());
-  let count=0;
-  for(let i=0;i<400 && count<remain;i++){
-    const d=new Date(base); d.setDate(d.getDate()+i);
-    if(s.days.includes(d.getDay())){ count++; if(count===remain) return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
-  }
-  return null;
+  return currentClassInfo(s).end;
 }
 function fmtD(ms){ return ms? new Date(ms).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '—'; }
 
@@ -316,9 +345,11 @@ function togglePayHist(id){ payHistOpen=!payHistOpen;
   document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id)); }
 
 function buildCalendar(s){
-  const attend=new Set(pastAttendDates(s.id));
-  const absent=new Set(absentLog[s.id]||[]);
-  const todayT=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  const info=currentClassInfo(s);
+  const sessionSet=new Set(info.sessions);
+  const absentSet=new Set(info.absents);
+  const makeupSet=new Set(info.makeups);
+  const todayT=dayKey(now.getTime());
   const y=calCur.y, m=calCur.m;
   const first=new Date(y,m,1).getDay();
   const days=new Date(y,m+1,0).getDate();
@@ -328,12 +359,14 @@ function buildCalendar(s){
   for(let i=0;i<first;i++)grid+='<div></div>';
   for(let dd=1;dd<=days;dd++){
     const t=new Date(y,m,dd).getTime();
-    let c='cal-d';
-    if(attend.has(t))c+=' att';
-    else if(absent.has(t))c+=' absent';
-    else if(t>todayT && s.days.includes(new Date(y,m,dd).getDay()))c+=' up';
+    let c='cal-d', mk='';
+    if(absentSet.has(t)) c+=' absent';
+    else if(sessionSet.has(t)){
+      if(makeupSet.has(t)){ c+=(t<=todayT?' att':' up'); mk='style="outline:2px solid var(--amber);outline-offset:-2px"'; }
+      else c+=(t<=todayT?' att':' up');
+    }
     if(t===todayT)c+=' tod';
-    grid+=`<div class="${c}">${dd}</div>`;
+    grid+=`<div class="${c}" ${mk}>${dd}</div>`;
   }
 
   // 지난 정산 (직전 1건 + 전체 이력)
@@ -358,6 +391,10 @@ function buildCalendar(s){
   const mkLine=`<div class="cf-row"><span class="cf-k">보강일</span>
     <span class="cf-v">${mkText} <button class="cf-more" onclick="openMakeupSheet(${s.id})">＋ 지정</button></span></div>`;
 
+  // 이번 회차 요약(시작~종료)
+  const rangeLine=`<div class="cf-row"><span class="cf-k">이번 회차</span>
+    <span class="cf-v">${fmtD(info.start)} ~ ${fmtD(info.end)} · ${info.sessions.filter(t=>t<=todayT).length}/${s.plan}회</span></div>`;
+
   return `<div class="cal">
     <div class="cal-nav"><button onclick="calNav(${s.id},-1)" aria-label="이전 달">‹</button>
       <span>${y}년 ${m+1}월</span>
@@ -365,7 +402,7 @@ function buildCalendar(s){
     <div class="cal-grid">${grid}</div>
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
       <span><i class="lg ab"></i>결석</span><span><i class="lg tod"></i>오늘</span></div>
-    <div class="cal-foot">${payLine}${mkLine}</div>
+    <div class="cal-foot">${rangeLine}${payLine}${mkLine}</div>
   </div>`;
 }
 function openLessonSheet(id){
@@ -555,13 +592,16 @@ function renderStudents(){
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
       return grpH(label) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
     }).join('');
-  } else { // 요일별
+  } else { // 요일별 + 시간대 소제목
     const dayOrder=[1,2,3,4,5,6,0];
+    const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
     body = dayOrder.map(d=>{
       const list=students.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
-      return grpH(`${WD[d]}요일 (${list.length}명)`) + list.map(s=>studentCard(s,d)).join('');
+      let html=grpH(`${WD[d]}요일 (${list.length}명)`); let curT=null;
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=studentCard(s,d); });
+      return html;
     }).join('');
   }
   if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
@@ -781,13 +821,16 @@ function renderManage(){
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
       return grpH(label) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
     }).join('');
-  } else { // day: 월~일, 각 요일 안에서 시간순, 여러 요일 학생은 각 요일에 표시
+  } else { // day: 월~일, 각 요일 안에서 시간대별 소제목 + 시간순
     const dayOrder=[1,2,3,4,5,6,0];
+    const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
     body = dayOrder.map(d=>{
       const list=students.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
-      return grpH(`${WD[d]}요일 (${list.length}명)`) + list.map(s=>manageCard(s,d)).join('');
+      let html=grpH(`${WD[d]}요일 (${list.length}명)`); let curT=null;
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=manageCard(s,d); });
+      return html;
     }).join('');
   }
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';

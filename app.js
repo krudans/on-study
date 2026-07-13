@@ -1010,7 +1010,7 @@ function manageCard(s, forDay){
   const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
     : (s.time||'-');
-  const gLines = guardiansOf(s).map(g=>`👤 ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
+  const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
   const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
@@ -1020,8 +1020,8 @@ function manageCard(s, forDay){
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
-    <div class="mg-line">📅 시작일 ${startTxt} · 현재 ${cycleDone[s.id]||0}/${s.plan}회</div>
-    <div class="mg-line">🔄 이번 회차 ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} (예상)</div>
+    <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
+    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${cycleDone[s.id]||0}/${s.plan}회차</div>
     <div class="mg-line">${gLines}</div>
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
@@ -1097,7 +1097,7 @@ function openStudentSheet(id){
       </select></div>
     <div class="fld"><label>학교</label><input id="stSchool" class="note-select" value="${s.school||''}" placeholder="○○초등학교 (선택)"></div>
     <div class="fld"><label>학생 전화번호</label><input id="stPhone" class="note-select" value="${s.phone||''}" placeholder="010-0000-0000 (선택)"></div>
-    <div class="fld"><label>시작일 <span class="hint">모르면 비워두세요</span></label>
+    <div class="fld"><label>학원 수업 시작일 <span class="hint">첫 수업일 · 모르면 비워두세요</span></label>
       <input type="date" id="stStart" class="note-select" value="${startVal}"></div>
     <div class="fld"><label>패키지 회차 <span class="hint">이 회차를 다 채우면 정산</span></label>
       <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
@@ -1266,11 +1266,12 @@ function renderAcademy(){
   const el=document.getElementById('v-academy');
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">학원 관리</h2>
-    <p class="page-cap">학원 기본 정보를 입력해요. 입력하면 자동으로 저장됩니다.</p>
+    <p class="page-cap">학원 기본 정보를 입력하고 저장하세요.</p>
     <div class="set-sec">
-      <div class="fld"><label>학원명</label><input id="acName" class="note-select" value="${academy.name||''}" placeholder="○○학원" onchange="setAcademy()"></div>
-      <div class="fld"><label>원장명</label><input id="acOwner" class="note-select" value="${academy.owner||''}" placeholder="원장 이름" onchange="setAcademy()"></div>
-      <div class="fld"><label>대표 전화</label><input id="acPhone" class="note-select" value="${academy.phone||''}" placeholder="010-0000-0000" onchange="setAcademy()"></div>
+      <div class="fld"><label>학원명</label><input id="acName" class="note-select" value="${academy.name||''}" placeholder="○○학원"></div>
+      <div class="fld"><label>원장명</label><input id="acOwner" class="note-select" value="${academy.owner||''}" placeholder="원장 이름"></div>
+      <div class="fld"><label>대표 전화</label><input id="acPhone" class="note-select" value="${academy.phone||''}" placeholder="010-0000-0000"></div>
+      <button class="btn start" style="margin-top:6px" onclick="setAcademy()">저장</button>
     </div>`;
 }
 function setAcademy(){
@@ -1279,7 +1280,7 @@ function setAcademy(){
     owner:(document.getElementById('acOwner')||{}).value?.trim()||'',
     phone:(document.getElementById('acPhone')||{}).value?.trim()||''
   };
-  saveData(); showToast('학원 정보 저장됨');
+  saveData(); showToast('학원 정보를 저장했어요');
 }
 
 /* ===== 수업 관리 (휴일 등록) ===== */

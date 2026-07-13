@@ -29,6 +29,7 @@ function initApp(){
     const who=document.getElementById('sideWho'); if(who) who.textContent=currentUser.name;
     const mail=document.getElementById('sideMail'); if(mail) mail.textContent=currentUser.email;
   }
+  if(typeof autoRolloverAll==='function') autoRolloverAll();
   adminNav('schedule');
 }
 

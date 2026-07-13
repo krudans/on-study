@@ -904,19 +904,40 @@ function renderSettle(){
 /* ===== 정산 건(청구서) — 클래스 완주 시 자동 생성, 완료 처리해야 사라짐, 미납 누적 ===== */
 function billMonthTxt(b){ const d=new Date(b.endDate); return `${d.getMonth()+1}월분`; }
 function createBill(s, endMs){
+  const end=endMs||dayKey(now.getTime());
+  if(bills.some(b=>b.sid===s.id && b.endDate===end)) return; // 중복 정산건 방지
   bills.push({id:++billSeq, sid:s.id, plan:s.plan, amount:priceOf(s),
-    endDate:endMs||dayKey(now.getTime()), paid:false, paidDate:null});
+    endDate:end, paid:false, paidDate:null});
 }
 // 회차를 다 채우면: 정산 건 생성(미납) + 과거 클래스 보존 + 새 클래스 시작 (코어, 조용)
+// 완주한 클래스의 마지막 세션 다음 정규 수업일
+function nextSessionAfter(s, ms){
+  const base=dayKey(ms);
+  for(let i=1;i<=400;i++){ const d=new Date(base); d.setDate(d.getDate()+i); const k=dayKey(d.getTime());
+    if(s.days && s.days.includes(d.getDay()) && !isHoliday(k)) return k;
+  }
+  return base;
+}
 function doRollover(id){
   const s=st(id); if(!s||!s.plan) return false;
-  if((cycleDone[id]||0) < s.plan) return false;
-  const endMs = cycleEndOf(s) || dayKey(now.getTime());
-  createBill(s, endMs);
+  const info=currentClassInfo(s);
+  const doneCount=info.sessions.filter(t=>t<=dayKey(now.getTime())).length;
+  if(doneCount < s.plan) return false;   // 아직 계약 회차 안 참
+  const endMs = info.end || cycleEndOf(s) || dayKey(now.getTime());
+  createBill(s, endMs);                    // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
-  hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:cycleStartOf(s)||null, settledDate:new Date(endMs)});
-  cycleDone[id]=0; s.cycleStart=null; s.cycleEnd=null;
+  hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:info.start||null, settledDate:new Date(endMs)});
+  cycleDone[id]=0;
+  s.cycleStart = nextSessionAfter(s, endMs);  // 다음 클래스 = 완주 다음 수업일부터
+  s.cycleEnd=null;
   return true;
+}
+// 로드 시 완주한 클래스 자동 롤오버 (밀린 것도 순차 처리)
+function autoRolloverAll(){
+  let changed=false;
+  students.forEach(s=>{ let g=0; while(g++<24 && doRollover(s.id)) changed=true; });
+  if(changed){ saveData(); refreshCurrentView && refreshCurrentView(); }
+  return changed;
 }
 function rolloverIfComplete(id){
   const s=st(id);
@@ -1764,6 +1785,7 @@ function initApp(){
   const dl=document.getElementById('todayLine');
   dl.textContent=`오늘 · ${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   dl.style.display='none';
+  autoRolloverAll();   // 완주한 클래스 자동으로 다음 클래스로 넘김
   // 데스크탑 관리자(admin.html)는 설정 화면부터, 모바일 앱은 홈부터
   if(document.body.dataset.mode==='admin'){ goTab('admin'); }
   else { renderHome(); }

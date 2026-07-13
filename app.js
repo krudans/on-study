@@ -595,7 +595,7 @@ function undoToday(id){
 }
 function manualComplete(id){
   complete(id); const s=st(id); const dn=cycleDone[id];
-  showToast(`${s.name} 완료로 체크됨 · ${dn}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
+  showToast(`${s.name} 완료로 체크됨 · ${dn}/${s.plan}회 (알림 없음)`);
   rolloverIfComplete(id); renderToday();
 }
 

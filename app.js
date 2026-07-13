@@ -1237,10 +1237,11 @@ function schedNav(delta){ schedCur.setMonth(schedCur.getMonth()+delta); schedSel
 function pickSchedDay(ms){ schedSel=ms; renderSchedule(); }
 function renderSchedule(){
   const el=document.getElementById('v-schedule');
+  const todayMs=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   if(!schedCur) schedCur=new Date(now.getFullYear(), now.getMonth(), 1);
+  if(schedSel==null) schedSel=todayMs;   // 진입 시 오늘 자동 선택
   const y=schedCur.getFullYear(), m=schedCur.getMonth();
   const first=new Date(y,m,1), startDow=first.getDay(), dim=new Date(y,m+1,0).getDate();
-  const todayMs=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   let cells='';
   for(let i=0;i<startDow;i++) cells+=`<div class="sc-cell empty"></div>`;
   for(let dd=1;dd<=dim;dd++){
@@ -1254,21 +1255,33 @@ function renderSchedule(){
   let listHtml='';
   if(schedSel!=null){
     const list=studentsOnDate(schedSel), sd=new Date(schedSel);
-    listHtml=`<div class="block"><div class="block-h"><span class="h">${sd.getMonth()+1}월 ${sd.getDate()}일 ${WD[sd.getDay()]}요일</span>${list.length?`<span class="cnt">${list.length}</span>`:''}</div>`+
+    const isToday = sd.toDateString()===now.toDateString();
+    const dayTitle = `${sd.getMonth()+1}월 ${sd.getDate()}일 ${WD[sd.getDay()]}요일${isToday?' · 오늘':''}`;
+    listHtml=`<div class="block"><div class="block-h"><span class="h">${dayTitle}</span>${list.length?`<span class="cnt">${list.length}</span>`:''}</div>`+
       (list.length? list.map(s=>{
         const t=timeFor(s,sd.getDay());
+        const rec=sessions.find(x=>x.sid===s.id && new Date(x.date).toDateString()===sd.toDateString());
+        const inTime = rec&&rec.start ? hm(rec.start) : (isToday && live[s.id]!=null ? hm(live[s.id]) : '');
+        const outTime = rec&&rec.end ? hm(rec.end) : '';
         const abs=(absentLog[s.id]||[]).some(x=>new Date(x).toDateString()===sd.toDateString());
-        return `<div class="row" style="padding:12px 14px">
-          <div class="row-top"><span class="name">${s.name}</span><span class="contract">${t}${abs?' · 결석':''}</span></div>
-          <div class="mg-line">${guardiansOf(s).map(g=>g.name).join(', ')} · ${s.plan}회 중 ${cycleDone[s.id]||0}회</div>
+        const statusHtml = abs
+          ? `<span style="color:#D9342B;border:1.6px solid #D9342B;border-radius:999px;padding:3px 12px;font-weight:800;font-size:12px">결석</span>`
+          : (outTime ? `<span class="contract" style="color:var(--green);font-weight:700">하원 완료</span>`
+            : (inTime ? `<span class="contract" style="color:var(--amber);font-weight:700">수업 중</span>`
+            : `<span class="contract">예정 ${t}</span>`));
+        const timeLine = abs ? '결석 처리됨'
+          : (inTime||outTime) ? `등원 ${inTime||'—'} · 하원 ${outTime||'—'}` : `예정 시간 ${t}`;
+        const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
+        return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
+          <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
+          <div class="mg-line">🕐 ${timeLine}</div>
+          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${cycleDone[s.id]||0}회</div>
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;
-  } else {
-    listHtml=`<div class="muted-card" style="margin-top:14px">날짜를 누르면 그날 수업 예정 학생이 나와요.</div>`;
   }
   el.innerHTML=`<button class="back" onclick="goTab('home')">‹ 홈</button>
     <h2 class="page-h">전체 일정</h2>
-    <p class="page-cap">등록된 학생들의 요일 스케줄이 자동으로 정리돼요. 날짜를 눌러 확인하세요.</p>
+    <p class="page-cap">오늘 와야 할 학생과 등원·하원 현황이에요. 날짜를 눌러 다른 날도 볼 수 있어요.</p>
     <div class="sc-cal">
       <div class="sc-head"><button onclick="schedNav(-1)">‹</button>
         <span>${y}년 ${m+1}월</span><button onclick="schedNav(1)">›</button></div>

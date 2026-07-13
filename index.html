@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>On-study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body data-mode="app">
+<div class="login" id="login">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg width="46" height="46" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="17" r="11" fill="none" stroke="var(--amber)" stroke-width="3.2"/>
+        <line x1="16" y1="5" x2="16" y2="15" stroke="var(--bg)" stroke-width="5.5" stroke-linecap="round"/>
+        <line x1="16" y1="6" x2="16" y2="14.5" stroke="var(--amber)" stroke-width="3.2" stroke-linecap="round"/>
+      </svg>
+      <span>On-study</span>
+    </div>
+    <p class="login-sub">학습소 운영을 위한 원장님 전용 앱</p>
+    <button class="gbtn" onclick="doLogin()">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M45 24c0-1.6-.1-2.8-.4-4H24v7.6h12c-.2 2-1.6 5-4.6 7l-.04.3 6.7 5.2.5.05C42.9 42.9 45 34 45 24z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.9-12.5-9.2l-.3.02-6.9 5.4-.1.3C7.7 41 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.5 28.2c-.5-1.4-.7-2.9-.7-4.2s.3-2.9.7-4.2l-.02-.3-7-5.4-.2.1C2.9 17.1 2 20.4 2 24s.9 6.9 2.5 9.8l7-5.6z"/><path fill="#EA4335" d="M24 10.7c4.1 0 6.9 1.8 8.5 3.3l6.2-6C34.9 4.4 30 2 24 2 15.3 2 7.7 7 4.5 14.2l7 5.6C13.3 14.6 18.2 10.7 24 10.7z"/></svg>
+      Google로 로그인
+    </button>
+    <div id="loginErr" class="login-err"></div>
+    <p class="login-note">등록된 관리자의 구글 이메일로만 로그인할 수 있어요.<br>(예시: mhstory@gmail.com)</p>
+  </div>
+</div>
+<div class="app" id="app" style="display:none">
+  <header>
+    <div class="brand"><h1 class="logo"><svg class="powerO" width="21" height="21" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="11" fill="none" stroke="var(--amber)" stroke-width="3.4"/><line x1="16" y1="5" x2="16" y2="15" stroke="var(--bg)" stroke-width="5.5" stroke-linecap="round"/><line x1="16" y1="6" x2="16" y2="14.5" stroke="var(--amber)" stroke-width="3.4" stroke-linecap="round"/></svg><span>n-study</span></h1><span class="live-count num" id="liveCount"></span></div>
+    <div class="today-line" id="todayLine"></div>
+  </header>
+  <div class="tabs-removed" style="display:none"></div>
+  <main>
+    <section class="view active" id="v-home"></section>
+    <section class="view" id="v-today"></section>
+    <section class="view" id="v-students"></section>
+    <section class="view" id="v-settle"></section>
+    <section class="view" id="v-counsel"></section>
+    <section class="view" id="v-report"></section>
+    <section class="view" id="v-admin"></section>
+    <section class="view" id="v-manage"></section>
+    <section class="view" id="v-send"></section>
+    <section class="view" id="v-guide"></section>
+    <section class="view" id="v-payhist"></section>
+    <section class="view" id="v-schedule"></section>
+  </main>
+  <nav class="bottombar" role="tablist">
+    <button class="bt active" data-v="home" role="tab" aria-label="홈">
+      <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg><span>홈</span></button>
+    <button class="bt" data-v="today" role="tab" aria-label="출석부">
+      <svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 3v3M16 3v3M4 9h16M9 14l2 2 4-4"/></svg><span>출석부</span></button>
+    <button class="bt" data-v="students" role="tab" aria-label="학생">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M17 14.5a5.5 5.5 0 0 1 3.5 4.5"/></svg><span>학생</span></button>
+    <button class="bt" data-v="settle" role="tab" aria-label="정산">
+      <svg viewBox="0 0 24 24"><path d="M12 3v18M8 7h5.5a2.5 2.5 0 0 1 0 5H9m-1 4h6.5a2.5 2.5 0 0 0 0-5"/></svg><span>정산</span></button>
+    <button class="bt" data-v="admin" role="tab" aria-label="설정">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7l2.2 1.2M17.6 15.8L19.8 17M4.2 17l2.2-1.2M17.6 8.2L19.8 7"/></svg><span>설정</span></button>
+  </nav>
+</div>
+<div class="toast" id="toast"></div>
+<div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
+
+
+<script src="firebase.js"></script>
+<script src="app.js"></script>
+<script src="store.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>

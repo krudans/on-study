@@ -31,6 +31,8 @@ let billSeq=1000;
 // 휴일: 원장이 추가 지정한 휴일 / 공휴일이지만 수업일로 지정 (dayKey→true)
 let holidaysExtra={};
 let workdaysExtra={};
+// 학원 기본 정보
+let academy={name:'', owner:'', phone:''};
 // 학생의 전체 차수 목록(지난 + 현재)
 function allPacks(st){
   const past=packHistory[st.id]||[];
@@ -602,14 +604,16 @@ function manualComplete(id){
 function startSession(id){
   live[id]=Date.now(); renderToday(); ensureTicker();
   const s=st(id);
-  showToast(`${s.name} 수업 시작 · ${s.guardian}에게 시작 알림`, ()=>openNotify(id,'start'), s.kakao?'카톡 열기':'문자 열기');
+  showToast(`${s.name} 등원 기록 · 보호자에게 알림을 엽니다`);
+  openNotify(id,'start');
 }
 function stopSession(id){
   const start=live[id], end=Date.now();
   delete live[id]; complete(id,start,end); renderToday();
   const s=st(id);
   if(!Object.keys(live).length&&ticker){clearInterval(ticker);ticker=null;}
-  showToast(`${s.name} 수업 완료 · ${cycleDone[id]}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
+  showToast(`${s.name} 하원 기록 · ${cycleDone[id]}/${s.plan}회 · 보호자에게 알림을 엽니다`);
+  openNotify(id,'end');
   rolloverIfComplete(id); renderToday();
 }
 function resend(id,kind){ openNotify(id,kind); }
@@ -885,6 +889,7 @@ function renderAdmin(){
   // 허브 메뉴
   const menu=[
     {k:'students',t:'학생 관리',d:'학생 추가·수정 · 회차/요일/시간 · 보호자 정보',ready:true},
+    {k:'academy',t:'학원 관리',d:'학원명 · 원장명 · 대표전화',ready:true},
     {k:'classmgmt',t:'수업 관리',d:'휴일 등록 · 토·일·공휴일 기본 휴일',ready:true},
     {k:'send',t:'발송 · 상담',d:'카톡/문자 발송, 상담 기록',ready:true},
     {k:'guide',t:'결과지 · 알림폼',d:'학습 안내 양식 만들고 발송',ready:true},
@@ -900,7 +905,7 @@ function renderAdmin(){
       <button class="acct-out" onclick="logout()">로그아웃</button>
     </div>
     <div class="admin-menu">
-      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='classmgmt'?`goTab('classmgmt')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:`comingSoon('${m.t}')`}">
+      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='classmgmt'?`goTab('classmgmt')`:m.k==='academy'?`goTab('academy')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:`comingSoon('${m.t}')`}">
         <div class="am-tx"><div class="am-t">${m.t}</div><div class="am-d">${m.d}</div></div>
         <div class="am-go">${m.ready?'›':'준비 중'}</div></button>`).join('')}
     </div>`;
@@ -1256,6 +1261,27 @@ function renderSchedule(){
     ${listHtml}`;
 }
 
+/* ===== 학원 관리 (기본 정보) ===== */
+function renderAcademy(){
+  const el=document.getElementById('v-academy');
+  el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
+    <h2 class="page-h">학원 관리</h2>
+    <p class="page-cap">학원 기본 정보를 입력해요. 입력하면 자동으로 저장됩니다.</p>
+    <div class="set-sec">
+      <div class="fld"><label>학원명</label><input id="acName" class="note-select" value="${academy.name||''}" placeholder="○○학원" onchange="setAcademy()"></div>
+      <div class="fld"><label>원장명</label><input id="acOwner" class="note-select" value="${academy.owner||''}" placeholder="원장 이름" onchange="setAcademy()"></div>
+      <div class="fld"><label>대표 전화</label><input id="acPhone" class="note-select" value="${academy.phone||''}" placeholder="010-0000-0000" onchange="setAcademy()"></div>
+    </div>`;
+}
+function setAcademy(){
+  academy={
+    name:(document.getElementById('acName')||{}).value?.trim()||'',
+    owner:(document.getElementById('acOwner')||{}).value?.trim()||'',
+    phone:(document.getElementById('acPhone')||{}).value?.trim()||''
+  };
+  saveData(); showToast('학원 정보 저장됨');
+}
+
 /* ===== 수업 관리 (휴일 등록) ===== */
 let classCal=null;
 function classCalNav(delta){ classCal.m+=delta; if(classCal.m<0){classCal.m=11;classCal.y--;} if(classCal.m>11){classCal.m=0;classCal.y++;} renderClassMgmt(); }
@@ -1486,11 +1512,11 @@ function goTab(v){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부 · '+dateStr, students:'학생', settle:'정산',
-    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'수업 관리'};
+    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'수업 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
   ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
-    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt}[v])();
+    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy}[v])();
   window.scrollTo(0,0);
 }
 document.querySelectorAll('.bt').forEach(t=>t.addEventListener('click',()=>goTab(t.dataset.v)));
@@ -1513,7 +1539,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy,
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1536,6 +1562,7 @@ function applyState(d){
   if(d.holidaysExtra) holidaysExtra=d.holidaysExtra;
   if(d.workdaysExtra) workdaysExtra=d.workdaysExtra;
   if(d.skipLog) skipLog=d.skipLog;
+  if(d.academy) academy=Object.assign({name:'',owner:'',phone:''}, d.academy);
 }
 
 /* 로그인 성공 후 auth.js가 호출 */
@@ -1555,6 +1582,6 @@ function refreshCurrentView(){
   const v=active?active.dataset.v:'home';
   const map={home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,
-    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt};
+    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy};
   (map[v]||renderHome)();
 }

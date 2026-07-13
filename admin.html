@@ -81,10 +81,11 @@
 <div class="toast" id="toast"></div>
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
 
-<script src="firebase.js"></script>
-<script src="app.js"></script>
-<script src="store.js"></script>
-<script src="auth.js"></script>
-<script src="admin.js"></script>
+<script>
+/* 캐시된 옛 버전 대신 항상 최신 JS를 불러오도록 버전 쿼리 추가 (순서 유지) */
+(function(){var v='?v='+Date.now();
+['firebase.js','app.js','store.js','auth.js','admin.js'].forEach(function(f){
+  document.write('<scr'+'ipt src="'+f+v+'"></scr'+'ipt>');});})();
+</script>
 </body>
 </html>

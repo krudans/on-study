@@ -5,9 +5,9 @@
     --clay:#C5543E; --clay-soft:#F7E4DF;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html{-webkit-text-size-adjust:100%}
+  html{-webkit-text-size-adjust:100%;overscroll-behavior-y:contain}
   body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",sans-serif;
-    line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;justify-content:center}
+    line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;justify-content:center;overscroll-behavior-y:contain}
   .num{font-family:"Space Grotesk",sans-serif;font-feature-settings:"tnum";letter-spacing:-.01em}
   .app{width:100%;max-width:448px;min-height:100vh;background:var(--bg);display:flex;flex-direction:column;position:relative}
 
@@ -21,6 +21,7 @@
   .brand .live-count.on{display:inline}
   .today-line{margin-top:4px;color:var(--muted);font-size:13.5px}
 
+  /* ---- 하단 탭바 ---- */
   .bottombar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);
     width:100%;max-width:448px;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
     border-top:1px solid var(--line);display:flex;padding:8px 6px calc(8px + env(safe-area-inset-bottom));z-index:30}
@@ -38,6 +39,7 @@
   .view.active{display:block}
   .empty{text-align:center;color:var(--muted);font-size:14px;padding:34px 10px}
 
+  /* ---- 홈 ---- */
   .greet{padding:2px 2px 16px}
   .greet .hi{font-size:15px;color:var(--muted)}
   .greet .dt{font-size:22px;font-weight:600;letter-spacing:-.01em;margin-top:2px}
@@ -90,6 +92,7 @@
   .log-item .tx{flex:1;line-height:1.35}
   .log-item .tm{font-family:"Space Grotesk",sans-serif;font-size:12px;color:var(--muted);flex:none}
 
+  /* ---- 출석부 상단 요약 ---- */
   .attn-sum{display:flex;background:var(--card);border:1px solid var(--line);border-radius:16px;
     padding:14px 4px;margin-bottom:14px;box-shadow:0 1px 3px rgba(30,25,15,.04)}
   .as-item{flex:1;text-align:center;border-right:1px solid var(--line)}
@@ -97,6 +100,7 @@
   .as-v{font-family:"Space Grotesk",sans-serif;font-size:24px;font-weight:600;line-height:1}
   .as-k{font-size:12px;color:var(--muted);margin-top:3px}
 
+  /* ---- 출석부 카드 ---- */
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px 16px;margin-bottom:12px}
   .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
   .who .name{font-size:16.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -112,6 +116,7 @@
   .pill.temp{background:#EAEAF2;color:#5B5F78}
   .pill.absent{background:var(--clay-soft);color:var(--clay)}
 
+  /* 달력 펼침 */
   .cal-slot:empty{display:none}
   .cal{background:#F8F7F2;border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0 2px}
   .cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -153,6 +158,7 @@
   .attn-btns.four .btn{padding:13px 0;font-size:14px}
   .log-item .badge.absent{background:var(--clay-soft);color:var(--clay)}
 
+  /* 차수(팩) 선택 + 음영 */
   .pk-tabs{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
   .pk-tab{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;
     font-family:inherit;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer}
@@ -161,6 +167,7 @@
   .pack-box{border-radius:12px;padding:10px 12px}
   .pack-box.cur{background:#EFEEE7;border:1px solid var(--line)}
 
+  /* 오늘 학습내용 */
   .lesson{width:100%;text-align:left;font-family:inherit;cursor:pointer;border-radius:12px;
     margin:11px 0 2px;padding:12px 14px}
   .lesson.empty{border:1.5px dashed var(--amber);background:var(--amber-soft);color:var(--amber);
@@ -225,6 +232,7 @@
   .chip:hover{border-color:var(--amber);color:var(--amber)}
   .chip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 
+  /* ---- 학생 / 정산 행 ---- */
   .row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px}
   .row-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
   .row .name{font-size:15.5px;font-weight:600}
@@ -246,6 +254,7 @@
   .btn.pay{background:var(--clay);color:#fff}
   .btn.settle{background:var(--green);color:#fff}
 
+  /* ---- 설정 ---- */
   .set-sec{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
   .set-sec h3{font-size:14px;font-weight:600;margin-bottom:3px}
   .set-sec .cap{font-size:12.5px;color:var(--muted);margin-bottom:14px;line-height:1.45}
@@ -264,6 +273,8 @@
     color:var(--muted);padding:6px 14px;border-radius:7px;cursor:pointer}
   .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 
+  /* toast + sheet */
+  /* ---- 상담 / 결산 ---- */
   .back{background:none;border:none;font-family:inherit;font-size:14px;color:var(--muted);
     cursor:pointer;padding:0 0 6px}
   .back:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
@@ -284,6 +295,7 @@
   .chart .cval{font-size:11px;color:var(--muted)}
   .chart .clabel{font-size:11px;color:var(--muted)}
 
+  /* ---- 로그인 ---- */
   .login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100;padding:24px}
   .login-box{width:100%;max-width:340px;text-align:center}
   .login-logo{display:flex;align-items:center;justify-content:center;gap:10px;
@@ -298,6 +310,7 @@
   .login-note{font-size:12px;color:var(--muted);margin-top:18px;line-height:1.6}
   .login-err{font-size:12.5px;color:var(--clay);margin-top:12px;line-height:1.5;min-height:1px}
 
+  /* ---- 관리자 허브 ---- */
   .acct{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);
     border-radius:16px;padding:14px 16px;margin-bottom:16px}
   .acct-av{width:40px;height:40px;border-radius:50%;background:var(--ink);color:#fff;
@@ -342,7 +355,7 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
   .scrim{position:fixed;inset:0;background:rgba(20,22,26,.45);display:none;align-items:flex-end;justify-content:center;z-index:50}
   .scrim.show{display:flex}
-  .sheet{background:var(--card);width:100%;max-width:448px;border-radius:20px 20px 0 0;padding:20px 20px 26px;max-height:88vh;overflow-y:auto}
+  .sheet{background:var(--card);width:100%;max-width:448px;border-radius:20px 20px 0 0;padding:20px 20px 26px}
   .sheet h3{font-size:16px;font-weight:600;margin-bottom:4px}
   .sheet .cap{font-size:13px;color:var(--muted);margin-bottom:12px}
   .msg{background:#F5F4EF;border:1px solid var(--line);border-radius:12px;padding:13px;font-size:13.5px;
@@ -351,6 +364,7 @@
   .sheet-btns .btn{margin-top:0}
   .btn.kakao{background:#FAE100;color:#3A2E00}
   .btn.sms{background:#F1F0EB;color:var(--ink)}
+/* ===== 학생 폼 추가 요소 ===== */
 .hint{font-weight:400;color:var(--muted);font-size:11px;margin-left:4px}
 .chk{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--ink);cursor:pointer}
 .chk input{width:16px;height:16px;accent-color:var(--amber)}
@@ -358,6 +372,8 @@
 .daytime-row input{max-width:140px}
 .mini-x{float:right;font-size:11px;color:var(--clay);background:none;border:none;cursor:pointer;padding:0}
 .fld input[type=number]{-moz-appearance:textfield}
+
+/* ===== 전체 일정 캘린더 ===== */
 .sc-cal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
 .sc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-weight:700;color:var(--ink)}
 .sc-head button{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer;padding:2px 10px}
@@ -370,6 +386,8 @@
 .sc-cell.sel{background:var(--amber);color:#fff}
 .sc-n{font-size:10px;font-weight:700;color:var(--amber);margin-top:1px}
 .sc-cell.sel .sc-n{color:#fff}
+
+/* ===== 데스크탑(관리자) 넓은 레이아웃 ===== */
 body[data-mode="admin"] .app{max-width:1080px}
 body[data-mode="admin"] main{padding-bottom:40px}
 body[data-mode="admin"] .bottombar{max-width:1080px}

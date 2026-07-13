@@ -722,6 +722,14 @@ let stuCal={open:null,y:0,m:0}, mngCal={open:null,y:0,m:0};
 function toggleStuCal(id){ if(stuCal.open===id)stuCal.open=null; else {stuCal.open=id;stuCal.y=now.getFullYear();stuCal.m=now.getMonth();} renderStudents(); }
 function stuCalNav(id,delta){ stuCal.m+=delta; if(stuCal.m<0){stuCal.m=11;stuCal.y--;} if(stuCal.m>11){stuCal.m=0;stuCal.y++;} renderStudents(); }
 function toggleMngCal(id){ if(mngCal.open===id)mngCal.open=null; else {mngCal.open=id;mngCal.y=now.getFullYear();mngCal.m=now.getMonth();} renderManage(); }
+// 전체 일정 등에서 학생 클릭 → 학생 관리로 이동 + 그 학생 달력 펼침 + 스크롤
+function openStudentCalendar(sid){
+  mngCal.open=sid; mngCal.y=now.getFullYear(); mngCal.m=now.getMonth();
+  manageSort='name';   // 이름순으로(카드 1개만 보이게)
+  if(document.body.dataset.mode==='admin' && typeof adminNav==='function') adminNav('manage');
+  else goTab('manage');
+  setTimeout(()=>{ const el=document.getElementById('mng-'+sid); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); }, 80);
+}
 function mngCalNav(id,delta){ mngCal.m+=delta; if(mngCal.m<0){mngCal.m=11;mngCal.y--;} if(mngCal.m>11){mngCal.m=0;mngCal.y++;} renderManage(); }
 function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
@@ -1082,7 +1090,7 @@ function manageCard(s, forDay){
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
   const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${timeFor(s,forDay)}</div>` : '';
-  return `<div class="row">
+  return `<div class="row" id="mng-${s.id}">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
     ${eduLine}${dayTime}
@@ -1451,7 +1459,7 @@ function renderGuide(){
   const tplCards = MSG_KINDS.map(([k,label])=>{
     const sms = (msgTemplates[k]&&msgTemplates[k].sms)||'';
     const code = (msgTemplates[k]&&msgTemplates[k].code)||'';
-    const preview = applyVars(sms, VAR_EXAMPLE);
+    const preview = applyVars(sms, Object.assign({}, VAR_EXAMPLE, {학원명: academy.name||VAR_EXAMPLE.학원명}));
     const kakao = toKakaoTemplate(sms);
     return `<div class="set-sec">
       <h3>${label} 알림</h3>

@@ -2,13 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>On-study</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>On-study 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
-<!-- Firebase compat SDK -->
+<link rel="stylesheet" href="admin.css">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -34,45 +34,55 @@
   </div>
 </div>
 <div class="app" id="app" style="display:none">
-  <header>
-    <div class="brand"><h1 class="logo"><svg class="powerO" width="21" height="21" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="11" fill="none" stroke="var(--amber)" stroke-width="3.4"/><line x1="16" y1="5" x2="16" y2="15" stroke="var(--bg)" stroke-width="5.5" stroke-linecap="round"/><line x1="16" y1="6" x2="16" y2="14.5" stroke="var(--amber)" stroke-width="3.4" stroke-linecap="round"/></svg><span>n-study</span></h1><span class="live-count num" id="liveCount"></span></div>
-    <div class="today-line" id="todayLine"></div>
-  </header>
-  <div class="tabs-removed" style="display:none"></div>
-  <main>
-    <section class="view active" id="v-home"></section>
-    <section class="view" id="v-today"></section>
-    <section class="view" id="v-students"></section>
-    <section class="view" id="v-settle"></section>
-    <section class="view" id="v-counsel"></section>
-    <section class="view" id="v-report"></section>
-    <section class="view" id="v-admin"></section>
-    <section class="view" id="v-manage"></section>
-    <section class="view" id="v-send"></section>
-    <section class="view" id="v-guide"></section>
-    <section class="view" id="v-payhist"></section>
-    <section class="view" id="v-schedule"></section>
-  </main>
-  <nav class="bottombar" role="tablist">
-    <button class="bt active" data-v="home" role="tab" aria-label="홈">
-      <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg><span>홈</span></button>
-    <button class="bt" data-v="today" role="tab" aria-label="출석부">
-      <svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 3v3M16 3v3M4 9h16M9 14l2 2 4-4"/></svg><span>출석부</span></button>
-    <button class="bt" data-v="students" role="tab" aria-label="학생">
-      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M17 14.5a5.5 5.5 0 0 1 3.5 4.5"/></svg><span>학생</span></button>
-    <button class="bt" data-v="settle" role="tab" aria-label="정산">
-      <svg viewBox="0 0 24 24"><path d="M12 3v18M8 7h5.5a2.5 2.5 0 0 1 0 5H9m-1 4h6.5a2.5 2.5 0 0 0 0-5"/></svg><span>정산</span></button>
-    <button class="bt" data-v="admin" role="tab" aria-label="설정">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7l2.2 1.2M17.6 15.8L19.8 17M4.2 17l2.2-1.2M17.6 8.2L19.8 7"/></svg><span>설정</span></button>
-  </nav>
+  <aside class="admin-side">
+    <div class="side-brand">
+      <svg class="powerO" width="21" height="21" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="11" fill="none" stroke="var(--amber)" stroke-width="3.4"/><line x1="16" y1="5" x2="16" y2="15" stroke="var(--card)" stroke-width="5.5" stroke-linecap="round"/><line x1="16" y1="6" x2="16" y2="14.5" stroke="var(--amber)" stroke-width="3.4" stroke-linecap="round"/></svg>
+      <span>On-study</span><span class="side-badge">관리자</span>
+    </div>
+    <nav class="side-nav">
+      <div class="side-sec">등록 · 관리</div>
+      <button class="side-item on" data-v="manage" onclick="adminNav('manage')">학생 관리</button>
+      <button class="side-item" data-v="settle" onclick="adminNav('settle')">정산</button>
+      <button class="side-item" data-v="schedule" onclick="adminNav('schedule')">전체 일정</button>
+      <button class="side-item" data-v="report" onclick="adminNav('report')">결산 (매출)</button>
+      <div class="side-sec">설정</div>
+      <button class="side-item" data-v="basic" onclick="adminNav('basic')">수업 기본 설정</button>
+      <button class="side-item" data-v="people" onclick="adminNav('people')">관리자 등록</button>
+      <button class="side-item" data-v="payhist" onclick="adminNav('payhist')">정산 내역</button>
+      <div class="side-sec">발송</div>
+      <button class="side-item" data-v="send" onclick="adminNav('send')">발송 · 상담</button>
+      <button class="side-item" data-v="guide" onclick="adminNav('guide')">결과지 · 알림폼</button>
+    </nav>
+    <div class="side-acct">
+      <div class="side-who" id="sideWho">원장님</div>
+      <div class="side-mail" id="sideMail"></div>
+      <button class="side-out" onclick="logout()">로그아웃</button>
+    </div>
+  </aside>
+  <div class="admin-main">
+    <main>
+      <section class="view" id="v-home"></section>
+      <section class="view" id="v-today"></section>
+      <section class="view" id="v-students"></section>
+      <section class="view active" id="v-manage"></section>
+      <section class="view" id="v-settle"></section>
+      <section class="view" id="v-schedule"></section>
+      <section class="view" id="v-report"></section>
+      <section class="view" id="v-admin"></section>
+      <section class="view" id="v-payhist"></section>
+      <section class="view" id="v-send"></section>
+      <section class="view" id="v-guide"></section>
+      <section class="view" id="v-counsel"></section>
+    </main>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
-
 
 <script src="firebase.js"></script>
 <script src="app.js"></script>
 <script src="store.js"></script>
 <script src="auth.js"></script>
+<script src="admin.js"></script>
 </body>
 </html>

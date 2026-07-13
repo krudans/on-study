@@ -305,44 +305,35 @@ function renderToday(){
     const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
     const isAbsent=isAbsentToday(s.id);
     const done=doneToday(s.id);
-    const dayNo=Math.min((cycleDone[s.id]||0)+((isLive||done)?0:0), s.plan); // 현재 회차 진행
     const shownDay=Math.min(cycleDone[s.id]||0, s.plan);
+    const expanded=cardExpanded.has(s.id);
 
-    let pill='<span class="pill wait">대기</span>';
-    if(isLive)pill='<span class="pill live">수업 중</span>';
-    else if(done)pill='<span class="pill done">하원 완료</span>';
-    else if(isAbsent)pill='<span class="pill absent">결석</span>';
-    else if(isTemp)pill='<span class="pill temp">임시</span>';
+    // 헤더 상태 텍스트/색
+    let statusText, statusColor;
+    if(done){ statusText = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '하원 완료'; statusColor='var(--green)'; }
+    else if(isLive){ statusText = `수업 중 · 등원 ${new Date(live[s.id]).toTimeString().slice(0,5)}`; statusColor='var(--amber)'; }
+    else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
+    else { statusText = `${isTemp?'오늘 임시':'예정 '+s.time} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
 
-    const timeLine=(done&&done.start)
-      ? `<div class="timeline-done"><span class="rng">${hm(done.start)} ~ ${hm(done.end)}</span><span class="dur">${fmtDur(done.min)} 수업</span></div>`
-      : (done?`<div class="timeline-done"><span class="rng">오늘 수업 완료</span><span class="dur">시각 기록 없음</span></div>`:'');
-
-    let action='';
+    // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
+    let action;
     if(done){
       action=`<button class="btn ghost" onclick="undoToday(${s.id})">오늘 완료 취소</button>`;
     } else if(isAbsent){
       action=`<button class="btn ghost" onclick="clearAbsent(${s.id})">결석 취소</button>`;
     } else {
-      // 등원 / 하원 / 결석 항상 표시. 수업 중이면 하원 강조.
+      const first = isLive
+        ? `<button class="btn stop" onclick="stopSession(${s.id})">하원</button>`
+        : `<button class="btn start" onclick="startSession(${s.id})">등원</button>`;
       action=`<div class="attn-btns">
-        <button class="btn ${isLive?'ghost':'start'}" onclick="startSession(${s.id})">등원</button>
-        <button class="btn ${isLive?'stop':'hawon'}" onclick="stopSession(${s.id})">하원</button>
+        ${first}
         <button class="btn absentbtn" onclick="markAbsent(${s.id})">결석</button>
-      </div>
-      <div class="row-btns">
-        <button class="btn ghost small" onclick="manualComplete(${s.id})">바로 완료</button>
-        ${isTemp?`<button class="btn ghost small" onclick="removeTemp(${s.id})">오늘 빼기</button>`:''}
+        <button class="btn ghost" onclick="manualComplete(${s.id})">완료</button>
       </div>`;
     }
-    const cardStyle = done ? 'opacity:.5;border-color:var(--line)'
-      : (!isAbsent && !isLive) ? 'border:1.6px solid var(--ink);box-shadow:0 2px 8px rgba(30,25,15,.07)'
-      : '';
-    return `<div class="card" style="${cardStyle}">
-      <div class="card-top"><div class="who">
-        <div class="name">${s.name}
-          <button class="daychip" onclick="toggleCal(${s.id})">${shownDay}/${s.plan}회 ▾</button></div>
-        <div class="plan">${isTemp?'오늘 임시 추가':'예정 '+s.time}</div></div>${pill}</div>
+
+    // 전체보기 상세 (자세히 ▾ 펼침 시에만)
+    const detail = expanded ? `
       <div class="cal-slot" id="cal-${s.id}"></div>
       ${(()=>{const ls=todayLesson(s.id);
         return ls
@@ -356,12 +347,31 @@ function renderToday(){
       <div class="clock ${isLive?'show':''}"><span class="dot"></span>
         <span class="time num" data-clock="${s.id}">00:00:00</span>
         <span class="since">${isLive?'등원 '+new Date(live[s.id]).toTimeString().slice(0,5):''}</span></div>
-      ${timeLine}
-      ${action}
+      <div class="row-btns" style="margin-top:8px">
+        <button class="btn ghost small" onclick="toggleCal(${s.id})">달력 보기</button>
+        ${isTemp?`<button class="btn ghost small" onclick="removeTemp(${s.id})">오늘 빼기</button>`:''}
+      </div>
       <div class="resend">
         <button onclick="resend(${s.id},'start')">↩ 등원 알림</button><span class="sep">·</span>
         <button onclick="resend(${s.id},'end')">↩ 하원 알림</button>
+      </div>` : '';
+
+    const cardStyle = done ? 'opacity:.55;border-color:var(--line)'
+      : isLive ? 'border:1.6px solid var(--amber);box-shadow:0 2px 8px rgba(30,25,15,.07)'
+      : (!isAbsent) ? 'border:1.6px solid var(--ink);box-shadow:0 2px 8px rgba(30,25,15,.07)'
+      : '';
+    const toggleBtn=`<button onclick="toggleCardExpand(${s.id})" style="background:#F1EFE8;border:none;border-radius:20px;padding:5px 12px;font-size:12px;color:#5F5E5A;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600">${expanded?'접기 ▲':'자세히 ▾'}</button>`;
+
+    return `<div class="card" style="${cardStyle}">
+      <div class="card-top">
+        <div class="who">
+          <div class="name">${s.name}</div>
+          <div class="plan" style="color:${statusColor}">${statusText}</div>
+        </div>
+        ${toggleBtn}
       </div>
+      ${detail}
+      ${action}
     </div>`;
   }).join('');
   const empty=list.length?'':'<div class="empty">오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.</div>';
@@ -374,6 +384,9 @@ function renderToday(){
   updateLiveCount();
 }
 let openCal=null, calCur=null, payHistOpen=false;
+// 출석부 카드: 펼친(전체보기) 학생 id
+let cardExpanded=new Set();
+function toggleCardExpand(id){ if(cardExpanded.has(id))cardExpanded.delete(id); else cardExpanded.add(id); renderToday(); }
 function toggleCal(id){
   const slot=document.getElementById('cal-'+id);
   if(openCal===id){ slot.innerHTML=''; openCal=null; return; }

@@ -949,6 +949,9 @@ function rolloverIfComplete(id){
 // 이미 회차를 다 채운 학생(수동 입력 등)을 정산 건으로 일괄 변환 (조용)
 function normalizeBills(){
   let ch=false;
+  const before=bills.length;
+  bills = bills.filter(b=>students.some(s=>s.id===b.sid));  // 삭제된 학생 정산 건 제거
+  if(bills.length!==before) ch=true;
   students.forEach(s=>{ if(doRollover(s.id)) ch=true; });
   if(ch) saveData();
   return ch;
@@ -1350,6 +1353,8 @@ function askDeleteStudent(id){
 function deleteStudent(id){
   const i=students.findIndex(s=>s.id===id); if(i>=0)students.splice(i,1);
   delete cycleDone[id];
+  bills = bills.filter(b=>b.sid!==id);            // 정산 건 정리
+  delete packHistory[id]; delete absentLog[id]; delete makeupLog[id]; delete skipLog[id];
   saveData(); closeSheet(); renderManage(); showToast('학생을 삭제했어요');
 }
 

@@ -3,13 +3,13 @@ const WD=['일','월','화','수','목','금','토'];
 const now=new Date();
 const todayIdx=now.getDay();
 
-// 패키지 금액 (설정에서 수정 가능)
+// 클래스 금액 (설정에서 수정 가능)
 let packages={8:100000, 12:200000};
 
 // 학생: 계약 회차(plan) + 요일/시간
 const students=[];
 
-// 현재 패키지에서 완료한 횟수 (정산하면 0으로 리셋)
+// 현재 클래스에서 완료한 횟수 (정산하면 0으로 리셋)
 let cycleDone={};
 
 // 완료된 수업 기록 {sid,date,start,end,min}
@@ -788,21 +788,23 @@ function setStudentSort(m){ studentSort=m; renderStudents(); }
 let stuDayFilter=null;
 function setStuDay(v){ stuDayFilter=v; renderStudents(); }
 function studentCard(s, forDay){
-  const done=cycleDone[s.id]||0, need=needSettle(s);
+  const ci=currentClassInfo(s);
+  const doneN=ci.sessions.filter(t=>t<=dayKey(now.getTime())).length;
+  const need=needSettle(s);
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)}</div>`;
+  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
   const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
   return `<div class="row">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
-    ${infoLine}${schedLine}
-    <div class="stats">
-      <div class="stat"><div class="k">이번 패키지</div><div class="v">${Math.min(done,s.plan)}/${s.plan}회</div></div>
-      <div class="stat"><div class="k">남은 횟수</div><div class="v">${remainOf(s)}회</div></div>
-      <div class="stat"><div class="k">이번 달</div><div class="v">${monthCount(s.id)}회</div></div>
+    ${infoLine}${schedLine}${rangeLine}
+    <div class="stats" style="grid-template-columns:1fr 1fr">
+      <div class="stat"><div class="k">이번 클래스</div><div class="v">${doneN}/${s.plan}회</div></div>
+      <div class="stat"><div class="k">남은 횟수</div><div class="v">${Math.max(0,s.plan-doneN)}회</div></div>
     </div>
     <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
     ${calBtn}${calHtml}
@@ -970,10 +972,10 @@ function markSettled(id){
   hist.push({no:hist.length+1, plan:s.plan, done:cycleDone[id]||0,
     start:cycleStartOf(s)||null, settledDate:new Date()});
   payments.push({sid:id,date:new Date(),plan:s.plan,amount:priceOf(s)});
-  cycleDone[id]=0;              // 새 패키지 시작
+  cycleDone[id]=0;              // 새 클래스 시작
   s.cycleStart=null; s.cycleEnd=null;  // 새 회차는 자동 계산(과거는 packHistory에 보존)
   saveData(); renderSettle();
-  showToast(`${s.name} ${s.plan}회 정산 완료 · 새 패키지 시작`);
+  showToast(`${s.name} ${s.plan}회 정산 완료 · 새 클래스 시작`);
 }
 function openSettleMsg(id){
   const s=st(id); const mL=(now.getMonth()+1)+'월';
@@ -1037,7 +1039,7 @@ function renderAdmin(){
     {k:'guide',t:'결과지 · 알림폼',d:'학습 안내 양식 만들고 발송',ready:true},
     {k:'payhist',t:'정산 내역',d:'차수별 결제 이력',ready:true},
     {k:'people',t:'관리자 등록',d:'로그인 권한이 있는 사람 관리',ready:true},
-    {k:'basic',t:'수업 기본 설정',d:'패키지 금액 · 마감 알림 시각',ready:true},
+    {k:'basic',t:'수업 기본 설정',d:'클래스 금액 · 마감 알림 시각',ready:true},
   ];
   el.innerHTML=`
     <div class="acct">
@@ -1056,14 +1058,14 @@ function adminBasic(){
   return `<button class="back" onclick="openAdmin(null)">‹ 설정</button>
     <h2 class="page-h">수업 기본 설정</h2>
     <div class="set-sec">
-      <h3>패키지 금액</h3>
-      <div class="cap">회차별 수업료를 정해요. 정산 금액이 여기 값으로 자동 계산됩니다. 필요하면 패키지를 추가할 수 있어요.</div>
+      <h3>클래스 금액</h3>
+      <div class="cap">회차별 수업료를 정해요. 정산 금액이 여기 값으로 자동 계산됩니다. 필요하면 클래스를 추가할 수 있어요.</div>
       ${Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b).map(n=>`
         <div class="price-row"><label>${n}회</label>
           <div class="price-in"><input type="number" value="${packages[n]}" onchange="setPrice(${n},this.value)"><span>원</span></div>
           ${(n===8||n===12)?'':`<button class="btn ghost small" style="width:auto;margin:0 0 0 8px;padding:9px 12px" onclick="removePackage(${n})">삭제</button>`}
         </div>`).join('')}
-      <button class="btn ghost small" style="width:auto;margin-top:8px;padding:10px 16px" onclick="openPackageSheet()">＋ 패키지 추가</button>
+      <button class="btn ghost small" style="width:auto;margin-top:8px;padding:10px 16px" onclick="openPackageSheet()">＋ 클래스 추가</button>
     </div>
     <div class="set-sec">
       <h3>메모 마감 알림</h3>
@@ -1125,7 +1127,7 @@ function resetData(){ location.reload(); }
 function setPrice(plan,val){ packages[plan]=parseInt(val||0,10)||0; saveData(); }
 function openPackageSheet(){
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>패키지 추가</h3>
+  sheet.innerHTML=`<h3>클래스 추가</h3>
     <div class="cap">회차 수와 금액을 넣어요. (예: 10회 · 130,000원)</div>
     <div class="fld"><label>회차</label><input type="number" id="pkN" class="note-select" min="1" placeholder="예: 10"></div>
     <div class="fld"><label>금액 (원)</label><input type="number" id="pkAmt" class="note-select" min="0" placeholder="예: 130000"></div>
@@ -1138,11 +1140,11 @@ function addPackage(){
   const amt=parseInt(document.getElementById('pkAmt').value||0,10)||0;
   if(!n||n<1){showToast('회차를 입력해주세요');return;}
   if(packages[n]!=null){showToast('이미 있는 회차예요. 금액만 수정하세요');return;}
-  packages[n]=amt; saveData(); closeSheet(); openAdmin('basic'); showToast(`${n}회 패키지 추가됨`);
+  packages[n]=amt; saveData(); closeSheet(); openAdmin('basic'); showToast(`${n}회 클래스 추가됨`);
 }
 function removePackage(n){
-  if(n===8||n===12){showToast('기본 패키지(8·12회)는 삭제할 수 없어요');return;}
-  delete packages[n]; saveData(); openAdmin('basic'); showToast(`${n}회 패키지 삭제됨`);
+  if(n===8||n===12){showToast('기본 클래스(8·12회)는 삭제할 수 없어요');return;}
+  delete packages[n]; saveData(); openAdmin('basic'); showToast(`${n}회 클래스 삭제됨`);
 }
 function setPlan(id,plan){ st(id).plan=plan; }
 
@@ -1241,7 +1243,7 @@ function openStudentSheet(id){
     <div class="fld"><label>학생 전화번호</label><input id="stPhone" class="note-select" value="${s.phone||''}" placeholder="010-0000-0000 (선택)"></div>
     <div class="fld"><label>학원 수업 시작일 <span class="hint">첫 수업일 · 모르면 비워두세요</span></label>
       <input type="date" id="stStart" class="note-select" value="${startVal}"></div>
-    <div class="fld"><label>패키지 회차 <span class="hint">이 회차를 다 채우면 정산</span></label>
+    <div class="fld"><label>클래스 회차 <span class="hint">이 회차를 다 채우면 정산</span></label>
       <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
         ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
       </div>
@@ -1304,7 +1306,7 @@ function saveStudent(id){
   if(!name){showToast('학생 이름을 입력해주세요');return;}
   const sheet=document.getElementById('sheet');
   const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
-  let plan=+sheet.dataset.plan||0; if(plan<1){showToast('패키지 회차를 정해주세요');return;}
+  let plan=+sheet.dataset.plan||0; if(plan<1){showToast('클래스 회차를 정해주세요');return;}
   const commonTime=document.getElementById('stTime').value||'16:00';
   // 요일별 시간
   let dayTimes=null;

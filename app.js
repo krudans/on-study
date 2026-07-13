@@ -26,6 +26,9 @@ let packHistory={};
 // 정산 건(청구서): 클래스 완주 시 자동 생성. {id,sid,plan,amount,endDate,paid,paidDate}
 let bills=[];
 let billSeq=1000;
+// 휴일: 원장이 추가 지정한 휴일 / 공휴일이지만 수업일로 지정 (dayKey→true)
+let holidaysExtra={};
+let workdaysExtra={};
 // 학생의 전체 차수 목록(지난 + 현재)
 function allPacks(st){
   const past=packHistory[st.id]||[];
@@ -64,6 +67,18 @@ function nextClassDay(s, fromMs){
 // 날짜를 그날 00:00 ms로
 function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
 
+// 고정 공휴일 (양력·날짜 고정). 음력 명절(설·추석·석가탄신일)은 원장이 직접 휴일 지정.
+const FIXED_HOLIDAYS={'1-1':'신정','3-1':'삼일절','5-5':'어린이날','6-6':'현충일','8-15':'광복절','10-3':'개천절','10-9':'한글날','12-25':'크리스마스'};
+function fixedHolidayName(ms){ const d=new Date(ms); return FIXED_HOLIDAYS[(d.getMonth()+1)+'-'+d.getDate()]||null; }
+function isDefaultHoliday(k){ const d=new Date(k); const dow=d.getDay(); return dow===0||dow===6||!!fixedHolidayName(k); }
+function isHoliday(ms){ const k=dayKey(ms); if(workdaysExtra[k]) return false; if(holidaysExtra[k]) return true; return isDefaultHoliday(k); }
+function toggleHoliday(ms){
+  const k=dayKey(ms);
+  if(isHoliday(k)){ delete holidaysExtra[k]; if(isDefaultHoliday(k)) workdaysExtra[k]=true; }
+  else { delete workdaysExtra[k]; holidaysExtra[k]=true; }
+  saveData();
+}
+
 // 이번 클래스(현재 회차 묶음) 정보: 시작·종료·세션/결석/보강 날짜
 // 규칙: 출석(정규수업)+보강 = 회차로 카운트, 결석은 카운트 제외(그만큼 밀림)
 function currentClassInfo(s){
@@ -76,7 +91,7 @@ function currentClassInfo(s){
   const todayK=dayKey(now.getTime());
   const isSession=(d)=>{ const k=dayKey(d.getTime());
     if(makeupSet.has(k)) return true;
-    if(s.days.includes(d.getDay()) && !absentSet.has(k)) return true;
+    if(s.days.includes(d.getDay()) && !absentSet.has(k) && !isHoliday(k)) return true;
     return false; };
   // 1) 이번 클래스 시작일: 수동값 우선, 없으면 오늘 기준 완료 회차만큼 뒤로 세기
   let start=null;
@@ -123,6 +138,8 @@ function gradeLabel(v){ const f=GRADES.find(g=>g[0]===v); return f?f[1]:''; }
 function gradeOrder(v){ const i=GRADES.findIndex(g=>g[0]===v); return i<0?99:i; }
 let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
 function setManageSort(m){ manageSort=m; renderManage(); }
+let mngDayFilter=null;   // 요일별 탭: null=전체, 1~5=월~금
+function setMngDay(v){ mngDayFilter=v; renderManage(); }
 
 const live={};       // sid -> 시작 epoch(ms)
 let ticker=null;
@@ -365,14 +382,17 @@ function buildCalendar(s, cal, prevClick, nextClick){
   for(let i=0;i<first;i++)grid+='<div></div>';
   for(let dd=1;dd<=days;dd++){
     const t=new Date(y,m,dd).getTime();
-    let c='cal-d', mk='';
+    let c='cal-d', style='';
     if(absentSet.has(t)) c+=' absent';
     else if(sessionSet.has(t)){
-      if(makeupSet.has(t)){ c+=(t<=todayT?' att':' up'); mk='style="outline:2px solid var(--amber);outline-offset:-2px"'; }
-      else c+=(t<=todayT?' att':' up');
+      c += (t<=todayT?' att':' up');
+      if(makeupSet.has(t)) style+='outline:2px solid var(--amber);outline-offset:-2px;';
     }
     if(t===todayT)c+=' tod';
-    grid+=`<div class="${c}" ${mk}>${dd}</div>`;
+    const clickable = t>=todayT;
+    if(clickable) style+='cursor:pointer;';
+    const onclick = clickable ? `onclick="calDayClick(${s.id},${t})"` : '';
+    grid+=`<div class="${c}" style="${style}" ${onclick}>${dd}</div>`;
   }
 
   // 지난 정산 (직전 1건 + 전체 이력)
@@ -446,6 +466,31 @@ function deleteLesson(id){
   closeSheet(); renderToday(); showToast('오늘 학습내용을 삭제했어요');
 }
 
+// 달력에서 오늘 이후 날짜 클릭 → 보강일 지정
+function calDayClick(sid, ms){
+  if(dayKey(ms) < dayKey(now.getTime())){ showToast('지난 날짜는 보강으로 지정할 수 없어요'); return; }
+  const s=st(sid); const d=new Date(ms);
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
+    <div class="cap">${d.getMonth()+1}월 ${d.getDate()}일 (${WD[d.getDay()]})을 보강일로 설정할까요?<br>보강은 회차에 포함돼 종료일이 다시 계산돼요.</div>
+    <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||'16:00'}"></div>
+    <div class="sheet-btns"><button class="btn start" onclick="confirmMakeup(${sid},${ms})">예, 보강 지정</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function confirmMakeup(sid, ms){
+  const tm=(document.getElementById('mkTime2')||{}).value||'';
+  const k=dayKey(ms);
+  const arr=(makeupLog[sid]=makeupLog[sid]||[]);
+  if(arr.some(mk=>dayKey(mk.t)===k)){ showToast('이미 보강일로 지정된 날이에요'); closeSheet(); return; }
+  arr.push({t:k, time:tm, done:false});
+  saveData(); closeSheet();
+  if(openCal===sid){ const slot=document.getElementById('cal-'+sid); if(slot) slot.innerHTML=buildCalendar(st(sid)); }
+  if(stuCal.open===sid) renderStudents();
+  if(mngCal.open===sid) renderManage();
+  const d=new Date(ms);
+  showToast(`${st(sid).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} 지정됨 · 종료일 재계산`);
+}
 function openMakeupSheet(id){
   const s=st(id);
   const sheet=document.getElementById('sheet');
@@ -584,6 +629,8 @@ function schedText(s){
 }
 let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
+let stuDayFilter=null;
+function setStuDay(v){ stuDayFilter=v; renderStudents(); }
 function studentCard(s, forDay){
   const done=cycleDone[s.id]||0, need=needSettle(s);
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
@@ -623,10 +670,13 @@ function renderStudents(){
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
       return grpH(label) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
     }).join('');
-  } else { // 요일별 + 시간대 소제목
-    const dayOrder=[1,2,3,4,5,6,0];
+  } else { // 요일별: 전체/월~금 탭 + 시간대 소제목
+    const dayOrder=[1,2,3,4,5];
     const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
-    body = dayOrder.map(d=>{
+    const dtab=(v,label)=>`<button onclick="setStuDay(${v})" style="padding:8px 14px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${stuDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${dtab(null,'전체')}${dayOrder.map(d=>dtab(d,WD[d])).join('')}</div>`;
+    const shown=(stuDayFilter==null)?dayOrder:[stuDayFilter];
+    const groups=shown.map(d=>{
       const list=students.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
@@ -634,6 +684,7 @@ function renderStudents(){
       list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=studentCard(s,d); });
       return html;
     }).join('');
+    body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
   el.innerHTML=sortBar+body;
@@ -786,6 +837,7 @@ function renderAdmin(){
   // 허브 메뉴
   const menu=[
     {k:'students',t:'학생 관리',d:'학생 추가·수정 · 회차/요일/시간 · 보호자 정보',ready:true},
+    {k:'classmgmt',t:'수업 관리',d:'휴일 등록 · 토·일·공휴일 기본 휴일',ready:true},
     {k:'send',t:'발송 · 상담',d:'카톡/문자 발송, 상담 기록',ready:true},
     {k:'guide',t:'결과지 · 알림폼',d:'학습 안내 양식 만들고 발송',ready:true},
     {k:'payhist',t:'정산 내역',d:'차수별 결제 이력',ready:true},
@@ -800,7 +852,7 @@ function renderAdmin(){
       <button class="acct-out" onclick="logout()">로그아웃</button>
     </div>
     <div class="admin-menu">
-      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:`comingSoon('${m.t}')`}">
+      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='classmgmt'?`goTab('classmgmt')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:`comingSoon('${m.t}')`}">
         <div class="am-tx"><div class="am-t">${m.t}</div><div class="am-d">${m.d}</div></div>
         <div class="am-go">${m.ready?'›':'준비 중'}</div></button>`).join('')}
     </div>`;
@@ -944,10 +996,13 @@ function renderManage(){
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
       return grpH(label) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
     }).join('');
-  } else { // day: 월~일, 각 요일 안에서 시간대별 소제목 + 시간순
-    const dayOrder=[1,2,3,4,5,6,0];
+  } else { // 요일별: 전체/월~금 탭 + 시간대 소제목
+    const dayOrder=[1,2,3,4,5];
     const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
-    body = dayOrder.map(d=>{
+    const dtab=(v,label)=>`<button onclick="setMngDay(${v})" style="padding:8px 14px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${mngDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${dtab(null,'전체')}${dayOrder.map(d=>dtab(d,WD[d])).join('')}</div>`;
+    const shown=(mngDayFilter==null)?dayOrder:[mngDayFilter];
+    const groups=shown.map(d=>{
       const list=students.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
@@ -955,6 +1010,7 @@ function renderManage(){
       list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=manageCard(s,d); });
       return html;
     }).join('');
+    body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
 
@@ -1152,6 +1208,51 @@ function renderSchedule(){
     ${listHtml}`;
 }
 
+/* ===== 수업 관리 (휴일 등록) ===== */
+let classCal=null;
+function classCalNav(delta){ classCal.m+=delta; if(classCal.m<0){classCal.m=11;classCal.y--;} if(classCal.m>11){classCal.m=0;classCal.y++;} renderClassMgmt(); }
+function clickHoliday(ms){ toggleHoliday(ms); renderClassMgmt(); }
+function renderClassMgmt(){
+  const el=document.getElementById('v-classmgmt');
+  if(!classCal) classCal={y:now.getFullYear(), m:now.getMonth()};
+  const y=classCal.y, m=classCal.m;
+  const first=new Date(y,m,1).getDay(), dim=new Date(y,m+1,0).getDate();
+  const todayK=dayKey(now.getTime());
+  const dows=['일','월','화','수','목','금','토'].map(w=>`<div class="sc-dow">${w}</div>`).join('');
+  let cells='';
+  for(let i=0;i<first;i++) cells+=`<div class="sc-cell empty"></div>`;
+  for(let dd=1;dd<=dim;dd++){
+    const ms=new Date(y,m,dd).getTime(), k=dayKey(ms);
+    const hol=isHoliday(k), fname=fixedHolidayName(k), wk=!!workdaysExtra[k];
+    const bg = hol ? 'background:#F6E3DE;' : (wk?'background:#E7F1EA;':'');
+    cells+=`<div class="sc-cell${k===todayK?' today':''}" style="cursor:pointer;${bg}" onclick="clickHoliday(${ms})">
+      <span class="sc-d" style="${hol?'color:var(--clay);font-weight:700':(wk?'color:var(--green);font-weight:700':'')}">${dd}</span>
+      ${fname?`<span style="font-size:9px;line-height:1;color:var(--clay)">${fname}</span>`:''}
+      ${wk?`<span style="font-size:9px;line-height:1;color:var(--green)">수업</span>`:''}</div>`;
+  }
+  const extraHolidays=Object.keys(holidaysExtra).map(Number).filter(k=>holidaysExtra[k]).sort((a,b)=>a-b);
+  const extraTxt = extraHolidays.length
+    ? extraHolidays.map(k=>{const d=new Date(k);return `${d.getMonth()+1}.${d.getDate()}`;}).join(', ')
+    : '없음';
+  el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
+    <h2 class="page-h">수업 관리 (휴일)</h2>
+    <p class="page-cap">날짜를 눌러 <b>휴일 ↔ 수업일</b>을 지정해요. 토·일·공휴일은 기본 휴일이고, 누르면 '수업일'로 바꿀 수 있어요.
+      휴일은 <b>모든 학생 회차 계산에서 제외</b>돼 그날을 건너뛰고 종료일이 밀립니다.
+      설날·추석·석가탄신일 등 음력 명절은 자동이 아니라 직접 휴일로 지정하세요.</p>
+    <div class="sc-cal">
+      <div class="sc-head"><button onclick="classCalNav(-1)">‹</button>
+        <span>${y}년 ${m+1}월</span><button onclick="classCalNav(1)">›</button></div>
+      <div class="sc-grid">${dows}${cells}</div>
+    </div>
+    <div class="cal-legend" style="margin-top:12px">
+      <span><i class="lg" style="background:#F6E3DE"></i>휴일</span>
+      <span><i class="lg" style="background:#E7F1EA"></i>수업일 지정(공휴일 해제)</span>
+      <span><i class="lg tod"></i>오늘</span></div>
+    <div class="cal-foot" style="margin-top:14px">
+      <div class="cf-row"><span class="cf-k">직접 지정한 휴일</span><span class="cf-v">${extraTxt}</span></div>
+    </div>`;
+}
+
 function renderPayhist(){
   const el=document.getElementById('v-payhist');
   const all=payments.slice().sort((a,b)=>b.date-a.date);
@@ -1337,11 +1438,11 @@ function goTab(v){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부 · '+dateStr, students:'학생', settle:'정산',
-    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정'};
+    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'수업 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
   ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
-    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule}[v])();
+    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt}[v])();
   window.scrollTo(0,0);
 }
 document.querySelectorAll('.bt').forEach(t=>t.addEventListener('click',()=>goTab(t.dataset.v)));
@@ -1364,7 +1465,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra,
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1384,6 +1485,8 @@ function applyState(d){
   if(d.packHistory){ for(const k in d.packHistory){ (d.packHistory[k]||[]).forEach(p=>{if(p.settledDate)p.settledDate=new Date(p.settledDate); if(typeof p.start==='string')p.start=new Date(p.start).getTime();}); } packHistory=d.packHistory; }
   if(Array.isArray(d.bills)) bills=d.bills;
   if(typeof d.billSeq==='number') billSeq=d.billSeq;
+  if(d.holidaysExtra) holidaysExtra=d.holidaysExtra;
+  if(d.workdaysExtra) workdaysExtra=d.workdaysExtra;
 }
 
 /* 로그인 성공 후 auth.js가 호출 */
@@ -1403,6 +1506,6 @@ function refreshCurrentView(){
   const v=active?active.dataset.v:'home';
   const map={home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,
-    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule};
+    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt};
   (map[v]||renderHome)();
 }

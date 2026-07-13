@@ -85,6 +85,13 @@ function cycleEndOf(s){
 }
 function fmtD(ms){ return ms? new Date(ms).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '—'; }
 
+// 학년 (정렬·표시용)
+const GRADES=[['pre','초등 이전'],['g1','초1'],['g2','초2'],['g3','초3'],['g4','초4'],['g5','초5'],['g6','초6'],['post','초등 이후']];
+function gradeLabel(v){ const f=GRADES.find(g=>g[0]===v); return f?f[1]:''; }
+function gradeOrder(v){ const i=GRADES.findIndex(g=>g[0]===v); return i<0?99:i; }
+let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
+function setManageSort(m){ manageSort=m; renderManage(); }
+
 const live={};       // sid -> 시작 epoch(ms)
 let ticker=null;
 let logbook=[];      // 오늘 보낸 알림 {sid,kind,text,time}
@@ -256,7 +263,10 @@ function renderToday(){
         ${isTemp?`<button class="btn ghost small" onclick="removeTemp(${s.id})">오늘 빼기</button>`:''}
       </div>`;
     }
-    return `<div class="card">
+    const cardStyle = done ? 'opacity:.5;border-color:var(--line)'
+      : (!isAbsent && !isLive) ? 'border:1.6px solid var(--ink);box-shadow:0 2px 8px rgba(30,25,15,.07)'
+      : '';
+    return `<div class="card" style="${cardStyle}">
       <div class="card-top"><div class="who">
         <div class="name">${s.name}
           <button class="daychip" onclick="toggleCal(${s.id})">${shownDay}/${s.plan}회 ▾</button></div>
@@ -457,14 +467,43 @@ function stopSession(id){
   showToast(`${s.name} 수업 완료 · ${cycleDone[id]}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
 }
 function resend(id,kind){ openNotify(id,kind); }
+/* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
+   메시지를 복사한 뒤 카톡 앱을 열어 붙여넣기. 데스크탑에선 문자앱이 없어 열리지 않을 수 있어요(모바일 앱에서 사용). */
+let _notifyCtx=null;
+function buildNotifyText(s,kind){
+  const word=kind==='start'?'등원했습니다':kind==='absent'?'결석 처리되었습니다':'하원했습니다';
+  const t=new Date().toTimeString().slice(0,5);
+  return `[On-study] ${s.name} 학생이 ${t}에 ${word}.`;
+}
+function openMsgTo(i){
+  const g=_notifyCtx.gs[i], text=_notifyCtx.text;
+  const digits=(g.phone||'').replace(/[^0-9]/g,'');
+  if(g.kakao){
+    if(navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{});
+    showToast(`${g.name} 카톡: 메시지를 복사했어요 · 카톡에서 붙여넣기 하세요`);
+    setTimeout(()=>{ try{ location.href='kakaotalk://'; }catch(e){} }, 400);
+  } else {
+    if(!digits){ showToast(`${g.name} 연락처가 없어 문자를 열 수 없어요`); return; }
+    const sep = /iphone|ipad|ipod|mac/i.test(navigator.userAgent) ? '&' : '?';
+    location.href = `sms:${digits}${sep}body=${encodeURIComponent(text)}`;
+  }
+}
 function openNotify(id,kind){
   const s=st(id);
   const word=kind==='start'?'등원':kind==='absent'?'결석':'하원';
   const gs=guardiansOf(s);
-  gs.forEach(g=>{ const ch=g.kakao?'카톡':'문자';
-    logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} → ${g.name}(${ch})`); });
-  const summary=gs.map(g=>`${g.name}(${g.kakao?'카톡':'문자'})`).join(', ');
-  showToast(`${summary}에게 '${s.name} ${word}' 알림이 열립니다`);
+  const text=buildNotifyText(s,kind);
+  gs.forEach(g=>logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} → ${g.name}(${g.kakao?'카톡':'문자'})`));
+  _notifyCtx={gs,text};
+  if(gs.length===1){ openMsgTo(0); return; }
+  // 보호자 2명 이상 → 각각 열기 선택
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} ${word} 알림</h3>
+    <div class="cap">보호자별로 열어요. 카톡은 복사 후 붙여넣기, 문자는 자동으로 작성됩니다.</div>
+    <div class="msg">${text}</div>
+    ${gs.map((g,i)=>`<button class="btn ${g.kakao?'kakao':'sms'}" style="margin-bottom:8px" onclick="openMsgTo(${i})">${g.name} · ${g.kakao?'카톡 복사 + 열기':'문자 열기'}</button>`).join('')}
+    <div class="sheet-btns"><button class="btn ghost" onclick="closeSheet()">닫기</button></div>`;
+  document.getElementById('scrim').classList.add('show');
 }
 
 function ensureTicker(){ if(ticker)return;
@@ -668,31 +707,63 @@ function setPrice(plan,val){ packages[plan]=parseInt(val||0,10)||0; }
 function setPlan(id,plan){ st(id).plan=plan; }
 
 let nextId=100;
+function manageCard(s, forDay){
+  const days=s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
+  const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
+    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
+    : (s.time||'-');
+  const gLines = guardiansOf(s).map(g=>`👤 ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
+  const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
+  const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
+  const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
+  const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${timeFor(s,forDay)}</div>` : '';
+  return `<div class="row">
+    <div class="row-top"><span class="name">${s.name}</span>
+      <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
+    ${eduLine}${dayTime}
+    <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
+    <div class="mg-line">📅 시작일 ${startTxt} · 현재 ${cycleDone[s.id]||0}/${s.plan}회</div>
+    <div class="mg-line">🔄 이번 회차 ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} (예상)</div>
+    <div class="mg-line">${gLines}</div>
+    <div class="row-btns" style="margin-top:11px">
+      <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
+      <button class="btn ghost small" onclick="askDeleteStudent(${s.id})">삭제</button>
+    </div></div>`;
+}
 function renderManage(){
   const el=document.getElementById('v-manage');
+  const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
+  const sortBtn=(m,label)=>`<button onclick="setManageSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${manageSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:16px">
+    ${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>`;
+  const grpH=(t)=>`<div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">${t}</div>`;
+
+  let body='';
+  if(manageSort==='name'){
+    body = students.slice().sort(byName).map(s=>manageCard(s)).join('');
+  } else if(manageSort==='grade'){
+    const groups={}; students.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
+    const order=[...GRADES.map(g=>g[0]),'none'];
+    body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
+      const label = k==='none' ? '학년 미입력' : gradeLabel(k);
+      return grpH(label) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
+    }).join('');
+  } else { // day: 월~일, 각 요일 안에서 시간순, 여러 요일 학생은 각 요일에 표시
+    const dayOrder=[1,2,3,4,5,6,0];
+    body = dayOrder.map(d=>{
+      const list=students.filter(s=>s.days.includes(d))
+        .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
+      if(!list.length) return '';
+      return grpH(`${WD[d]}요일 (${list.length}명)`) + list.map(s=>manageCard(s,d)).join('');
+    }).join('');
+  }
+  if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
+
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">학생 관리</h2>
     <p class="page-cap">학생을 추가·수정하고 회차·요일·시간과 보호자 정보를 설정해요.</p>
-    <button class="btn start" style="margin-bottom:16px" onclick="openStudentSheet(null)">＋ 학생 추가</button>
-    ${students.map(s=>{
-      const days=s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
-      const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
-        ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
-        : (s.time||'-');
-      const gLines = guardiansOf(s).map(g=>`👤 ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
-      const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
-      return `<div class="row">
-        <div class="row-top"><span class="name">${s.name}</span>
-          <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
-        <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
-        <div class="mg-line">📅 시작일 ${startTxt} · 현재 ${cycleDone[s.id]||0}/${s.plan}회</div>
-        <div class="mg-line">🔄 이번 회차 ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} (예상)</div>
-        <div class="mg-line">${gLines}</div>
-        <div class="row-btns" style="margin-top:11px">
-          <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
-          <button class="btn ghost small" onclick="askDeleteStudent(${s.id})">삭제</button>
-        </div></div>`;
-    }).join('')}`;
+    <button class="btn start" style="margin-bottom:14px" onclick="openStudentSheet(null)">＋ 학생 추가</button>
+    ${sortBar}${body}`;
 }
 function openStudentSheet(id){
   const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null};
@@ -700,7 +771,7 @@ function openStudentSheet(id){
   const g1=gs[0]||{name:'',phone:'',kakao:true};
   const g2=gs[1]||null;
   const startVal = s.startDate ? new Date(s.startDate).toISOString().slice(0,10) : '';
-  const curCycle = id ? (cycleDone[id]||0) : 0;
+  const curCycle = id ? ((cycleDone[id]||0)+1) : 1;  // 진행 중인 회차 번호 = 완료+1
   const preset = (s.plan===8||s.plan===12);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
@@ -710,6 +781,12 @@ function openStudentSheet(id){
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${id?'학생 수정':'학생 추가'}</h3>
     <div class="fld"><label>학생 이름</label><input id="stName" class="note-select" value="${s.name}" placeholder="학생 이름"></div>
+    <div class="fld"><label>학년</label>
+      <select id="stGrade" class="note-select">
+        <option value="">선택 안 함</option>
+        ${GRADES.map(g=>`<option value="${g[0]}" ${s.grade===g[0]?'selected':''}>${g[1]}</option>`).join('')}
+      </select></div>
+    <div class="fld"><label>학교</label><input id="stSchool" class="note-select" value="${s.school||''}" placeholder="○○초등학교 (선택)"></div>
     <div class="fld"><label>학생 전화번호</label><input id="stPhone" class="note-select" value="${s.phone||''}" placeholder="010-0000-0000 (선택)"></div>
     <div class="fld"><label>시작일 <span class="hint">모르면 비워두세요</span></label>
       <input type="date" id="stStart" class="note-select" value="${startVal}"></div>
@@ -717,8 +794,8 @@ function openStudentSheet(id){
       <div class="seg2"><button type="button" id="pl8" class="${s.plan===8?'on':''}" onclick="pickPlan(8)">8회</button>
         <button type="button" id="pl12" class="${s.plan===12?'on':''}" onclick="pickPlan(12)">12회</button></div>
       <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (예: 10, 16, 20)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
-    <div class="fld"><label>현재 회차 <span class="hint">이미 진행 중이면 지금 몇 회차인지</span></label>
-      <input type="number" id="stCycle" class="note-select" min="0" value="${curCycle}" placeholder="0"></div>
+    <div class="fld"><label>현재 회차 <span class="hint">이 클래스에서 지금 몇 회차 진행 중인지 (1 = 첫 수업)</span></label>
+      <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="1"></div>
     <div class="fld"><label>이번 회차 시작일 <span class="hint">비워두면 자동</span></label>
       <input type="date" id="stCycStart" class="note-select" value="${s.cycleStart?new Date(s.cycleStart).toISOString().slice(0,10):''}"></div>
     <div class="fld"><label>예상 종료일 <span class="hint">비워두면 자동(남은 회차·요일로 계산)</span></label>
@@ -730,12 +807,12 @@ function openStudentSheet(id){
     <div class="fld"><label>보호자 1</label>
       <input id="g1name" class="note-select" value="${g1.name||''}" placeholder="보호자 이름">
       <input id="g1phone" class="note-select" style="margin-top:8px" value="${g1.phone||''}" placeholder="010-0000-0000">
-      <div class="seg2" style="margin-top:8px"><button type="button" id="g1kkO" class="${g1.kakao!==false?'on':''}" onclick="pickGK(1,true)">카톡</button>
+      <div class="seg2" style="margin-top:8px"><button type="button" id="g1kkO" class="${g1.kakao!==false?'on':''}" onclick="pickGK(1,true)">카톡 (없으면 문자 자동)</button>
         <button type="button" id="g1kkX" class="${g1.kakao===false?'on':''}" onclick="pickGK(1,false)">문자만</button></div></div>
     <div class="fld" id="g2wrap" style="${g2?'':'display:none'}"><label>보호자 2 <button type="button" class="mini-x" onclick="removeG2()">제거</button></label>
       <input id="g2name" class="note-select" value="${g2?g2.name||'':''}" placeholder="보호자 이름">
       <input id="g2phone" class="note-select" style="margin-top:8px" value="${g2?g2.phone||'':''}" placeholder="010-0000-0000">
-      <div class="seg2" style="margin-top:8px"><button type="button" id="g2kkO" class="${g2&&g2.kakao!==false?'on':''}" onclick="pickGK(2,true)">카톡</button>
+      <div class="seg2" style="margin-top:8px"><button type="button" id="g2kkO" class="${g2&&g2.kakao!==false?'on':''}" onclick="pickGK(2,true)">카톡 (없으면 문자 자동)</button>
         <button type="button" id="g2kkX" class="${g2&&g2.kakao===false?'on':''}" onclick="pickGK(2,false)">문자만</button></div></div>
     <button type="button" id="addG2" class="btn ghost small" style="${g2?'display:none':''};margin-bottom:14px" onclick="addG2()">＋ 보호자 2 추가</button>
     <div class="sheet-btns" style="margin-top:6px">
@@ -792,14 +869,16 @@ function saveStudent(id){
   const cycleStart=cycStartRaw?new Date(cycStartRaw+'T00:00:00').getTime():null;
   const cycEndRaw=document.getElementById('stCycEnd').value;
   const cycleEnd=cycEndRaw?new Date(cycEndRaw+'T00:00:00').getTime():null;
-  const curCycle=Math.max(0,+document.getElementById('stCycle').value||0);
+  const curCycleInput=+document.getElementById('stCycle').value||1;
+  const curDone=Math.max(0, curCycleInput-1);  // N회차 진행 중 = N-1회 완료
   const data={name, phone:document.getElementById('stPhone').value.trim(),
+    grade:document.getElementById('stGrade').value, school:document.getElementById('stSchool').value.trim(),
     plan, days, time:commonTime, dayTimes, startDate, cycleStart, cycleEnd, guardians,
     // 호환용 대표(보호자1) 미러
     guardian:guardians[0].name, kakao:guardians[0].kakao};
   data.phone_guardian=guardians[0].phone; // 참고용
-  if(id){ Object.assign(st(id),data); cycleDone[id]=curCycle; }
-  else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curCycle; }
+  if(id){ Object.assign(st(id),data); cycleDone[id]=curDone; }
+  else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }
   saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
 }
 function askDeleteStudent(id){
@@ -997,8 +1076,15 @@ function saveNote(){
   else renderCounsel();
   showToast('상담 메모를 저장했어요');
 }
-function openKakao(id){const s=st(id);
-  showToast(`${s.guardian}의 ${s.kakao?'카톡':'문자'} 화면이 열립니다`);}
+function openKakao(id){const s=st(id); const gs=guardiansOf(s);
+  _notifyCtx={gs, text:`[On-study] ${s.name} 학생 관련 안내드립니다.`};
+  if(gs.length===1){ openMsgTo(0); return; }
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 보호자에게 열기</h3>
+    <div class="cap">카톡은 복사 후 붙여넣기, 문자는 자동 작성됩니다.</div>
+    ${gs.map((g,i)=>`<button class="btn ${g.kakao?'kakao':'sms'}" style="margin-bottom:8px" onclick="openMsgTo(${i})">${g.name} · ${g.kakao?'카톡 복사 + 열기':'문자 열기'}</button>`).join('')}
+    <div class="sheet-btns"><button class="btn ghost" onclick="closeSheet()">닫기</button></div>`;
+  document.getElementById('scrim').classList.add('show');}
 
 /* ===== 결산 (월별 매출) ===== */
 function renderReport(){

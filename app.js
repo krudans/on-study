@@ -318,7 +318,7 @@ function progBar(s){
 function setPackView(id,i){packView[id]=i;renderToday();}
 function renderToday(){
   const el=document.getElementById('v-today');
-  const list=todayRoster();
+  const list=todayRoster().slice().sort((a,b)=>(timeFor(a,todayIdx)||a.time||'').localeCompare(timeFor(b,todayIdx)||b.time||''));
   // 상단 요약
   const total=list.length;
   const absentN=list.filter(s=>isAbsentToday(s.id)).length;
@@ -329,7 +329,7 @@ function renderToday(){
     <div class="as-item"><div class="as-v num" style="color:var(--clay)">${absentN}</div><div class="as-k">결석</div></div>
   </div>`;
 
-  const cards=list.map(s=>{
+  const cardOf=(s)=>{
     const isLive=live[s.id]!=null;
     const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
     const isAbsent=isAbsentToday(s.id);
@@ -402,7 +402,21 @@ function renderToday(){
       ${detail}
       ${action}
     </div>`;
-  }).join('');
+  };
+  // 1시간 단위로 묶어 시간대 헤더(주황 알약) + 학생 카드
+  const hourOf=(s)=>{ const t=(timeFor(s,todayIdx)||s.time||''); return t?t.slice(0,2)+':00':'시간 미정'; };
+  let cards='', _lastHour=null;
+  list.forEach(s=>{
+    const hour=hourOf(s);
+    if(hour!==_lastHour){
+      _lastHour=hour;
+      const cnt=list.filter(x=>hourOf(x)===hour).length;
+      cards+=`<div style="margin:14px 2px 10px"><span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber);border-radius:20px;padding:6px 14px">
+        <span style="font-size:15px;font-weight:600;color:#fff">🕐 ${hour} ~</span>
+        <span style="font-size:12px;color:#FAEEDA">${cnt}명</span></span></div>`;
+    }
+    cards+=cardOf(s);
+  });
   const empty=list.length?'':'<div class="empty">오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.</div>';
   const cand=students.filter(x=>!isTodayStudent(x));
   const addBox=`<div class="add-wrap"><div class="add-title">오늘만 추가하기</div>

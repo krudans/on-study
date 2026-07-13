@@ -518,21 +518,54 @@ function updateLiveCount(){const n=Object.keys(live).length;const lc=document.ge
   lc.textContent=n?`● ${n}명 수업 중`:'';lc.classList.toggle('on',n>0);}
 
 /* ===== 학생 ===== */
+let studentSort='name';
+function setStudentSort(m){ studentSort=m; renderStudents(); }
+function studentCard(s, forDay){
+  const done=cycleDone[s.id]||0, need=needSettle(s);
+  const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
+  const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
+  const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
+  return `<div class="row">
+    <div class="row-top"><span class="name">${s.name}</span>
+      <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
+    ${infoLine}
+    <div class="stats">
+      <div class="stat"><div class="k">이번 패키지</div><div class="v">${Math.min(done,s.plan)}/${s.plan}회</div></div>
+      <div class="stat"><div class="k">남은 횟수</div><div class="v">${remainOf(s)}회</div></div>
+      <div class="stat"><div class="k">이번 달</div><div class="v">${monthCount(s.id)}회</div></div>
+    </div>
+    <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
+  </div>`;
+}
 function renderStudents(){
   const el=document.getElementById('v-students');
-  el.innerHTML=students.map(s=>{
-    const done=cycleDone[s.id]||0, need=needSettle(s);
-    return `<div class="row">
-      <div class="row-top"><span class="name">${s.name}</span>
-        <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
-      <div class="stats">
-        <div class="stat"><div class="k">이번 패키지</div><div class="v">${Math.min(done,s.plan)}/${s.plan}회</div></div>
-        <div class="stat"><div class="k">남은 횟수</div><div class="v">${remainOf(s)}회</div></div>
-        <div class="stat"><div class="k">이번 달</div><div class="v">${monthCount(s.id)}회</div></div>
-      </div>
-      <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
-    </div>`;
-  }).join('');
+  const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
+  const sortBtn=(m,label)=>`<button onclick="setStudentSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${studentSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:16px">
+    ${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>`;
+  const grpH=(t)=>`<div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">${t}</div>`;
+
+  let body='';
+  if(studentSort==='name'){
+    body = students.slice().sort(byName).map(s=>studentCard(s)).join('');
+  } else if(studentSort==='grade'){
+    const groups={}; students.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
+    const order=[...GRADES.map(g=>g[0]),'none'];
+    body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
+      const label = k==='none' ? '학년 미입력' : gradeLabel(k);
+      return grpH(label) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
+    }).join('');
+  } else { // 요일별
+    const dayOrder=[1,2,3,4,5,6,0];
+    body = dayOrder.map(d=>{
+      const list=students.filter(s=>s.days.includes(d))
+        .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
+      if(!list.length) return '';
+      return grpH(`${WD[d]}요일 (${list.length}명)`) + list.map(s=>studentCard(s,d)).join('');
+    }).join('');
+  }
+  if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
+  el.innerHTML=sortBar+body;
 }
 
 /* ===== 정산 ===== */

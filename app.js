@@ -859,6 +859,7 @@ ${s.name} 학생이 ${s.plan}회 수업을 모두 마쳤습니다.
 · 다음 ${s.plan}회권 수업료 : ${won(priceOf(s))}
 
 결제 안내드립니다. 감사합니다.`;
+  _msgCtx={id, text};
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 납입 요청</h3>
     <div class="cap">${s.kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'}</div>
@@ -869,10 +870,25 @@ ${s.name} 학생이 ${s.plan}회 수업을 모두 마쳤습니다.
     </div>`;
   document.getElementById('scrim').classList.add('show');
 }
+let _msgCtx=null;
+// 채널(카톡/문자) 강제 지정해 보호자에게 메시지 열기
+function openMsgWith(sid, text, forceKakao){
+  const s=st(sid);
+  let gs=guardiansOf(s).map(g=>({...g, kakao: forceKakao}));
+  _notifyCtx={gs, text};
+  if(gs.length===1){ closeSheet(); openMsgTo(0); return; }
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 보호자에게 열기</h3>
+    <div class="cap">보호자별로 열어요. 카톡은 복사 후 붙여넣기, 문자는 자동 작성됩니다.</div>
+    <div class="msg">${text.replace(/</g,'&lt;')}</div>
+    ${gs.map((g,i)=>`<button class="btn ${forceKakao?'kakao':'sms'}" style="margin-bottom:8px" onclick="openMsgTo(${i})">${g.name} · ${forceKakao?'카톡 복사 + 열기':'문자 열기'}</button>`).join('')}
+    <div class="sheet-btns"><button class="btn ghost" onclick="closeSheet()">닫기</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
 function sendVia(ch,id){
-  closeSheet(); const s=st(id);
+  const s=st(id); const text=(_msgCtx&&_msgCtx.id===id)?_msgCtx.text:'';
   logAdd(id,'pay',`${s.name} 납입 요청 (${ch}) → ${s.guardian}`);
-  showToast(`${ch} 앱이 열리고 메시지가 채워집니다 · 전송은 원장님이 확인 후`);
+  openMsgWith(id, text, ch==='카카오톡');
 }
 function closeSheet(){document.getElementById('scrim').classList.remove('show');}
 document.getElementById('scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeSheet();});
@@ -890,7 +906,7 @@ function renderAdmin(){
   const menu=[
     {k:'students',t:'학생 관리',d:'학생 추가·수정 · 회차/요일/시간 · 보호자 정보',ready:true},
     {k:'academy',t:'학원 관리',d:'학원명 · 원장명 · 대표전화',ready:true},
-    {k:'classmgmt',t:'수업 관리',d:'휴일 등록 · 토·일·공휴일 기본 휴일',ready:true},
+    {k:'classmgmt',t:'휴일 관리',d:'휴일 등록 · 토·일·공휴일 기본 휴일',ready:true},
     {k:'send',t:'발송 · 상담',d:'카톡/문자 발송, 상담 기록',ready:true},
     {k:'guide',t:'결과지 · 알림폼',d:'학습 안내 양식 만들고 발송',ready:true},
     {k:'payhist',t:'정산 내역',d:'차수별 결제 이력',ready:true},
@@ -1310,7 +1326,7 @@ function renderClassMgmt(){
     ? extraHolidays.map(k=>{const d=new Date(k);return `${d.getMonth()+1}.${d.getDate()}`;}).join(', ')
     : '없음';
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
-    <h2 class="page-h">수업 관리 (휴일)</h2>
+    <h2 class="page-h">휴일 관리</h2>
     <p class="page-cap">날짜를 눌러 <b>휴일 ↔ 수업일</b>을 지정해요. 토·일·공휴일은 기본 휴일이고, 누르면 '수업일'로 바꿀 수 있어요.
       휴일은 <b>모든 학생 회차 계산에서 제외</b>돼 그날을 건너뛰고 종료일이 밀립니다.
       설날·추석·석가탄신일 등 음력 명절은 자동이 아니라 직접 휴일로 지정하세요.</p>
@@ -1381,6 +1397,7 @@ function composeGuide(sid,mode){
 }
 function openGuide(sid,mode){
   const s=st(sid); const text=composeGuide(sid,mode);
+  _msgCtx={id:sid, text};
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 학습 안내</h3>
     <div class="cap">${s.kakao?'카톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'} 내용은 수정 후 보내도 돼요.</div>
@@ -1392,9 +1409,9 @@ function openGuide(sid,mode){
   document.getElementById('scrim').classList.add('show');
 }
 function sendGuide(ch,id){
-  closeSheet(); const s=st(id);
+  const s=st(id); const text=(_msgCtx&&_msgCtx.id===id)?_msgCtx.text:'';
   logAdd(id,'pay',`${s.name} 학습 안내 (${ch}) → ${s.guardian}`);
-  showToast(`${ch} 앱이 열리고 학습 안내가 채워집니다 · 전송은 원장님이 확인 후`);
+  openMsgWith(id, text, ch==='카카오톡');
 }
 
 function renderSend(){
@@ -1513,7 +1530,7 @@ function goTab(v){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부 · '+dateStr, students:'학생', settle:'정산',
-    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'수업 관리', academy:'학원 관리'};
+    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
   ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,

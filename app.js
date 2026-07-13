@@ -35,6 +35,18 @@ let workdaysExtra={};
 let academy={name:'', owner:'', phone:''};
 // 알림톡 자동발송 사용 여부 (템플릿 승인·서버 배포 전엔 false = 열어주기)
 let autoSend=false;
+// 발송 문구: 종류별 문자 문구(sms) + 알림톡 템플릿 코드(code). 문자문구를 #{} 형태로 변환해 카카오 심사 신청에 사용.
+let msgTemplates={
+  start:  { sms:'[{학원명}] {학생명} 학생이 {시각}에 등원했습니다.', code:'' },
+  end:    { sms:'[{학원명}] {학생명} 학생이 {시각}에 하원했습니다. 오늘도 수고하셨습니다.', code:'' },
+  absent: { sms:'[{학원명}] {학생명} 학생이 오늘 수업에 결석 처리되었습니다.', code:'' },
+  settle: { sms:'[{학원명}] {학생명} 학생 {회차}회 수업이 마무리되었습니다. 수업료 {금액}원 안내드립니다.', code:'' },
+  guide:  { sms:'[{학원명}] {학생명} 학생 학습 안내입니다.\n{내용}', code:'' }
+};
+const MSG_KINDS=[['start','등원'],['end','하원'],['absent','결석'],['settle','정산 요청'],['guide','학습 안내']];
+const VAR_EXAMPLE={학원명:'온스터디', 학생명:'김철수', 시각:'16:00', 회차:'8', 금액:'100,000', 내용:'덧셈 연습 30문제 중 28점'};
+function applyVars(text, vars){ return String(text||'').replace(/\{([^}]+)\}/g,(m,k)=> vars[k]!=null?vars[k]:m); }
+function toKakaoTemplate(text){ return String(text||'').replace(/\{([^}]+)\}/g,'#{$1}'); }
 // 학생의 전체 차수 목록(지난 + 현재)
 function allPacks(st){
   const past=packHistory[st.id]||[];
@@ -652,8 +664,14 @@ async function autoSendAll(sid, kind, text, gs){
   _notifyCtx={gs, text}; openMsgTo(0);
 }
 function buildNotifyText(s,kind){
-  const word=kind==='start'?'등원했습니다':kind==='absent'?'결석 처리되었습니다':'하원했습니다';
   const t=new Date().toTimeString().slice(0,5);
+  const vars={학원명:academy.name||'', 학생명:s.name, 시각:t,
+    회차:String(s.plan), 금액:won(priceOf(s)).replace(/원$/,''), 내용:''};
+  const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
+  const out=applyVars(tpl, vars).trim();
+  if(out) return out;
+  // 문구 미설정 시 기본 문구
+  const word=kind==='start'?'등원했습니다':kind==='absent'?'결석 처리되었습니다':'하원했습니다';
   return `[On-study] ${s.name} 학생이 ${t}에 ${word}.`;
 }
 function openMsgTo(i){
@@ -1422,9 +1440,31 @@ function renderPayhist(){
 
 function renderGuide(){
   const el=document.getElementById('v-guide');
+  const tplCards = MSG_KINDS.map(([k,label])=>{
+    const sms = (msgTemplates[k]&&msgTemplates[k].sms)||'';
+    const code = (msgTemplates[k]&&msgTemplates[k].code)||'';
+    const preview = applyVars(sms, VAR_EXAMPLE);
+    const kakao = toKakaoTemplate(sms);
+    return `<div class="set-sec">
+      <h3>${label} 알림</h3>
+      <div class="fld"><label>문자 문구 <span class="hint">변수: {학원명} {학생명} {시각} {회차} {금액} {내용}</span></label>
+        <textarea id="tpl_${k}" class="note-select" rows="3" style="width:100%;resize:vertical" onchange="setMsgTemplate('${k}')">${sms.replace(/</g,'&lt;')}</textarea></div>
+      <div class="cap" style="margin-top:2px">문자 미리보기</div>
+      <div class="msg" style="margin-top:4px">${preview.replace(/</g,'&lt;')}</div>
+      <div class="cap" style="margin-top:8px">카톡(알림톡) 템플릿 — 카카오 심사 신청에 그대로 사용</div>
+      <div class="msg" id="kk_${k}" style="margin-top:4px">${kakao.replace(/</g,'&lt;')}</div>
+      <button class="btn ghost small" style="width:auto;margin-top:6px;padding:8px 14px" onclick="copyKakaoTpl('${k}')">카톡 템플릿 복사</button>
+      <div class="fld" style="margin-top:10px"><label>알림톡 템플릿 코드 <span class="hint">심사 통과 후 받은 코드</span></label>
+        <input id="code_${k}" class="note-select" value="${code}" placeholder="예: ONSTUDY_${k.toUpperCase()}" onchange="setMsgTemplate('${k}')"></div>
+    </div>`;
+  }).join('');
+
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">결과지 · 알림폼</h2>
-    <p class="page-cap">학생별 학습내용·출결을 모아 학부모 학습 안내를 만들어요. 기본은 정산 시점, 원하면 이번 주·임시로 보낼 수 있어요.</p>
+    <p class="page-cap">발송 문구를 한 번 작성하면 문자로는 그대로, 카톡은 심사받은 템플릿 코드로 나갑니다. 카톡 템플릿 문구는 아래에서 복사해 카카오(롯데이노베이트) 심사에 신청하세요.</p>
+    <div class="block-h"><span class="h">발송 문구 관리</span></div>
+    ${tplCards}
+    <div class="block-h" style="margin-top:22px"><span class="h">학생별 학습 안내(결과지) 보내기</span></div>
     ${students.map(s=>{
       const cnt=monthCount(s.id);
       return `<div class="row">
@@ -1435,6 +1475,19 @@ function renderGuide(){
           <button class="btn ghost small" onclick="openGuide(${s.id},'week')">이번 주</button>
         </div></div>`;
     }).join('')}`;
+}
+function setMsgTemplate(k){
+  const sms=(document.getElementById('tpl_'+k)||{}).value||'';
+  const code=(document.getElementById('code_'+k)||{}).value||'';
+  msgTemplates[k]={ sms:sms.trim(), code:code.trim() };
+  // 미리보기·카톡템플릿 갱신
+  const kk=document.getElementById('kk_'+k); if(kk) kk.textContent=toKakaoTemplate(sms);
+  saveData();
+}
+function copyKakaoTpl(k){
+  const txt=toKakaoTemplate((msgTemplates[k]&&msgTemplates[k].sms)||'');
+  if(navigator.clipboard) navigator.clipboard.writeText(txt).then(()=>showToast('카톡 템플릿을 복사했어요')).catch(()=>showToast('복사 실패 — 길게 눌러 복사하세요'));
+  else showToast('복사 미지원 — 길게 눌러 복사하세요');
 }
 function composeGuide(sid,mode){
   const s=st(sid);
@@ -1614,7 +1667,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, msgTemplates,
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1639,6 +1692,7 @@ function applyState(d){
   if(d.skipLog) skipLog=d.skipLog;
   if(d.academy) academy=Object.assign({name:'',owner:'',phone:''}, d.academy);
   if(typeof d.autoSend==='boolean') autoSend=d.autoSend;
+  if(d.msgTemplates) for(const k in d.msgTemplates){ if(msgTemplates[k]) msgTemplates[k]=Object.assign({sms:'',code:''}, d.msgTemplates[k]); }
 }
 
 /* 로그인 성공 후 auth.js가 호출 */

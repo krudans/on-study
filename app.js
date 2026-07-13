@@ -23,6 +23,9 @@ let absentLog={};
 let makeupLog={};
 // 지난 차수(팩) 이력. {no,plan,done,settledDate}
 let packHistory={};
+// 정산 건(청구서): 클래스 완주 시 자동 생성. {id,sid,plan,amount,endDate,paid,paidDate}
+let bills=[];
+let billSeq=1000;
 // 학생의 전체 차수 목록(지난 + 현재)
 function allPacks(st){
   const past=packHistory[st.id]||[];
@@ -160,6 +163,7 @@ function upcomingDates(st){
 
 /* ===== 홈 ===== */
 function renderHome(){
+  normalizeBills();
   const el=document.getElementById('v-home');
   const roster=todayRoster();
   const absentN=roster.filter(x=>absentToday.has(x.id)).length;
@@ -169,6 +173,7 @@ function renderHome(){
   const remain=Math.max(0,total-doneN-liveN);
   const monthDone=students.reduce((a,x)=>a+monthCount(x.id),0);
   const needList=students.filter(needSettle);
+  const unpaidBills=bills.filter(b=>!b.paid);
   const openList=Object.keys(live).map(id=>st(+id));
 
   const pct=total?doneN/total:0, C=2*Math.PI*42, off=C*(1-pct);
@@ -176,7 +181,7 @@ function renderHome(){
 
   let todos=[];
   openList.forEach(x=>todos.push({ic:'amber',tx:`${x.name} 수업 진행 중 — 끝나면 종료를 눌러주세요`,v:'today'}));
-  needList.forEach(x=>todos.push({ic:'clay',tx:`${x.name} ${x.plan}회 모두 완료 — 정산할 때가 됐어요`,v:'settle'}));
+  unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(b.amount)})`,v:'settle'}); });
 
   el.innerHTML=`
     <div class="greet"><div class="hi">안녕하세요, 원장님</div>
@@ -193,7 +198,7 @@ function renderHome(){
       <div class="hero-stats">
         <div class="hstat"><span class="k">오늘 남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
         <div class="hstat"><span class="k">이번 달 수업</span><span class="v">${monthDone}회</span></div>
-        <div class="hstat"><span class="k">정산 필요</span><span class="v ${needList.length?'warn':''}">${needList.length}명</span></div>
+        <div class="hstat"><span class="k">정산 필요</span><span class="v ${unpaidBills.length?'warn':''}">${unpaidBills.length}건</span></div>
       </div>
     </div>
     <div class="actions">
@@ -344,13 +349,14 @@ function calNav(id,delta){ calCur.m+=delta;
 function togglePayHist(id){ payHistOpen=!payHistOpen;
   document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id)); }
 
-function buildCalendar(s){
+function buildCalendar(s, cal, prevClick, nextClick){
+  cal = cal || calCur;
   const info=currentClassInfo(s);
   const sessionSet=new Set(info.sessions);
   const absentSet=new Set(info.absents);
   const makeupSet=new Set(info.makeups);
   const todayT=dayKey(now.getTime());
-  const y=calCur.y, m=calCur.m;
+  const y=cal.y, m=cal.m;
   const first=new Date(y,m,1).getDay();
   const days=new Date(y,m+1,0).getDate();
 
@@ -396,9 +402,9 @@ function buildCalendar(s){
     <span class="cf-v">${fmtD(info.start)} ~ ${fmtD(info.end)} · ${info.sessions.filter(t=>t<=todayT).length}/${s.plan}회</span></div>`;
 
   return `<div class="cal">
-    <div class="cal-nav"><button onclick="calNav(${s.id},-1)" aria-label="이전 달">‹</button>
+    <div class="cal-nav"><button onclick="${prevClick||`calNav(${s.id},-1)`}" aria-label="이전 달">‹</button>
       <span>${y}년 ${m+1}월</span>
-      <button onclick="calNav(${s.id},1)" aria-label="다음 달">›</button></div>
+      <button onclick="${nextClick||`calNav(${s.id},1)`}" aria-label="다음 달">›</button></div>
     <div class="cal-grid">${grid}</div>
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
       <span><i class="lg ab"></i>결석</span><span><i class="lg tod"></i>오늘</span></div>
@@ -480,15 +486,24 @@ function complete(id, start, end){
   sessions.push(rec); cycleDone[id]=(cycleDone[id]||0)+1;
 }
 function undoToday(id){
-  const i=sessions.findIndex(s=>s.sid===id && s.date.toDateString()===now.toDateString());
-  if(i>=0){sessions.splice(i,1); cycleDone[id]=Math.max(0,(cycleDone[id]||0)-1);}
-  renderToday();
-  showToast(`${st(id).name} 오늘 완료를 취소했어요 (1회 되돌림)`);
+  const s=st(id);
+  const i=sessions.findIndex(x=>x.sid===id && x.date.toDateString()===now.toDateString());
+  if(i>=0){
+    sessions.splice(i,1);
+    if((cycleDone[id]||0)>0){ cycleDone[id]=Math.max(0,(cycleDone[id]||0)-1); }
+    else {
+      // 방금 완주로 롤오버됐다면 되돌리기: 오늘 생긴 미납 정산건 + 마지막 이력 제거, 회차 복원
+      const bi=bills.findIndex(b=>b.sid===id && !b.paid && dayKey(b.endDate)===dayKey(now.getTime()));
+      if(bi>=0){ bills.splice(bi,1); const h=packHistory[id]; if(h&&h.length)h.pop(); cycleDone[id]=Math.max(0,(s.plan||1)-1); }
+    }
+  }
+  saveData(); renderToday();
+  showToast(`${s.name} 오늘 완료를 취소했어요 (1회 되돌림)`);
 }
 function manualComplete(id){
-  complete(id); renderToday();
-  const s=st(id);
-  showToast(`${s.name} 완료로 체크됨 · ${cycleDone[id]}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
+  complete(id); const s=st(id); const dn=cycleDone[id];
+  showToast(`${s.name} 완료로 체크됨 · ${dn}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
+  rolloverIfComplete(id); renderToday();
 }
 
 function startSession(id){
@@ -502,6 +517,7 @@ function stopSession(id){
   const s=st(id);
   if(!Object.keys(live).length&&ticker){clearInterval(ticker);ticker=null;}
   showToast(`${s.name} 수업 완료 · ${cycleDone[id]}/${s.plan}회`, ()=>openNotify(id,'end'), s.kakao?'종료 알림':'문자');
+  rolloverIfComplete(id); renderToday();
 }
 function resend(id,kind){ openNotify(id,kind); }
 /* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
@@ -555,6 +571,17 @@ function updateLiveCount(){const n=Object.keys(live).length;const lc=document.ge
   lc.textContent=n?`● ${n}명 수업 중`:'';lc.classList.toggle('on',n>0);}
 
 /* ===== 학생 ===== */
+let stuCal={open:null,y:0,m:0}, mngCal={open:null,y:0,m:0};
+function toggleStuCal(id){ if(stuCal.open===id)stuCal.open=null; else {stuCal.open=id;stuCal.y=now.getFullYear();stuCal.m=now.getMonth();} renderStudents(); }
+function stuCalNav(id,delta){ stuCal.m+=delta; if(stuCal.m<0){stuCal.m=11;stuCal.y--;} if(stuCal.m>11){stuCal.m=0;stuCal.y++;} renderStudents(); }
+function toggleMngCal(id){ if(mngCal.open===id)mngCal.open=null; else {mngCal.open=id;mngCal.y=now.getFullYear();mngCal.m=now.getMonth();} renderManage(); }
+function mngCalNav(id,delta){ mngCal.m+=delta; if(mngCal.m<0){mngCal.m=11;mngCal.y--;} if(mngCal.m>11){mngCal.m=0;mngCal.y++;} renderManage(); }
+function schedText(s){
+  if(!s.days||!s.days.length) return '요일 미설정';
+  return (s.dayTimes&&Object.keys(s.dayTimes).length)
+    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
+    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${s.time||'-'}`;
+}
 let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
 function studentCard(s, forDay){
@@ -562,16 +589,20 @@ function studentCard(s, forDay){
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
+  const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)}</div>`;
+  const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
+  const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
   return `<div class="row">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
-    ${infoLine}
+    ${infoLine}${schedLine}
     <div class="stats">
       <div class="stat"><div class="k">이번 패키지</div><div class="v">${Math.min(done,s.plan)}/${s.plan}회</div></div>
       <div class="stat"><div class="k">남은 횟수</div><div class="v">${remainOf(s)}회</div></div>
       <div class="stat"><div class="k">이번 달</div><div class="v">${monthCount(s.id)}회</div></div>
     </div>
     <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
+    ${calBtn}${calHtml}
   </div>`;
 }
 function renderStudents(){
@@ -610,35 +641,101 @@ function renderStudents(){
 
 /* ===== 정산 ===== */
 function renderSettle(){
+  normalizeBills();
   const el=document.getElementById('v-settle');
-  const monthPaid=payments.filter(p=>p.date.getMonth()===now.getMonth()&&p.date.getFullYear()===now.getFullYear())
-    .reduce((a,p)=>a+p.amount,0);
-  const waiting=students.filter(needSettle).reduce((a,s)=>a+priceOf(s),0);
-  const needN=students.filter(needSettle).length;
-  const mL=(now.getMonth()+1)+'월';
-  el.innerHTML=`
-    <div class="sum"><div class="k">${mL} 정산 완료</div><div class="big num">${won(monthPaid)}</div>
-      <div class="split">
-        <div><div class="k">정산 대기</div><div class="v">${won(waiting)}</div></div>
-        <div><div class="k">정산 필요</div><div class="v">${needN}명</div></div>
-      </div></div>`+
-    students.map(s=>{
-      const done=cycleDone[s.id]||0, need=needSettle(s);
-      let action = need
-        ? `<div class="row-btns">
-             <button class="btn pay small" onclick="openSettleMsg(${s.id})">납입 요청 메시지</button>
-             <button class="btn settle small" onclick="markSettled(${s.id})">정산 완료 처리</button>
-           </div>`
-        : '';
+  const nowM=now.getMonth(), nowY=now.getFullYear();
+  const unpaid = bills.filter(b=>!b.paid).sort((a,b)=>a.endDate-b.endDate);
+  const paidThisMonth = bills.filter(b=>b.paid && b.paidDate &&
+    new Date(b.paidDate).getMonth()===nowM && new Date(b.paidDate).getFullYear()===nowY)
+    .sort((a,b)=>b.paidDate-a.paidDate);
+  const monthPaidAmt = paidThisMonth.reduce((a,b)=>a+b.amount,0);
+  const unpaidAmt = unpaid.reduce((a,b)=>a+b.amount,0);
+  const mL=(nowM+1)+'월';
+
+  const billRow=(b)=>{
+    const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
+    if(!b.paid){
       return `<div class="row">
-        <div class="row-top"><span class="name">${s.name}</span><span class="amt">${won(priceOf(s))}</span></div>
-        <div class="stats">
-          <div class="stat"><div class="k">계약</div><div class="v">${s.plan}회</div></div>
-          <div class="stat"><div class="k">진행</div><div class="v">${Math.min(done,s.plan)}/${s.plan}</div></div>
-          <div class="stat"><div class="k">상태</div><div class="v" style="color:${need?'var(--clay)':'var(--green)'}">${need?'정산 필요':'진행 중'}</div></div>
-        </div>${action}</div>`;
-    }).join('');
+        <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
+        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--clay);font-weight:600">미납</span></div>
+        <div class="row-btns" style="margin-top:10px">
+          <button class="btn pay small" onclick="openSettleMsg(${b.sid})">납입 요청 메시지</button>
+          <button class="btn settle small" onclick="settleBill(${b.id})">정산 완료 처리</button>
+        </div></div>`;
+    }
+    return `<div class="row" style="opacity:.72">
+        <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
+        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--green);font-weight:600">정산 완료</span></div>
+        <div class="row-btns" style="margin-top:10px">
+          <button class="btn ghost small" disabled style="opacity:.45;cursor:default">납입 요청 (완료됨)</button>
+          <button class="btn ghost small" onclick="unsettleBill(${b.id})">정산 완료 취소</button>
+        </div></div>`;
+  };
+
+  const progRows = students.slice().sort((a,b)=>a.name.localeCompare(b.name,'ko')).map(s=>{
+    const endMs=cycleEndOf(s);
+    const endTxt = endMs ? new Date(endMs).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '미정';
+    return `<div class="row">
+      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${cycleDone[s.id]||0}/${s.plan}회</span></div>
+      <div class="mg-line">🗓 정산 예정일 <b>${endTxt}</b> (회차 마지막 수업일)</div>
+      <div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">납입 요청 메시지</button></div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`
+    <div class="sum"><div class="k">${mL} 정산 완료</div><div class="big num">${won(monthPaidAmt)}</div>
+      <div class="split">
+        <div><div class="k">미납 대기</div><div class="v">${won(unpaidAmt)}</div></div>
+        <div><div class="k">미납 건수</div><div class="v" style="${unpaid.length?'color:var(--clay)':''}">${unpaid.length}건</div></div>
+      </div></div>
+    <div class="block-h"><span class="h">정산 필요 (미납)</span>${unpaid.length?`<span class="cnt">${unpaid.length}</span>`:''}</div>
+    ${unpaid.length ? unpaid.map(billRow).join('') : '<div class="muted-card">미납 건이 없어요. 클래스(회차)를 완주하면 여기에 정산 건이 자동으로 생겨요.</div>'}
+    ${paidThisMonth.length ? `<div class="block-h" style="margin-top:24px"><span class="h">${mL} 정산 완료</span></div>`+paidThisMonth.map(billRow).join('') : ''}
+    <div class="block-h" style="margin-top:24px"><span class="h">진행 중 · 정산 예정</span></div>
+    ${progRows || '<div class="muted-card">진행 중인 학생이 없어요.</div>'}`;
 }
+/* ===== 정산 건(청구서) — 클래스 완주 시 자동 생성, 완료 처리해야 사라짐, 미납 누적 ===== */
+function billMonthTxt(b){ const d=new Date(b.endDate); return `${d.getMonth()+1}월분`; }
+function createBill(s, endMs){
+  bills.push({id:++billSeq, sid:s.id, plan:s.plan, amount:priceOf(s),
+    endDate:endMs||dayKey(now.getTime()), paid:false, paidDate:null});
+}
+// 회차를 다 채우면: 정산 건 생성(미납) + 과거 클래스 보존 + 새 클래스 시작 (코어, 조용)
+function doRollover(id){
+  const s=st(id); if(!s||!s.plan) return false;
+  if((cycleDone[id]||0) < s.plan) return false;
+  const endMs = cycleEndOf(s) || dayKey(now.getTime());
+  createBill(s, endMs);
+  const hist=packHistory[id]||(packHistory[id]=[]);
+  hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:cycleStartOf(s)||null, settledDate:new Date(endMs)});
+  cycleDone[id]=0; s.cycleStart=null; s.cycleEnd=null;
+  return true;
+}
+function rolloverIfComplete(id){
+  const s=st(id);
+  if(doRollover(id)){ saveData(); showToast(`${s.name} ${s.plan}회 완주! 정산 건이 생성됐어요 (미납)`); return true; }
+  return false;
+}
+// 이미 회차를 다 채운 학생(수동 입력 등)을 정산 건으로 일괄 변환 (조용)
+function normalizeBills(){
+  let ch=false;
+  students.forEach(s=>{ if(doRollover(s.id)) ch=true; });
+  if(ch) saveData();
+  return ch;
+}
+function settleBill(bid){
+  const b=bills.find(x=>x.id===bid); if(!b||b.paid) return;
+  b.paid=true; b.paidDate=Date.now();
+  payments.push({sid:b.sid, date:new Date(b.paidDate), plan:b.plan, amount:b.amount, billId:bid});
+  saveData(); renderSettle(); showToast('정산 완료 처리했어요');
+}
+function unsettleBill(bid){
+  const b=bills.find(x=>x.id===bid); if(!b||!b.paid) return;
+  b.paid=false; b.paidDate=null;
+  const pi=payments.findIndex(p=>p.billId===bid); if(pi>=0) payments.splice(pi,1);
+  saveData(); renderSettle(); showToast('정산을 취소했어요 (미납으로 되돌림)');
+}
+
 function markSettled(id){
   const s=st(id);
   const hist=packHistory[id]||(packHistory[id]=[]);
@@ -800,8 +897,11 @@ function manageCard(s, forDay){
     <div class="mg-line">${gLines}</div>
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
+      <button class="btn ghost small" onclick="toggleMngCal(${s.id})">${mngCal.open===s.id?'달력 닫기':'달력 보기'}</button>
       <button class="btn ghost small" onclick="askDeleteStudent(${s.id})">삭제</button>
-    </div></div>`;
+    </div>
+    ${mngCal.open===s.id ? buildCalendar(s, mngCal, `mngCalNav(${s.id},-1)`, `mngCalNav(${s.id},1)`) : ''}
+    </div>`;
 }
 function renderManage(){
   const el=document.getElementById('v-manage');
@@ -1177,7 +1277,7 @@ function renderReport(){
   const max=Math.max(1,...months.map(m=>m.sum));
   const thisM=months[months.length-1];
   const monthClasses=students.reduce((a,s)=>a+monthCount(s.id),0);
-  const waiting=students.filter(needSettle).reduce((a,s)=>a+priceOf(s),0);
+  const waiting=bills.filter(b=>!b.paid).reduce((a,b)=>a+b.amount,0);
 
   el.innerHTML=`
     <button class="back" onclick="goTab('home')">‹ 홈</button>
@@ -1236,7 +1336,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory,
+    absentLog, makeupLog, packHistory, bills, billSeq,
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1254,6 +1354,8 @@ function applyState(d){
   if(d.absentLog)absentLog=d.absentLog;
   if(d.makeupLog)makeupLog=d.makeupLog;
   if(d.packHistory){ for(const k in d.packHistory){ (d.packHistory[k]||[]).forEach(p=>{if(p.settledDate)p.settledDate=new Date(p.settledDate); if(typeof p.start==='string')p.start=new Date(p.start).getTime();}); } packHistory=d.packHistory; }
+  if(Array.isArray(d.bills)) bills=d.bills;
+  if(typeof d.billSeq==='number') billSeq=d.billSeq;
 }
 
 /* 로그인 성공 후 auth.js가 호출 */

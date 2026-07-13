@@ -203,16 +203,30 @@ function upcomingDates(st){
   return out;
 }
 
+/* 홈 화면 기준 날짜 (기본 오늘, ‹ › 로 이동) */
+let homeDate=null;
+function homeBaseMs(){ return homeDate ? homeDate.getTime() : dayKey(now.getTime()); }
+function homeNav(d){ const b=new Date(homeBaseMs()); b.setDate(b.getDate()+d); homeDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderHome(); }
+function homeToday(){ homeDate=null; renderHome(); }
+
 /* ===== 홈 ===== */
 function renderHome(){
   normalizeBills();
   const el=document.getElementById('v-home');
-  const roster=todayRoster();
-  const absentN=roster.filter(x=>isAbsentToday(x.id)).length;
-  const total=roster.length - absentN;
-  const liveN=Object.keys(live).length;
-  const doneN=roster.filter(x=>doneToday(x.id)&&live[x.id]==null).length;
-  const remain=Math.max(0,total-doneN-liveN);
+  const hMs=homeBaseMs(); const hDate=new Date(hMs);
+  const isToday=hDate.toDateString()===now.toDateString();
+  const roster = isToday ? todayRoster() : studentsOnDate(hMs);
+  const absentN = roster.filter(x=>(absentLog[x.id]||[]).some(t=>dayKey(t)===hMs)).length;
+  const total = roster.length - absentN;
+  const liveN = isToday ? Object.keys(live).length : 0;
+  const doneN = isToday
+    ? roster.filter(x=>doneToday(x.id)&&live[x.id]==null).length
+    : roster.filter(x=>sessions.some(s=>s.sid===x.id && dayKey(s.date)===hMs)).length;
+  const remain = Math.max(0, total-doneN-liveN);
+  // 출석체크 버튼용 = 항상 오늘 기준
+  const tR=todayRoster(); const tAbs=tR.filter(x=>isAbsentToday(x.id)).length;
+  const tTotal=tR.length-tAbs; const tDone=tR.filter(x=>doneToday(x.id)&&live[x.id]==null).length;
+  const todayRemain=Math.max(0, tTotal-tDone-Object.keys(live).length);
   const monthDone=students.reduce((a,x)=>a+monthCount(x.id),0);
   const needList=students.filter(needSettle);
   const unpaidBills=bills.filter(b=>!b.paid);
@@ -220,14 +234,21 @@ function renderHome(){
 
   const pct=total?doneN/total:0, C=2*Math.PI*42, off=C*(1-pct);
   const ringColor=(total&&doneN===total)?'var(--green)':'var(--amber)';
+  const ringLabel = isToday ? '완료' : '예정';
 
   let todos=[];
   openList.forEach(x=>todos.push({ic:'amber',tx:`${x.name} 수업 진행 중 — 끝나면 종료를 눌러주세요`,v:'today'}));
   unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(b.amount)})`,v:'settle'}); });
 
+  const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   el.innerHTML=`
     <div class="greet"><div class="hi">안녕하세요, 원장님</div>
-      <div class="dt">${now.getMonth()+1}월 ${now.getDate()}일 ${WD[todayIdx]}요일</div></div>
+      <div class="dt" style="display:flex;align-items:center;gap:9px;margin-top:2px">
+        <button onclick="homeNav(-1)" aria-label="전날" style="${navBtn}">‹</button>
+        <span style="min-width:150px;text-align:center;font-weight:600">${hDate.getMonth()+1}월 ${hDate.getDate()}일 ${WD[hDate.getDay()]}요일${isToday?' · 오늘':''}</span>
+        <button onclick="homeNav(1)" aria-label="다음날" style="${navBtn}">›</button>
+        ${isToday?'':`<button onclick="homeToday()" style="border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;padding:0 11px;height:30px;cursor:pointer;font-family:inherit">오늘</button>`}
+      </div></div>
     <div class="hero">
       <div class="ring">
         <svg width="96" height="96" viewBox="0 0 96 96">
@@ -235,16 +256,16 @@ function renderHome(){
           <circle cx="48" cy="48" r="42" fill="none" stroke="${ringColor}" stroke-width="8"
             stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
         </svg>
-        <div class="center"><div class="n">${doneN}</div><div class="l">/ ${total} 완료</div></div>
+        <div class="center"><div class="n">${doneN}</div><div class="l">/ ${total} ${ringLabel}</div></div>
       </div>
       <div class="hero-stats">
-        <div class="hstat"><span class="k">오늘 총 수업</span><span class="v">${roster.length}명</span></div>
-        <div class="hstat"><span class="k">오늘 남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
+        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 총 수업</span><span class="v">${roster.length}명</span></div>
+        <div class="hstat"><span class="k">${isToday?'오늘 남은 수업':'예정'}</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
         <div class="hstat"><span class="k">정산 필요</span><span class="v ${unpaidBills.length?'warn':''}">${unpaidBills.length}건</span></div>
       </div>
     </div>
     <div class="actions">
-      <button class="act primary" onclick="goTab('today')"><div class="t">출석체크</div><div class="d">오늘 ${remain}명 남음</div></button>
+      <button class="act primary" onclick="goTab('today')"><div class="t">출석체크</div><div class="d">오늘 ${todayRemain}명 남음</div></button>
       <button class="act" onclick="goTab('settle')"><div class="t">정산</div><div class="d">회차·수업료 정리</div></button>
     </div>
     <div class="actions" style="margin-top:-12px">
@@ -687,17 +708,23 @@ function buildNotifyText(s,kind){
   const word=kind==='start'?'등원했습니다':kind==='absent'?'결석 처리되었습니다':'하원했습니다';
   return `[On-study] ${s.name} 학생이 ${t}에 ${word}.`;
 }
+// 외부 앱(sms/카톡) 열기: 페이지를 벗어나지 않도록 링크 클릭 방식
+function _openExternal(url){
+  try{ const a=document.createElement('a'); a.href=url; a.style.display='none'; a.rel='noopener';
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ try{a.remove();}catch(e){} }, 1500); }
+  catch(e){ try{ location.href=url; }catch(_){ } }
+}
 function openMsgTo(i){
   const g=_notifyCtx.gs[i], text=_notifyCtx.text;
   const digits=(g.phone||'').replace(/[^0-9]/g,'');
   if(g.kakao){
     if(navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{});
     showToast(`${g.name} 카톡: 메시지를 복사했어요 · 카톡에서 붙여넣기 하세요`);
-    setTimeout(()=>{ try{ location.href='kakaotalk://'; }catch(e){} }, 400);
+    setTimeout(()=>{ _openExternal('kakaotalk://'); }, 400);
   } else {
     if(!digits){ showToast(`${g.name} 연락처가 없어 문자를 열 수 없어요`); return; }
     const sep = /iphone|ipad|ipod|mac/i.test(navigator.userAgent) ? '&' : '?';
-    location.href = `sms:${digits}${sep}body=${encodeURIComponent(text)}`;
+    _openExternal(`sms:${digits}${sep}body=${encodeURIComponent(text)}`);
   }
 }
 function openNotify(id,kind){
@@ -1064,7 +1091,7 @@ function delAdmin(i){ if(admins[i]&&admins[i].owner)return;
   removeAdminDoc(email);  // store.js → admins 컬렉션
 }
 function comingSoon(name){ showToast(`${name}은 다음 단계에서 만들어요`); }
-function logout(){ adminSection=null; doLogout(); }  // doLogout: auth.js
+function logout(){ adminSection=null; if(typeof exitApp==='function') exitApp(); else doLogout(); }  // 저장+락해제+로그아웃
 let closeTime='20:00';
 function setCloseTime(v){ closeTime=v; saveData(); }
 function resetData(){ location.reload(); }

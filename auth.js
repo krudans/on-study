@@ -31,9 +31,9 @@ fbAuth.onAuthStateChanged(async (user)=>{
       return;
     }
     currentUser={ email, name:(doc.data().name||user.displayName||email), owner:!!doc.data().owner };
-    await loadData();
-    subscribeState();
-    initApp();
+    await loadData();     // Firestore 상태 + 관리자 명단
+    subscribeState();     // 실시간 동기화 시작
+    acquireSession();     // 단일 세션 락 확인 후 진입(initApp 호출)
   }catch(e){
     if(err) err.textContent='접근 확인 중 문제가 생겼어요. 새로고침 후 다시 시도해주세요.';
     console.warn('접근 검증 실패', e);

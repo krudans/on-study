@@ -1339,11 +1339,11 @@ function renderSchedule(){
           timeLine=`예정 시간 ${t}`;
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
-        return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
+        return `<div class="row" style="padding:12px 14px;cursor:pointer${abs?';border:1.6px solid #D9342B':''}" onclick="openStudentCalendar(${s.id})">
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
           <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${cycleDone[s.id]||0}회</div>
-          ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
+          ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="event.stopPropagation();clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;
   }

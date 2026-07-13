@@ -1,6 +1,6 @@
 /* Firebase 초기화 (compat SDK) — config는 공개돼도 되는 값(비밀키 아님) */
 const firebaseConfig = {
-  apiKey: "AIzaSyBGb5fGAyC-pRcRU6MUHb__b_vKha71HRE",
+  apiKey: "AIzaSyC9GsoNtjXfghbQbZGElzIh6UWKze5cSPY",
   authDomain: "on-study-dacbc.firebaseapp.com",
   projectId: "on-study-dacbc",
   storageBucket: "on-study-dacbc.firebasestorage.app",

@@ -550,6 +550,7 @@ function refreshOpenCal(sid){
   if(typeof openCal!=='undefined' && openCal===sid){ const slot=document.getElementById('cal-'+sid); if(slot) slot.innerHTML=buildCalendar(st(sid)); }
   if(typeof stuCal!=='undefined' && stuCal.open===sid) renderStudents();
   if(typeof mngCal!=='undefined' && mngCal.open===sid) renderManage();
+  if(typeof schedCal!=='undefined' && schedCal.open===sid) renderSchedule();
 }
 // 달력에서 오늘 이후 날짜 클릭 → 상태별 동작
 function calDayClick(sid, ms){
@@ -780,7 +781,9 @@ function updateLiveCount(){const n=Object.keys(live).length;const lc=document.ge
   lc.textContent=n?`● ${n}명 수업 중`:'';lc.classList.toggle('on',n>0);}
 
 /* ===== 학생 ===== */
-let stuCal={open:null,y:0,m:0}, mngCal={open:null,y:0,m:0};
+let stuCal={open:null,y:0,m:0}, mngCal={open:null,y:0,m:0}, schedCal={open:null,y:0,m:0};
+function toggleSchedCal(id){ if(schedCal.open===id)schedCal.open=null; else {schedCal.open=id;schedCal.y=now.getFullYear();schedCal.m=now.getMonth();} renderSchedule(); }
+function schedCalNav(id,delta){ schedCal.m+=delta; if(schedCal.m<0){schedCal.m=11;schedCal.y--;} if(schedCal.m>11){schedCal.m=0;schedCal.y++;} renderSchedule(); }
 function toggleStuCal(id){ if(stuCal.open===id)stuCal.open=null; else {stuCal.open=id;stuCal.y=now.getFullYear();stuCal.m=now.getMonth();} renderStudents(); }
 function stuCalNav(id,delta){ stuCal.m+=delta; if(stuCal.m<0){stuCal.m=11;stuCal.y--;} if(stuCal.m>11){stuCal.m=0;stuCal.y++;} renderStudents(); }
 function toggleMngCal(id){ if(mngCal.open===id)mngCal.open=null; else {mngCal.open=id;mngCal.y=now.getFullYear();mngCal.m=now.getMonth();} renderManage(); }
@@ -1429,11 +1432,15 @@ function renderSchedule(){
           timeLine=`예정 시간 ${t}`;
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
-        return `<div class="row" style="padding:12px 14px;cursor:pointer${abs?';border:1.6px solid #D9342B':''}" onclick="openStudentCalendar(${s.id})">
+        return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
           <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${doneCountOf(s)}회</div>
-          ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="event.stopPropagation();clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
+          <div class="row-btns" style="margin-top:9px">
+            <button class="btn ghost small" onclick="toggleSchedCal(${s.id})">${schedCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+            ${abs?`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${schedSel})">결석 취소</button>`:''}
+          </div>
+          ${schedCal.open===s.id ? buildCalendar(s, schedCal, `schedCalNav(${s.id},-1)`, `schedCalNav(${s.id},1)`) : ''}
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;
   }

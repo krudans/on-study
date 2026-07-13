@@ -50,7 +50,7 @@ function toKakaoTemplate(text){ return String(text||'').replace(/\{([^}]+)\}/g,'
 // 학생의 전체 차수 목록(지난 + 현재)
 function allPacks(st){
   const past=packHistory[st.id]||[];
-  const cur={no:past.length+1, plan:st.plan, done:Math.min(cycleDone[st.id]||0,st.plan), current:true};
+  const cur={no:past.length+1, plan:st.plan, done:doneCountOf(st), current:true};
   return [...past, cur];
 }
 // 카드에서 현재 보고 있는 차수 index (기본 = 현재 차수)
@@ -90,6 +90,8 @@ function nextClassDay(s, fromMs){
 // 이번 회차 시작일: 수동값 → 직전 정산 다음 수업일 → 학생 시작일
 // 날짜를 그날 00:00 ms로
 function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+// 이번 클래스의 '현재 회차'(오늘까지 진행된 수업 수) — 모든 화면이 이 함수 하나만 사용
+function doneCountOf(s){ if(!s) return 0; return currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length; }
 
 // 고정 공휴일 (양력·날짜 고정). 음력 명절(설·추석·석가탄신일)은 원장이 직접 휴일 지정.
 const FIXED_HOLIDAYS={'1-1':'신정','3-1':'삼일절','5-5':'어린이날','6-6':'현충일','8-15':'광복절','10-3':'개천절','10-9':'한글날','12-25':'크리스마스'};
@@ -183,8 +185,8 @@ const hm=(d)=>new Date(d).toTimeString().slice(0,5);
 const fmtDur=(min)=>{const h=Math.floor(min/60),m=Math.round(min%60);
   return h?(m?`${h}시간 ${m}분`:`${h}시간`):`${m}분`;};
 const priceOf=(st)=>packages[st.plan]||0;
-const remainOf=(st)=>Math.max(0, st.plan-(cycleDone[st.id]||0));
-const needSettle=(st)=>(cycleDone[st.id]||0)>=st.plan;
+const remainOf=(st)=>Math.max(0, st.plan-doneCountOf(st));
+const needSettle=(st)=>doneCountOf(st)>=st.plan;
 const doneToday=(sid)=>sessions.find(s=>s.sid===sid && s.date.toDateString()===now.toDateString());
 function monthCount(sid){return sessions.filter(s=>s.sid===sid &&
   s.date.getMonth()===now.getMonth() && s.date.getFullYear()===now.getFullYear()).length;}
@@ -332,7 +334,7 @@ function renderToday(){
     const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
     const isAbsent=isAbsentToday(s.id);
     const done=doneToday(s.id);
-    const shownDay=Math.min(cycleDone[s.id]||0, s.plan);
+    const shownDay=doneCountOf(s);
     const expanded=cardExpanded.has(s.id);
 
     // 헤더 상태 텍스트/색
@@ -481,7 +483,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
 
   // 이번 회차 요약(시작~종료)
   const rangeLine=`<div class="cf-row"><span class="cf-k">이번 회차</span>
-    <span class="cf-v">${fmtD(info.start)} ~ ${fmtD(info.end)} · ${info.sessions.filter(t=>t<=todayT).length}/${s.plan}회</span></div>`;
+    <span class="cf-v">${fmtD(info.start)} ~ ${fmtD(info.end)} · ${doneCountOf(s)}/${s.plan}회</span></div>`;
 
   return `<div class="cal">
     <div class="cal-nav"><button onclick="${prevClick||`calNav(${s.id},-1)`}" aria-label="이전 달">‹</button>
@@ -660,8 +662,8 @@ function undoToday(id){
   showToast(`${s.name} 오늘 완료를 취소했어요 (1회 되돌림)`);
 }
 function manualComplete(id){
-  complete(id); const s=st(id); const dn=cycleDone[id];
-  showToast(`${s.name} 완료로 체크됨 · ${dn}/${s.plan}회 (알림 없음)`);
+  complete(id); const s=st(id);
+  showToast(`${s.name} 완료로 체크됨 · ${doneCountOf(s)}/${s.plan}회 (알림 없음)`);
   rolloverIfComplete(id); renderToday();
 }
 
@@ -676,7 +678,7 @@ function stopSession(id){
   delete live[id]; complete(id,start,end); renderToday();
   const s=st(id);
   if(!Object.keys(live).length&&ticker){clearInterval(ticker);ticker=null;}
-  showToast(`${s.name} 하원 기록 · ${cycleDone[id]}/${s.plan}회 · 보호자에게 알림을 엽니다`);
+  showToast(`${s.name} 하원 기록 · ${doneCountOf(s)}/${s.plan}회 · 보호자에게 알림을 엽니다`);
   openNotify(id,'end');
   rolloverIfComplete(id); renderToday();
 }
@@ -789,7 +791,7 @@ let stuDayFilter=null;
 function setStuDay(v){ stuDayFilter=v; renderStudents(); }
 function studentCard(s, forDay){
   const ci=currentClassInfo(s);
-  const doneN=ci.sessions.filter(t=>t<=dayKey(now.getTime())).length;
+  const doneN=doneCountOf(s);
   const need=needSettle(s);
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
@@ -885,7 +887,7 @@ function renderSettle(){
     const endMs=cycleEndOf(s);
     const endTxt = endMs ? new Date(endMs).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '미정';
     return `<div class="row">
-      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}/${s.plan}회</span></div>
+      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${doneCountOf(s)}/${s.plan}회</span></div>
       <div class="mg-line">🗓 정산 예정일 <b>${endTxt}</b> (회차 마지막 수업일)</div>
       <div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">납입 요청 메시지</button></div>
     </div>`;
@@ -972,7 +974,7 @@ function unsettleBill(bid){
 function markSettled(id){
   const s=st(id);
   const hist=packHistory[id]||(packHistory[id]=[]);
-  hist.push({no:hist.length+1, plan:s.plan, done:cycleDone[id]||0,
+  hist.push({no:hist.length+1, plan:s.plan, done:doneCountOf(s),
     start:cycleStartOf(s)||null, settledDate:new Date()});
   payments.push({sid:id,date:new Date(),plan:s.plan,amount:priceOf(s)});
   cycleDone[id]=0;              // 새 클래스 시작
@@ -1168,7 +1170,7 @@ function manageCard(s, forDay){
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
     <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
-    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}/${s.plan}회차</div>
+    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차</div>
     <div class="mg-line">${gLines}</div>
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
@@ -1226,7 +1228,7 @@ function openStudentSheet(id){
   const g1=gs[0]||{name:'',phone:'',kakao:true};
   const g2=gs[1]||null;
   const startVal = s.startDate ? new Date(s.startDate).toISOString().slice(0,10) : '';
-  const curCycle = id ? ((cycleDone[id]||0)+1) : 1;  // 진행 중인 회차 번호 = 완료+1
+  const curCycle = id ? (doneCountOf(s)+1) : 1;  // 진행 중인 회차 번호 = 완료+1 (표시와 동일 계산)
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const preset = pkgList.includes(s.plan);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes()">${w}</button>`).join('');
@@ -1416,7 +1418,7 @@ function renderSchedule(){
         return `<div class="row" style="padding:12px 14px;cursor:pointer${abs?';border:1.6px solid #D9342B':''}" onclick="openStudentCalendar(${s.id})">
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
-          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}회</div>
+          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${doneCountOf(s)}회</div>
           ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="event.stopPropagation();clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;

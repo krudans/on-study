@@ -173,7 +173,9 @@ function monthCount(sid){return sessions.filter(s=>s.sid===sid &&
 const st=(id)=>students.find(s=>s.id===id);
 
 let tempToday=new Set();
-let absentToday=new Set();   // 오늘 결석 처리한 학생 id
+let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
+// 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
+function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
 const isTodayStudent=(x)=>x.days.includes(todayIdx)||tempToday.has(x.id);
 const todayRoster=()=>students.filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));
 
@@ -194,7 +196,7 @@ function renderHome(){
   normalizeBills();
   const el=document.getElementById('v-home');
   const roster=todayRoster();
-  const absentN=roster.filter(x=>absentToday.has(x.id)).length;
+  const absentN=roster.filter(x=>isAbsentToday(x.id)).length;
   const total=roster.length - absentN;
   const liveN=Object.keys(live).length;
   const doneN=roster.filter(x=>doneToday(x.id)&&live[x.id]==null).length;
@@ -278,7 +280,7 @@ function renderToday(){
   const list=todayRoster();
   // 상단 요약
   const total=list.length;
-  const absentN=list.filter(s=>absentToday.has(s.id)).length;
+  const absentN=list.filter(s=>isAbsentToday(s.id)).length;
   const attendN=list.filter(s=>live[s.id]!=null||doneToday(s.id)).length; // 등원=온 아이(하원 포함)
   const summary=`<div class="attn-sum">
     <div class="as-item"><div class="as-v num">${total}</div><div class="as-k">오늘 총원</div></div>
@@ -289,7 +291,7 @@ function renderToday(){
   const cards=list.map(s=>{
     const isLive=live[s.id]!=null;
     const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
-    const isAbsent=absentToday.has(s.id);
+    const isAbsent=isAbsentToday(s.id);
     const done=doneToday(s.id);
     const dayNo=Math.min((cycleDone[s.id]||0)+((isLive||done)?0:0), s.plan); // 현재 회차 진행
     const shownDay=Math.min(cycleDone[s.id]||0, s.plan);
@@ -574,6 +576,13 @@ function clearAbsent(id){ absentToday.delete(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   if(absentLog[id])absentLog[id]=absentLog[id].filter(x=>x!==t);
   renderToday(); }
+function clearAbsentFrom(sid, dayMs){
+  const k=dayKey(dayMs);
+  if(absentLog[sid]) absentLog[sid]=absentLog[sid].filter(x=>dayKey(x)!==k);
+  if(dayKey(now.getTime())===k) absentToday.delete(sid);
+  saveData(); renderSchedule();
+  showToast(`${st(sid).name} 결석 취소`);
+}
 function addTemp(id){tempToday.add(id);renderToday();}
 function removeTemp(id){tempToday.delete(id);renderToday();}
 
@@ -1300,6 +1309,7 @@ function renderSchedule(){
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
           <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${cycleDone[s.id]||0}회</div>
+          ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;
   }

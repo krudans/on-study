@@ -99,6 +99,7 @@ const LOCK_LABEL = LOCK_MODE==='admin' ? '관리자 페이지' : '앱';
 let MY_SID = (function(){ try{ let s=sessionStorage.getItem('onstudy_sid'); if(!s){ s=Math.random().toString(36).slice(2)+Date.now().toString(36); sessionStorage.setItem('onstudy_sid',s);} return s; }catch(e){ return Math.random().toString(36).slice(2)+Date.now().toString(36);} })();
 function lockDoc(){ return fbDb.collection('locks').doc(LOCK_MODE); }
 let _lockUnsub=null, _iAmHolder=false, _sessionDead=false, _pendingHolder=null;
+function _now(){ return Date.now(); }
 
 function _ov(html){
   let el=document.getElementById('sessionOverlay');
@@ -117,13 +118,18 @@ const _txt='font-size:14px;color:#555;line-height:1.65;margin-bottom:18px';
 
 /* 로그인 후 auth.js가 initApp 대신 호출 */
 async function acquireSession(){
+  // 단일 세션 락 비활성화 — 동시 접속 허용
+  initApp();
+}
+async function _acquireSession_LOCKED(){
   let snap; try{ snap=await lockDoc().get(); }catch(e){ initApp(); return; }
   const holder = snap.exists ? (snap.data()||{}).holder : null;
   if(!holder || holder.sessionId===MY_SID){ await _takeLock(); return; }
   _pendingHolder=holder; _showBusy(holder); _subscribeLock();
 }
 async function _takeLock(){
-  try{ await lockDoc().set({ holder:{email:currentUser.email,name:currentUser.name,sessionId:MY_SID}, since:Date.now(), request:null, kick:null }, {merge:false}); }catch(e){}
+  if(_iAmHolder) return;
+  try{ await lockDoc().set({ holder:{email:currentUser.email,name:currentUser.name,sessionId:MY_SID}, since:_now(), request:null, kick:null }, {merge:false}); }catch(e){}
   _iAmHolder=true; _ovHide(); _subscribeLock(); initApp();
 }
 function _showBusy(holder){
@@ -144,10 +150,29 @@ async function sessionRequest(){
 }
 async function sessionForce(){
   const h=_pendingHolder||{};
-  try{ await lockDoc().set({ holder:{email:currentUser.email,name:currentUser.name,sessionId:MY_SID}, since:Date.now(), request:null, kick:h.sessionId||null }, {merge:false}); }catch(e){}
+  try{ await lockDoc().set({ holder:{email:currentUser.email,name:currentUser.name,sessionId:MY_SID}, since:_now(), request:null, kick:h.sessionId||null }, {merge:false}); }catch(e){}
   _iAmHolder=true; _ovHide(); _subscribeLock(); initApp();
 }
 async function sessionLeave(){ try{ await lockDoc().set({request:null},{merge:true}); }catch(e){} doLogout(); _ovHide(); }
+
+/* 명시적 나가기(✕): 저장 + 락 해제 + 로그아웃 */
+function exitApp(){
+  const sheet=document.getElementById('sheet');
+  if(sheet){
+    sheet.innerHTML=`<h3>${LOCK_LABEL} 종료</h3>
+      <div class="cap">저장하고 나갑니다. 다른 기기에서 바로 접속할 수 있게 접속자도 해제돼요.</div>
+      <div class="sheet-btns"><button class="btn start" onclick="doExitApp()">저장하고 나가기</button>
+        <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+    document.getElementById('scrim').classList.add('show');
+  } else if(confirm(`${LOCK_LABEL}을 종료할까요? 저장하고 나갑니다.`)){ doExitApp(); }
+}
+async function doExitApp(){
+  try{ writeNow(); }catch(e){}
+  try{ await lockDoc().set({holder:null,request:null,kick:null},{merge:false}); }catch(e){}
+  _iAmHolder=false;
+  try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}
+  doLogout();
+}
 
 function _showRequestBanner(by){
   _ov(`<div style="${_ttl}">접속 종료 요청</div>

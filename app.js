@@ -953,7 +953,7 @@ function closeSheet(){document.getElementById('scrim').classList.remove('show');
 document.getElementById('scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeSheet();});
 
 /* ===== 설정 (관리자) ===== */
-const OWNER_EMAIL='mhstory@gmail.com';
+const OWNER_EMAIL='mhstory76@gmail.com';
 // 로그인 권한을 가진 관리자 명단 — Firestore admins 컬렉션에서 로드
 let admins=[];
 let adminSection=null;  // null=허브, 'basic'/'people'=하위

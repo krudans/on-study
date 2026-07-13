@@ -21,6 +21,8 @@ let notes=[];
 // 결석일 sid -> [timestamp] / 보강일 sid -> [{t,time,done}]
 let absentLog={};
 let makeupLog={};
+// 수업 취소(휴강): 정규 수업일을 미리 뺀 날 (학생별 dayKey 배열). 회차 제외 → 종료일 밀림
+let skipLog={};
 // 지난 차수(팩) 이력. {no,plan,done,settledDate}
 let packHistory={};
 // 정산 건(청구서): 클래스 완주 시 자동 생성. {id,sid,plan,amount,endDate,paid,paidDate}
@@ -83,15 +85,16 @@ function toggleHoliday(ms){
 // 규칙: 출석(정규수업)+보강 = 회차로 카운트, 결석은 카운트 제외(그만큼 밀림)
 function currentClassInfo(s){
   const plan=s.plan||0;
-  const info={start:null, end:null, sessions:[], absents:[], makeups:[], windowDates:new Set()};
+  const info={start:null, end:null, sessions:[], absents:[], makeups:[], skips:[], windowDates:new Set()};
   if(!plan || !s.days || !s.days.length) return info;
   const absentSet=new Set((absentLog[s.id]||[]).map(dayKey));
   const makeupSet=new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)));
+  const skipSet=new Set((skipLog[s.id]||[]).map(dayKey));
   const done=Math.min(cycleDone[s.id]||0, plan);
   const todayK=dayKey(now.getTime());
   const isSession=(d)=>{ const k=dayKey(d.getTime());
     if(makeupSet.has(k)) return true;
-    if(s.days.includes(d.getDay()) && !absentSet.has(k) && !isHoliday(k)) return true;
+    if(s.days.includes(d.getDay()) && !absentSet.has(k) && !isHoliday(k) && !skipSet.has(k)) return true;
     return false; };
   // 1) 이번 클래스 시작일: 수동값 우선, 없으면 오늘 기준 완료 회차만큼 뒤로 세기
   let start=null;
@@ -105,12 +108,15 @@ function currentClassInfo(s){
   }
   if(start==null) start=todayK;
   info.start=start;
-  // 2) 시작부터 앞으로 plan개 세션 수집 (결석은 표시만, 카운트 제외 → 밀림)
+  // 2) 시작부터 앞으로 plan개 세션 수집 (결석·휴강은 표시만, 카운트 제외 → 밀림)
   let count=0;
   for(let i=0;i<800 && count<plan;i++){
     const dd=new Date(start); dd.setDate(dd.getDate()+i);
     const k=dayKey(dd.getTime());
-    if(s.days.includes(dd.getDay()) && absentSet.has(k) && !makeupSet.has(k)){ info.absents.push(k); info.windowDates.add(k); continue; }
+    if(s.days.includes(dd.getDay()) && !makeupSet.has(k)){
+      if(absentSet.has(k)){ info.absents.push(k); info.windowDates.add(k); continue; }
+      if(skipSet.has(k)){ info.skips.push(k); info.windowDates.add(k); continue; }
+    }
     if(isSession(dd)){
       info.sessions.push(k);
       if(makeupSet.has(k)) info.makeups.push(k);
@@ -213,8 +219,8 @@ function renderHome(){
         <div class="center"><div class="n">${doneN}</div><div class="l">/ ${total} 완료</div></div>
       </div>
       <div class="hero-stats">
+        <div class="hstat"><span class="k">오늘 총 수업</span><span class="v">${roster.length}명</span></div>
         <div class="hstat"><span class="k">오늘 남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
-        <div class="hstat"><span class="k">이번 달 수업</span><span class="v">${monthDone}회</span></div>
         <div class="hstat"><span class="k">정산 필요</span><span class="v ${unpaidBills.length?'warn':''}">${unpaidBills.length}건</span></div>
       </div>
     </div>
@@ -224,9 +230,6 @@ function renderHome(){
     </div>
     <div class="actions" style="margin-top:-12px">
       <button class="act" onclick="goTab('counsel')"><div class="t">학부모 상담</div><div class="d">상담 메모·카톡</div></button>
-      <button class="act" onclick="goTab('report')"><div class="t">결산</div><div class="d">월별 매출 정리</div></button>
-    </div>
-    <div class="actions" style="margin-top:-12px">
       <button class="act" onclick="goTab('schedule')"><div class="t">전체 일정</div><div class="d">날짜별 수업 예정</div></button>
     </div>
     <div class="block">
@@ -303,11 +306,10 @@ function renderToday(){
       action=`<button class="btn ghost" onclick="clearAbsent(${s.id})">결석 취소</button>`;
     } else {
       // 등원 / 하원 / 결석 항상 표시. 수업 중이면 하원 강조.
-      action=`<div class="attn-btns four">
+      action=`<div class="attn-btns">
         <button class="btn ${isLive?'ghost':'start'}" onclick="startSession(${s.id})">등원</button>
         <button class="btn ${isLive?'stop':'hawon'}" onclick="stopSession(${s.id})">하원</button>
         <button class="btn absentbtn" onclick="markAbsent(${s.id})">결석</button>
-        <button class="btn makeupbtn" onclick="openMakeupSheet(${s.id})">보강</button>
       </div>
       <div class="row-btns">
         <button class="btn ghost small" onclick="manualComplete(${s.id})">바로 완료</button>
@@ -372,6 +374,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
   const sessionSet=new Set(info.sessions);
   const absentSet=new Set(info.absents);
   const makeupSet=new Set(info.makeups);
+  const skipSet=new Set(info.skips);
   const todayT=dayKey(now.getTime());
   const y=cal.y, m=cal.m;
   const first=new Date(y,m,1).getDay();
@@ -383,13 +386,13 @@ function buildCalendar(s, cal, prevClick, nextClick){
   for(let dd=1;dd<=days;dd++){
     const t=new Date(y,m,dd).getTime();
     let c='cal-d', style='';
-    if(absentSet.has(t)) c+=' absent';
-    else if(sessionSet.has(t)){
-      c += (t<=todayT?' att':' up');
-      if(makeupSet.has(t)) style+='outline:2px solid var(--amber);outline-offset:-2px;';
-    }
+    if(skipSet.has(t)){ style+='background:#EDEDED;color:#B0ADA6;text-decoration:line-through;'; }
+    else if(makeupSet.has(t)){ style+='background:#EAE3F7;color:#6B4FBB;font-weight:700;'; }
+    else if(absentSet.has(t)) c+=' absent';
+    else if(sessionSet.has(t)) c+=(t<=todayT?' att':' up');
     if(t===todayT)c+=' tod';
-    const clickable = t>=todayT;
+    const editable = document.body.dataset.mode==='admin';
+    const clickable = editable && t>=todayT;
     if(clickable) style+='cursor:pointer;';
     const onclick = clickable ? `onclick="calDayClick(${s.id},${t})"` : '';
     grid+=`<div class="${c}" style="${style}" ${onclick}>${dd}</div>`;
@@ -415,7 +418,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
   const mkText=mks.length? mks.map(mk=>{const d=new Date(mk.t);
     return `${d.getMonth()+1}.${d.getDate()}${mk.time?' '+mk.time:''}${mk.done?' ✓':''}`;}).join(', ') : '없음';
   const mkLine=`<div class="cf-row"><span class="cf-k">보강일</span>
-    <span class="cf-v">${mkText} <button class="cf-more" onclick="openMakeupSheet(${s.id})">＋ 지정</button></span></div>`;
+    <span class="cf-v">${mkText} ${document.body.dataset.mode==='admin'?`<button class="cf-more" onclick="openMakeupSheet(${s.id})">＋ 지정</button>`:''}</span></div>`;
 
   // 이번 회차 요약(시작~종료)
   const rangeLine=`<div class="cf-row"><span class="cf-k">이번 회차</span>
@@ -427,6 +430,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
       <button onclick="${nextClick||`calNav(${s.id},1)`}" aria-label="다음 달">›</button></div>
     <div class="cal-grid">${grid}</div>
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
+      <span><i class="lg" style="background:#EAE3F7"></i>보강</span><span><i class="lg" style="background:#EDEDED"></i>휴강</span>
       <span><i class="lg ab"></i>결석</span><span><i class="lg tod"></i>오늘</span></div>
     <div class="cal-foot">${rangeLine}${payLine}${mkLine}</div>
   </div>`;
@@ -466,16 +470,43 @@ function deleteLesson(id){
   closeSheet(); renderToday(); showToast('오늘 학습내용을 삭제했어요');
 }
 
-// 달력에서 오늘 이후 날짜 클릭 → 보강일 지정
+// 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
+function refreshOpenCal(sid){
+  if(typeof openCal!=='undefined' && openCal===sid){ const slot=document.getElementById('cal-'+sid); if(slot) slot.innerHTML=buildCalendar(st(sid)); }
+  if(typeof stuCal!=='undefined' && stuCal.open===sid) renderStudents();
+  if(typeof mngCal!=='undefined' && mngCal.open===sid) renderManage();
+}
+// 달력에서 오늘 이후 날짜 클릭 → 상태별 동작
 function calDayClick(sid, ms){
-  if(dayKey(ms) < dayKey(now.getTime())){ showToast('지난 날짜는 보강으로 지정할 수 없어요'); return; }
-  const s=st(sid); const d=new Date(ms);
+  const s=st(sid), k=dayKey(ms);
+  if(k < dayKey(now.getTime())){ showToast('지난 날짜는 변경할 수 없어요'); return; }
+  const isMk = (makeupLog[sid]||[]).some(mk=>dayKey(mk.t)===k);
+  const isSkip = (skipLog[sid]||[]).some(t=>dayKey(t)===k);
+  const isRegular = s.days.includes(new Date(k).getDay()) && !isHoliday(k);
+  const d=new Date(ms), dstr=`${d.getMonth()+1}월 ${d.getDate()}일 (${WD[d.getDay()]})`;
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
-    <div class="cap">${d.getMonth()+1}월 ${d.getDate()}일 (${WD[d.getDay()]})을 보강일로 설정할까요?<br>보강은 회차에 포함돼 종료일이 다시 계산돼요.</div>
-    <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||'16:00'}"></div>
-    <div class="sheet-btns"><button class="btn start" onclick="confirmMakeup(${sid},${ms})">예, 보강 지정</button>
-      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  if(isMk){
+    sheet.innerHTML=`<h3>${s.name} · ${dstr}</h3>
+      <div class="cap">이 날은 <b>보강일</b>이에요. 보강을 취소하면 회차에서 빠지고 종료일이 다시 계산돼요.</div>
+      <div class="sheet-btns"><button class="btn pay" onclick="cancelMakeup(${sid},${ms})">보강 취소</button>
+        <button class="btn sms" onclick="closeSheet()">닫기</button></div>`;
+  } else if(isSkip){
+    sheet.innerHTML=`<h3>${s.name} · ${dstr}</h3>
+      <div class="cap">이 날은 <b>수업 취소(휴강)</b> 상태예요. 다시 수업일로 되돌릴까요?</div>
+      <div class="sheet-btns"><button class="btn start" onclick="unskipDay(${sid},${ms})">수업 취소 해제</button>
+        <button class="btn sms" onclick="closeSheet()">닫기</button></div>`;
+  } else if(isRegular){
+    sheet.innerHTML=`<h3>${s.name} · ${dstr}</h3>
+      <div class="cap">이 날은 <b>정규 수업일</b>이에요. 이 날 수업을 취소(휴강)할까요? 회차에서 빠지고 종료일이 밀립니다.</div>
+      <div class="sheet-btns"><button class="btn pay" onclick="skipDay(${sid},${ms})">이 날 수업 취소</button>
+        <button class="btn sms" onclick="closeSheet()">닫기</button></div>`;
+  } else {
+    sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
+      <div class="cap">${dstr}을 보강일로 설정할까요?<br>보강은 회차에 포함돼 종료일이 다시 계산돼요.</div>
+      <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||'16:00'}"></div>
+      <div class="sheet-btns"><button class="btn start" onclick="confirmMakeup(${sid},${ms})">예, 보강 지정</button>
+        <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  }
   document.getElementById('scrim').classList.add('show');
 }
 function confirmMakeup(sid, ms){
@@ -484,12 +515,29 @@ function confirmMakeup(sid, ms){
   const arr=(makeupLog[sid]=makeupLog[sid]||[]);
   if(arr.some(mk=>dayKey(mk.t)===k)){ showToast('이미 보강일로 지정된 날이에요'); closeSheet(); return; }
   arr.push({t:k, time:tm, done:false});
-  saveData(); closeSheet();
-  if(openCal===sid){ const slot=document.getElementById('cal-'+sid); if(slot) slot.innerHTML=buildCalendar(st(sid)); }
-  if(stuCal.open===sid) renderStudents();
-  if(mngCal.open===sid) renderManage();
+  saveData(); closeSheet(); refreshOpenCal(sid);
   const d=new Date(ms);
   showToast(`${st(sid).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} 지정됨 · 종료일 재계산`);
+}
+function cancelMakeup(sid, ms){
+  const k=dayKey(ms);
+  if(makeupLog[sid]) makeupLog[sid]=makeupLog[sid].filter(mk=>dayKey(mk.t)!==k);
+  saveData(); closeSheet(); refreshOpenCal(sid);
+  showToast(`${st(sid).name} 보강 취소됨 · 종료일 재계산`);
+}
+function skipDay(sid, ms){
+  const k=dayKey(ms);
+  const arr=(skipLog[sid]=skipLog[sid]||[]);
+  if(!arr.some(t=>dayKey(t)===k)) arr.push(k);
+  saveData(); closeSheet(); refreshOpenCal(sid);
+  const d=new Date(ms);
+  showToast(`${st(sid).name} ${d.getMonth()+1}.${d.getDate()} 수업 취소(휴강) · 종료일 밀림`);
+}
+function unskipDay(sid, ms){
+  const k=dayKey(ms);
+  if(skipLog[sid]) skipLog[sid]=skipLog[sid].filter(t=>dayKey(t)!==k);
+  saveData(); closeSheet(); refreshOpenCal(sid);
+  showToast(`${st(sid).name} 수업 취소 해제 · 다시 수업일`);
 }
 function openMakeupSheet(id){
   const s=st(id);
@@ -1465,7 +1513,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog,
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1487,6 +1535,7 @@ function applyState(d){
   if(typeof d.billSeq==='number') billSeq=d.billSeq;
   if(d.holidaysExtra) holidaysExtra=d.holidaysExtra;
   if(d.workdaysExtra) workdaysExtra=d.workdaysExtra;
+  if(d.skipLog) skipLog=d.skipLog;
 }
 
 /* 로그인 성공 후 auth.js가 호출 */

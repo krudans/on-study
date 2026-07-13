@@ -71,7 +71,13 @@ function timeFor(s,dayIdx){
   return s.time||'16:00';
 }
 // 시작일 이전 날짜인지 (시작일 null이면 항상 false=제한 없음)
-function beforeStart(s,ms){ return s.startDate ? ms < s.startDate : false; }
+// 학생의 수업 시작 기준일 (이번 회차 시작일 우선, 없으면 학원 수업 시작일)
+function classStartMs(s){
+  if(s.cycleStart) return dayKey(s.cycleStart);
+  if(s.startDate) return dayKey(s.startDate);
+  return null;
+}
+function beforeStart(s,ms){ const stt=classStartMs(s); return stt!=null ? dayKey(ms) < stt : false; }
 
 // 기준(ms) 이후 첫 수업일 (기본 요일 스케줄)
 function nextClassDay(s, fromMs){
@@ -188,7 +194,7 @@ let tempToday=new Set();
 let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 // 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
-const isTodayStudent=(x)=>x.days.includes(todayIdx)||tempToday.has(x.id);
+const isTodayStudent=(x)=> tempToday.has(x.id) || (x.days.includes(todayIdx) && !beforeStart(x, dayKey(now.getTime())));
 const todayRoster=()=>students.filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));
 
 // 학생의 지난 출석일(요일표 기준, 오늘 이전) — 달력 표시용
@@ -1136,7 +1142,7 @@ function manageCard(s, forDay){
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
     <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
-    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${cycleDone[s.id]||0}/${s.plan}회차</div>
+    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}/${s.plan}회차</div>
     <div class="mg-line">${gLines}</div>
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>

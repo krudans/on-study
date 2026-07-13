@@ -1315,13 +1315,21 @@ function renderSchedule(){
         const inTime = rec&&rec.start ? hm(rec.start) : (isToday && live[s.id]!=null ? hm(live[s.id]) : '');
         const outTime = rec&&rec.end ? hm(rec.end) : '';
         const abs=(absentLog[s.id]||[]).some(x=>new Date(x).toDateString()===sd.toDateString());
-        const statusHtml = abs
-          ? `<span style="color:#D9342B;border:1.6px solid #D9342B;border-radius:999px;padding:3px 12px;font-weight:800;font-size:12px">결석</span>`
-          : (outTime ? `<span class="contract" style="color:var(--green);font-weight:700">하원 완료</span>`
-            : (inTime ? `<span class="contract" style="color:var(--amber);font-weight:700">수업 중</span>`
-            : `<span class="contract">예정 ${t}</span>`));
-        const timeLine = abs ? '결석 처리됨'
-          : (inTime||outTime) ? `등원 ${inTime||'—'} · 하원 ${outTime||'—'}` : `예정 시간 ${t}`;
+        const isLiveNow = isToday && live[s.id]!=null && !rec;
+        let statusHtml, timeLine;
+        if(abs){
+          statusHtml=`<span style="color:#D9342B;border:1.6px solid #D9342B;border-radius:999px;padding:3px 12px;font-weight:800;font-size:12px">결석</span>`;
+          timeLine='결석 처리됨';
+        } else if(rec){
+          statusHtml=`<span class="contract" style="color:var(--green);font-weight:700">하원 완료</span>`;
+          timeLine=(inTime||outTime) ? `등원 ${inTime||'—'} · 하원 ${outTime||'—'}` : '수업 완료 (시각 기록 없음)';
+        } else if(isLiveNow){
+          statusHtml=`<span class="contract" style="color:var(--amber);font-weight:700">수업 중</span>`;
+          timeLine=`등원 ${inTime||'—'} · 수업 중`;
+        } else {
+          statusHtml=`<span class="contract">예정 ${t}</span>`;
+          timeLine=`예정 시간 ${t}`;
+        }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
         return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>

@@ -2,7 +2,7 @@
    app.js를 그대로 재사용하되, 진입/네비게이션만 관리자용으로 바꿔요.
    같은 Firestore store를 쓰므로 앱과 실시간 동기화됩니다. */
 
-let adminView = 'manage';
+let adminView = 'schedule';
 
 function renderAdminView(view){
   adminView = view;
@@ -29,7 +29,7 @@ function initApp(){
     const who=document.getElementById('sideWho'); if(who) who.textContent=currentUser.name;
     const mail=document.getElementById('sideMail'); if(mail) mail.textContent=currentUser.email;
   }
-  adminNav('manage');
+  adminNav('schedule');
 }
 
 /* 다른 기기(앱) 변경이 실시간으로 들어오면 현재 화면 다시 그림 (오버라이드) */

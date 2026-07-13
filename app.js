@@ -810,11 +810,13 @@ function adminBasic(){
     <h2 class="page-h">수업 기본 설정</h2>
     <div class="set-sec">
       <h3>패키지 금액</h3>
-      <div class="cap">회차별 수업료를 정해요. 정산 금액이 여기 값으로 자동 계산됩니다.</div>
-      <div class="price-row"><label>8회</label>
-        <div class="price-in"><input type="number" value="${packages[8]}" onchange="setPrice(8,this.value)"><span>원</span></div></div>
-      <div class="price-row"><label>12회</label>
-        <div class="price-in"><input type="number" value="${packages[12]}" onchange="setPrice(12,this.value)"><span>원</span></div></div>
+      <div class="cap">회차별 수업료를 정해요. 정산 금액이 여기 값으로 자동 계산됩니다. 필요하면 패키지를 추가할 수 있어요.</div>
+      ${Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b).map(n=>`
+        <div class="price-row"><label>${n}회</label>
+          <div class="price-in"><input type="number" value="${packages[n]}" onchange="setPrice(${n},this.value)"><span>원</span></div>
+          ${(n===8||n===12)?'':`<button class="btn ghost small" style="width:auto;margin:0 0 0 8px;padding:9px 12px" onclick="removePackage(${n})">삭제</button>`}
+        </div>`).join('')}
+      <button class="btn ghost small" style="width:auto;margin-top:8px;padding:10px 16px" onclick="openPackageSheet()">＋ 패키지 추가</button>
     </div>
     <div class="set-sec">
       <h3>메모 마감 알림</h3>
@@ -873,7 +875,28 @@ function logout(){ adminSection=null; doLogout(); }  // doLogout: auth.js
 let closeTime='20:00';
 function setCloseTime(v){ closeTime=v; saveData(); }
 function resetData(){ location.reload(); }
-function setPrice(plan,val){ packages[plan]=parseInt(val||0,10)||0; }
+function setPrice(plan,val){ packages[plan]=parseInt(val||0,10)||0; saveData(); }
+function openPackageSheet(){
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>패키지 추가</h3>
+    <div class="cap">회차 수와 금액을 넣어요. (예: 10회 · 130,000원)</div>
+    <div class="fld"><label>회차</label><input type="number" id="pkN" class="note-select" min="1" placeholder="예: 10"></div>
+    <div class="fld"><label>금액 (원)</label><input type="number" id="pkAmt" class="note-select" min="0" placeholder="예: 130000"></div>
+    <div class="sheet-btns"><button class="btn start" onclick="addPackage()">추가</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function addPackage(){
+  const n=parseInt(document.getElementById('pkN').value||0,10);
+  const amt=parseInt(document.getElementById('pkAmt').value||0,10)||0;
+  if(!n||n<1){showToast('회차를 입력해주세요');return;}
+  if(packages[n]!=null){showToast('이미 있는 회차예요. 금액만 수정하세요');return;}
+  packages[n]=amt; saveData(); closeSheet(); openAdmin('basic'); showToast(`${n}회 패키지 추가됨`);
+}
+function removePackage(n){
+  if(n===8||n===12){showToast('기본 패키지(8·12회)는 삭제할 수 없어요');return;}
+  delete packages[n]; saveData(); openAdmin('basic'); showToast(`${n}회 패키지 삭제됨`);
+}
 function setPlan(id,plan){ st(id).plan=plan; }
 
 let nextId=100;
@@ -948,7 +971,8 @@ function openStudentSheet(id){
   const g2=gs[1]||null;
   const startVal = s.startDate ? new Date(s.startDate).toISOString().slice(0,10) : '';
   const curCycle = id ? ((cycleDone[id]||0)+1) : 1;  // 진행 중인 회차 번호 = 완료+1
-  const preset = (s.plan===8||s.plan===12);
+  const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
+  const preset = pkgList.includes(s.plan);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
   const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
@@ -967,9 +991,10 @@ function openStudentSheet(id){
     <div class="fld"><label>시작일 <span class="hint">모르면 비워두세요</span></label>
       <input type="date" id="stStart" class="note-select" value="${startVal}"></div>
     <div class="fld"><label>패키지 회차 <span class="hint">이 회차를 다 채우면 정산</span></label>
-      <div class="seg2"><button type="button" id="pl8" class="${s.plan===8?'on':''}" onclick="pickPlan(8)">8회</button>
-        <button type="button" id="pl12" class="${s.plan===12?'on':''}" onclick="pickPlan(12)">12회</button></div>
-      <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (예: 10, 16, 20)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
+      <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
+        ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
+      </div>
+      <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
     <div class="fld"><label>현재 회차 <span class="hint">이 클래스에서 지금 몇 회차 진행 중인지 (1 = 첫 수업)</span></label>
       <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="1"></div>
     <div class="fld"><label>이번 회차 시작일 <span class="hint">비워두면 자동</span></label>
@@ -1000,12 +1025,15 @@ function openStudentSheet(id){
   syncDayTimes();
   document.getElementById('scrim').classList.add('show');
 }
-function pickPlan(p){const sheet=document.getElementById('sheet');
+function stylePlBtn(b,on){ b.style.background=on?'var(--ink)':'#F7F6F1'; b.style.color=on?'#fff':'var(--ink)'; b.style.borderColor=on?'var(--ink)':'var(--line)'; }
+function pickPlan(p){
+  const sheet=document.getElementById('sheet');
+  const btns=[...document.querySelectorAll('#planBtns .pl-btn')];
   if(p===null){ const v=+document.getElementById('stPlanCustom').value||0; sheet.dataset.plan=v;
-    document.getElementById('pl8').classList.remove('on'); document.getElementById('pl12').classList.remove('on'); return; }
-  sheet.dataset.plan=p; document.getElementById('stPlanCustom').value='';
-  document.getElementById('pl8').classList.toggle('on',p===8);
-  document.getElementById('pl12').classList.toggle('on',p===12);}
+    btns.forEach(b=>stylePlBtn(b,false)); return; }
+  sheet.dataset.plan=p; const ci=document.getElementById('stPlanCustom'); if(ci)ci.value='';
+  btns.forEach(b=>stylePlBtn(b, +b.dataset.p===p));
+}
 function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset['g'+n+'kakao']=v?'1':'0';
   document.getElementById('g'+n+'kkO').classList.toggle('on',v);
   document.getElementById('g'+n+'kkX').classList.toggle('on',!v);}

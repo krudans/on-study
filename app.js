@@ -883,7 +883,7 @@ function renderSettle(){
     const endMs=cycleEndOf(s);
     const endTxt = endMs ? new Date(endMs).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '미정';
     return `<div class="row">
-      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${cycleDone[s.id]||0}/${s.plan}회</span></div>
+      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}/${s.plan}회</span></div>
       <div class="mg-line">🗓 정산 예정일 <b>${endTxt}</b> (회차 마지막 수업일)</div>
       <div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">납입 요청 메시지</button></div>
     </div>`;
@@ -1388,7 +1388,7 @@ function renderSchedule(){
         return `<div class="row" style="padding:12px 14px;cursor:pointer${abs?';border:1.6px solid #D9342B':''}" onclick="openStudentCalendar(${s.id})">
           <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
-          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${cycleDone[s.id]||0}회</div>
+          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length}회</div>
           ${abs?`<div class="row-btns" style="margin-top:9px"><button class="btn ghost small" onclick="event.stopPropagation();clearAbsentFrom(${s.id},${schedSel})">결석 취소</button></div>`:''}
         </div>`;}).join('')
         : `<div class="muted-card">이 날은 예정된 수업이 없어요.</div>`)+`</div>`;

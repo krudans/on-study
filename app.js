@@ -978,9 +978,15 @@ function nextSessionAfter(s, ms){
 function doRollover(id){
   const s=st(id); if(!s||!s.plan) return false;
   const info=currentClassInfo(s);
-  const doneCount=doneCountOf(s);   // 단일 계산 함수 사용
-  if(doneCount < s.plan) return false;   // 아직 계약 회차 안 참
-  const endMs = info.end || cycleEndOf(s) || dayKey(now.getTime());
+  const byCalendar = doneCountOf(s) >= s.plan;              // 달력 기준 완주
+  const byCounter  = (cycleDone[id]||0) >= s.plan;          // 등하원 카운터 기준 완주
+  if(!byCalendar && !byCounter) return false;               // 아직 계약 회차 안 참
+  // 완주한 클래스의 종료일
+  let endMs = byCalendar ? (info.end || cycleEndOf(s)) : null;
+  if(!endMs){
+    const mine = sessions.filter(x=>x.sid===id).map(x=>dayKey(x.date)).sort((a,b)=>b-a);
+    endMs = mine.length ? mine[0] : dayKey(now.getTime());  // 마지막 실제 수업일
+  }
   createBill(s, endMs);                    // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
   hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:info.start||null, settledDate:new Date(endMs)});

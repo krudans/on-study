@@ -68,6 +68,8 @@ function _applyRemote(data){
   applyState(data);
   _applyingRemote=false;
   _lastJSON=currentJSON();                            // 원격 반영 후 기준 갱신
+  // 원격 데이터에도 옛 오류가 있을 수 있으니 정리·자동 롤오버를 다시 확인(바뀐 게 있으면 저장됨)
+  try{ if(typeof autoRolloverAll==='function') autoRolloverAll(); }catch(e){}
   const app=document.getElementById('app');
   if(app && app.style.display!=='none' && typeof refreshCurrentView==='function'){
     refreshCurrentView();

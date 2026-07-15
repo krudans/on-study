@@ -904,6 +904,18 @@ function renderStudents(){
 }
 
 /* ===== 정산 ===== */
+/* 정산 건 '자세히' 펼침 상태 */
+let billOpen=new Set();
+function toggleBill(id){ if(billOpen.has(id))billOpen.delete(id); else billOpen.add(id); renderSettle(); }
+/* 정산 건의 회차 날짜 목록 (없으면 실제 출결 기록에서 복원) */
+function billSessions(b){
+  if(Array.isArray(b.sessions) && b.sessions.length) return b.sessions;
+  const mine = sessions.filter(x=>x.sid===b.sid && dayKey(x.date)<=b.endDate)
+    .map(x=>dayKey(x.date)).sort((a,b2)=>a-b2);
+  return mine.slice(-(b.plan||0));
+}
+const fmtMD=(ms)=>{ const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
+
 /* 정산 화면 기준 월 (기본 이번 달, ‹ › 로 이동) */
 let settleYM=null;
 function settleBaseYM(){ return settleYM ? {y:settleYM.y, m:settleYM.m} : {y:now.getFullYear(), m:now.getMonth()}; }
@@ -926,18 +938,28 @@ function renderSettle(){
 
   const billRow=(b)=>{
     const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
+    const list=billSessions(b);
+    const startMs = b.startDate || (list.length?list[0]:null);
+    const period = startMs ? `${fmtMD(startMs)} ~ ${fmtMD(b.endDate)}` : `~ ${fmtMD(b.endDate)}`;
+    const open = billOpen.has(b.id);
+    const detail = open ? `<div style="background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:9px">
+        ${list.length ? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--ink)">
+            <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
+          : '<div style="font-size:13px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
+      </div>` : '';
+    const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
+      <div class="mg-line">📅 <b>${period}</b> · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
+      <div class="row-btns" style="margin-top:8px">
+        <button class="btn ghost small" onclick="toggleBill(${b.id})">${open?'접기 ▲':'자세히 ▾'}</button>
+      </div>${detail}`;
     if(!b.paid){
-      return `<div class="row">
-        <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
-        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 수업 끝남 · <span style="color:var(--clay);font-weight:600">아직 못 받음</span></div>
+      return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">
           <button class="btn pay small" onclick="openSettleMsg(${b.sid})">납입 요청 메시지</button>
           <button class="btn settle small" onclick="settleBill(${b.id})">받았어요</button>
         </div></div>`;
     }
-    return `<div class="row" style="opacity:.72">
-        <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
-        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--green);font-weight:600">받음</span></div>
+    return `<div class="row" style="opacity:.75">${head}
         <div class="row-btns" style="margin-top:10px">
           <button class="btn ghost small" onclick="unsettleBill(${b.id})">받음 취소</button>
         </div></div>`;
@@ -994,10 +1016,13 @@ function renderSettle(){
 }
 /* ===== 정산 건(청구서) — 클래스 완주 시 자동 생성, 완료 처리해야 사라짐, 미납 누적 ===== */
 function billMonthTxt(b){ const d=new Date(b.endDate); return `${d.getMonth()+1}월분`; }
-function createBill(s, endMs){
+function createBill(s, endMs, meta){
   const end=endMs||dayKey(now.getTime());
   if(bills.some(b=>b.sid===s.id && b.endDate===end)) return; // 중복 정산건 방지
+  const m=meta||{};
   bills.push({id:++billSeq, sid:s.id, plan:s.plan, amount:priceOf(s),
+    startDate: m.startDate||null,          // 클래스 시작일
+    sessions: m.sessions||null,            // 회차별 날짜 [ms,...]
     endDate:end, paid:false, paidDate:null});
 }
 // 회차를 다 채우면: 정산 건 생성(미납) + 과거 클래스 보존 + 새 클래스 시작 (코어, 조용)
@@ -1021,7 +1046,14 @@ function doRollover(id){
     const mine = sessions.filter(x=>x.sid===id).map(x=>dayKey(x.date)).sort((a,b)=>b-a);
     endMs = mine.length ? mine[0] : dayKey(now.getTime());  // 마지막 실제 수업일
   }
-  createBill(s, endMs);                    // 이전 클래스 → 정산 필요(미납)
+  // 완주한 클래스의 회차 날짜 목록
+  let sessList = byCalendar ? info.sessions.slice(0, s.plan) : null;
+  if(!sessList || !sessList.length){
+    const mine = sessions.filter(x=>x.sid===id && dayKey(x.date)<=endMs)
+      .map(x=>dayKey(x.date)).sort((a,b)=>a-b);
+    sessList = mine.slice(-s.plan);        // 실제 등하원 기록에서 마지막 plan개
+  }
+  createBill(s, endMs, {startDate: sessList[0] || info.start || null, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
   hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:info.start||null, settledDate:new Date(endMs)});
   cycleDone[id]=0;

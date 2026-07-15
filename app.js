@@ -939,9 +939,14 @@ function pastClassesHtml(s){
   const show=openAll?all:all.slice(0,3);
   const rows=show.map(h=>{
     const key=s.id+'-'+h.no;
-    const list=Array.isArray(h.sessions)&&h.sessions.length?h.sessions
-      : (h.end? sessionDaysBack(s,h.end,h.done||h.plan||0) : []);
-    const st_=h.start||(list.length?list[0]:null), en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
+    const cnt=h.done||h.plan||0;
+    // 종료일: 저장값 → 정산일 순
+    const en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
+    // 회차 목록: 저장된 게 온전하면 사용, 아니면 종료일부터 거꾸로 복원(정산 건과 동일 규칙)
+    let list = (Array.isArray(h.sessions) && h.sessions.length>=cnt) ? h.sessions
+             : (en ? sessionDaysBack(s, en, cnt) : []);
+    // 시작일: 회차 목록의 첫날. 저장된 start가 종료일보다 뒤면(옛 데이터 오류) 무시
+    let st_ = list.length ? list[0] : ((h.start && en && h.start<=en) ? h.start : null);
     const period=(st_&&en)?`${fmtMD(st_)} ~ ${fmtMD(en)}`:(en?`~ ${fmtMD(en)}`:'기간 미상');
     const open=histRowOpen.has(key);
     const detail=open?`<div style="background:var(--bg);border-radius:9px;padding:9px 11px;margin-top:7px">

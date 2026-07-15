@@ -172,11 +172,11 @@ function setManageSort(m){ manageSort=m; renderManage(); }
 let mngDayFilter=null;   // 요일별 탭: null=전체, 1~5=월~금
 function setMngDay(v){ mngDayFilter=v; renderManage(); }
 
-const live={};       // sid -> 시작 epoch(ms)
+let live={};         // sid -> 등원 시작 epoch(ms) — 저장/복원 대상
 let ticker=null;
 let logbook=[];      // 오늘 보낸 알림 {sid,kind,text,time}
 const nowHM=()=>new Date().toTimeString().slice(0,5);
-function logAdd(sid,kind,text){logbook.unshift({sid,kind,text,time:nowHM()});
+function logAdd(sid,kind,text){logbook.unshift({sid,kind,text,time:nowHM(),d:dayKey(Date.now())}); saveData();
   if(document.getElementById('v-home').classList.contains('active'))renderHome();}
 
 /* ===== 유틸 ===== */
@@ -536,13 +536,13 @@ function saveLesson(id){
   const ex=todayLesson(id);
   if(ex){ex.text=text;ex.mood=mood;}
   else lessons.push({sid:id,date:new Date(),mood,text});
-  closeSheet(); renderToday();
+  saveData(); closeSheet(); renderToday();
   showToast(`${st(id).name} 오늘 학습내용 저장됨`);
 }
 function deleteLesson(id){
   const i=lessons.findIndex(l=>l.sid===id && l.date.toDateString()===now.toDateString());
   if(i>=0)lessons.splice(i,1);
-  closeSheet(); renderToday(); showToast('오늘 학습내용을 삭제했어요');
+  saveData(); closeSheet(); renderToday(); showToast('오늘 학습내용을 삭제했어요');
 }
 
 // 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
@@ -632,19 +632,19 @@ function saveMakeup(id){
   if(!v){showToast('날짜를 골라주세요');return;}
   const d=new Date(v+'T00:00:00');
   (makeupLog[id]=makeupLog[id]||[]).push({t:d.getTime(), time:tm||'', done:false});
-  closeSheet();
+  saveData(); closeSheet();
   if(openCal===id)document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id));
   showToast(`${st(id).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} 추가됨`);
 }
 function markAbsent(id){ absentToday.add(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   (absentLog[id]=absentLog[id]||[]); if(!absentLog[id].includes(t))absentLog[id].push(t);
-  renderToday();
+  saveData(); renderToday();
   const s=st(id); showToast(`${s.name} 결석 처리 (회차 차감 없음)`, ()=>openNotify(id,'absent'), s.kakao?'결석 알림':'문자'); }
 function clearAbsent(id){ absentToday.delete(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   if(absentLog[id])absentLog[id]=absentLog[id].filter(x=>x!==t);
-  renderToday(); }
+  saveData(); renderToday(); }
 function clearAbsentFrom(sid, dayMs){
   const k=dayKey(dayMs);
   if(absentLog[sid]) absentLog[sid]=absentLog[sid].filter(x=>dayKey(x)!==k);
@@ -652,14 +652,15 @@ function clearAbsentFrom(sid, dayMs){
   saveData(); renderSchedule();
   showToast(`${st(sid).name} 결석 취소`);
 }
-function addTemp(id){tempToday.add(id);renderToday();}
-function removeTemp(id){tempToday.delete(id);renderToday();}
+function addTemp(id){tempToday.add(id);saveData();renderToday();}
+function removeTemp(id){tempToday.delete(id);saveData();renderToday();}
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
 function complete(id, start, end){
   const rec={sid:id, date:new Date()};
   if(start&&end){ rec.start=start; rec.end=end; rec.min=Math.max(1,Math.round((end-start)/60000)); }
   sessions.push(rec); cycleDone[id]=(cycleDone[id]||0)+1;
+  saveData();
 }
 function undoToday(id){
   const s=st(id);
@@ -686,6 +687,7 @@ function startSession(id){
   live[id]=Date.now(); renderToday(); ensureTicker();
   const s=st(id);
   showToast(`${s.name} 등원 기록 · 보호자에게 알림을 엽니다`);
+  saveData();
   openNotify(id,'start');
 }
 function stopSession(id){
@@ -695,7 +697,7 @@ function stopSession(id){
   if(!Object.keys(live).length&&ticker){clearInterval(ticker);ticker=null;}
   showToast(`${s.name} 하원 기록 · ${doneCountOf(s)}/${s.plan}회 · 보호자에게 알림을 엽니다`);
   openNotify(id,'end');
-  rolloverIfComplete(id); renderToday();
+  rolloverIfComplete(id); saveData(); renderToday();
 }
 function resend(id,kind){ openNotify(id,kind); }
 /* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
@@ -942,7 +944,7 @@ function nextSessionAfter(s, ms){
 function doRollover(id){
   const s=st(id); if(!s||!s.plan) return false;
   const info=currentClassInfo(s);
-  const doneCount=info.sessions.filter(t=>t<=dayKey(now.getTime())).length;
+  const doneCount=doneCountOf(s);   // 단일 계산 함수 사용
   if(doneCount < s.plan) return false;   // 아직 계약 회차 안 참
   const endMs = info.end || cycleEndOf(s) || dayKey(now.getTime());
   createBill(s, endMs);                    // 이전 클래스 → 정산 필요(미납)
@@ -1691,7 +1693,7 @@ function saveNote(){
   const sid=+document.getElementById('noteStu').value;
   const text=document.getElementById('noteText').value.trim();
   if(!text){showToast('상담 내용을 적어주세요');return;}
-  notes.push({sid,date:new Date(),text}); closeSheet();
+  notes.push({sid,date:new Date(),text}); saveData(); closeSheet();
   if(document.getElementById('v-send').classList.contains('active'))renderSend();
   else renderCounsel();
   showToast('상담 메모를 저장했어요');
@@ -1747,7 +1749,7 @@ function renderReport(){
 
 
 function goTab(v){
-  saveData();
+  saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
   document.querySelectorAll('.bt').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('v-'+v).classList.add('active');
@@ -1781,6 +1783,7 @@ function snapshot(){
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, msgTemplates,
+    live, tempToday:[...tempToday], logbook,   // 등원중 상태 · 오늘만 추가 · 오늘 알림
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -1806,6 +1809,14 @@ function applyState(d){
   if(d.academy) academy=Object.assign({name:'',owner:'',phone:''}, d.academy);
   if(typeof d.autoSend==='boolean') autoSend=d.autoSend;
   if(d.msgTemplates) for(const k in d.msgTemplates){ if(msgTemplates[k]) msgTemplates[k]=Object.assign({sms:'',code:''}, d.msgTemplates[k]); }
+  // 등원 중 상태: 오늘 것만 복원(어제 것이 남아 '수업 중'으로 보이지 않게)
+  if(d.live && typeof d.live==='object'){
+    const t=dayKey(now.getTime()); const nl={};
+    for(const k in d.live){ const v=d.live[k]; if(typeof v==='number' && dayKey(v)===t) nl[k]=v; }
+    live=nl;
+  }
+  if(Array.isArray(d.tempToday)) tempToday=new Set(d.tempToday);
+  if(Array.isArray(d.logbook)) logbook=d.logbook.filter(l=>l && (l.d==null || l.d===dayKey(now.getTime())));
 }
 
 /* 로그인 성공 후 auth.js가 호출 */
@@ -1816,6 +1827,7 @@ function initApp(){
   dl.textContent=`오늘 · ${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   dl.style.display='none';
   autoRolloverAll();   // 완주한 클래스 자동으로 다음 클래스로 넘김
+  if(Object.keys(live).length) ensureTicker();   // 복원된 '수업 중' 타이머 재시작
   // 데스크탑 관리자(admin.html)는 설정 화면부터, 모바일 앱은 홈부터
   if(document.body.dataset.mode==='admin'){ goTab('admin'); }
   else { renderHome(); }

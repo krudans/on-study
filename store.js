@@ -18,6 +18,7 @@ function sheetOpen(){ const s=document.getElementById('scrim'); return !!(s && s
 function writeNow(){
   if(typeof _sessionDead!=='undefined' && _sessionDead) return;
   const j=currentJSON(); if(!j) return;
+  if(j===_lastJSON) return;              // 바뀐 게 없으면 저장 안 함(옛 데이터로 덮어쓰기 방지)
   _lastJSON=j; _lastLocalWrite=Date.now();
   try{
     stateDoc().set(JSON.parse(j))
@@ -61,21 +62,33 @@ function removeAdminDoc(email){
 
 /* 다른 기기 변경을 실시간 반영 */
 let _subscribed=false;
+let _pendingRemote=null, _pendingTimer=null;
+function _applyRemote(data){
+  _applyingRemote=true;
+  applyState(data);
+  _applyingRemote=false;
+  _lastJSON=currentJSON();                            // 원격 반영 후 기준 갱신
+  const app=document.getElementById('app');
+  if(app && app.style.display!=='none' && typeof refreshCurrentView==='function'){
+    refreshCurrentView();
+  }
+}
+// 입력창이 열려 있어 미뤄둔 원격 데이터는 창이 닫히면 곧바로 반영(옛 상태로 남지 않게)
+function _watchPending(){
+  if(_pendingTimer) return;
+  _pendingTimer=setInterval(()=>{
+    if(!_pendingRemote){ clearInterval(_pendingTimer); _pendingTimer=null; return; }
+    if(!sheetOpen()){ const d=_pendingRemote; _pendingRemote=null; clearInterval(_pendingTimer); _pendingTimer=null; _applyRemote(d); }
+  }, 600);
+}
 function subscribeState(){
   if(_subscribed) return; _subscribed=true;
   stateDoc().onSnapshot(snap=>{
     if(!snap.exists) return;
     if(snap.metadata.hasPendingWrites) return;         // 내 저장의 낙관적 반영은 무시
-    if(sheetOpen()) return;                            // 입력 중이면 화면 재렌더/덮어쓰기 금지
-    if(Date.now()-_lastLocalWrite < 3000) return;      // 방금 내가 저장한 직후엔 에코 무시(덮어쓰기 방지)
-    _applyingRemote=true;
-    applyState(snap.data());
-    _applyingRemote=false;
-    _lastJSON=currentJSON();                            // 원격 반영 후 기준 갱신
-    const app=document.getElementById('app');
-    if(app && app.style.display!=='none' && typeof refreshCurrentView==='function'){
-      refreshCurrentView();
-    }
+    const data=snap.data();
+    if(sheetOpen()){ _pendingRemote=data; _watchPending(); return; }  // 입력 중이면 미뤘다가 반영
+    _applyRemote(data);
   }, e=>console.warn('실시간 동기화 실패', e));
 }
 
@@ -212,5 +225,8 @@ function _subscribeLock(){
     }
   }, e=>{});
 }
-/* 종료 직전 락 해제(최선노력) */
-window.addEventListener('beforeunload', ()=>{ try{ if(_iAmHolder && !_sessionDead) lockDoc().set({holder:null,request:null,kick:null},{merge:false}); }catch(e){} });
+/* 창을 닫거나 앱을 백그라운드로 보낼 때, 저장 대기 중이면 즉시 저장 */
+function _flushSave(){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; try{ writeNow(); }catch(e){} } }
+window.addEventListener('pagehide', _flushSave);
+window.addEventListener('beforeunload', _flushSave);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') _flushSave(); });

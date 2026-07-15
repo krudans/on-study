@@ -155,21 +155,25 @@ async function sessionForce(){
 }
 async function sessionLeave(){ try{ await lockDoc().set({request:null},{merge:true}); }catch(e){} doLogout(); _ovHide(); }
 
-/* 명시적 나가기(✕): 저장 + 락 해제 + 로그아웃 */
+/* ✕(저장하고 닫기): 저장만 하고 로그인은 유지 — 로그아웃은 설정에서 따로 */
 function exitApp(){
   const sheet=document.getElementById('sheet');
   if(sheet){
-    sheet.innerHTML=`<h3>${LOCK_LABEL} 종료</h3>
-      <div class="cap">저장하고 나갑니다. 다른 기기에서 바로 접속할 수 있게 접속자도 해제돼요.</div>
-      <div class="sheet-btns"><button class="btn start" onclick="doExitApp()">저장하고 나가기</button>
+    sheet.innerHTML=`<h3>저장하고 닫기</h3>
+      <div class="cap">지금까지 작업을 저장해요. 로그인은 유지되니 다음에 바로 들어올 수 있어요.<br>계정을 바꾸려면 설정 → 로그아웃을 쓰세요.</div>
+      <div class="sheet-btns"><button class="btn start" onclick="doExitApp()">저장하기</button>
         <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
     document.getElementById('scrim').classList.add('show');
-  } else if(confirm(`${LOCK_LABEL}을 종료할까요? 저장하고 나갑니다.`)){ doExitApp(); }
+  } else { doExitApp(); }
 }
 async function doExitApp(){
   try{ writeNow(); }catch(e){}
-  try{ await lockDoc().set({holder:null,request:null,kick:null},{merge:false}); }catch(e){}
-  _iAmHolder=false;
+  try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}
+  try{ showToast('저장했어요 · 이제 창을 닫으셔도 됩니다'); }catch(e){}
+}
+/* 진짜 로그아웃(계정 전환 등) — 설정에서 사용 */
+async function signOutNow(){
+  try{ writeNow(); }catch(e){}
   try{ if(typeof closeSheet==='function') closeSheet(); }catch(e){}
   doLogout();
 }

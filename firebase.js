@@ -9,6 +9,8 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
+// 로그인 유지: 이 기기에서 한 번 로그인하면 계속 유지(브라우저 닫아도 유지)
+try{ fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
 const fbDb = firebase.firestore();
 // 알림톡 발송 서버(Functions) — 배포 후 사용. 미배포 시 호출은 실패하고 앱이 '열어주기'로 폴백.
 let fbFunctions=null;

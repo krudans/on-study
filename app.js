@@ -1142,7 +1142,7 @@ function delAdmin(i){ if(admins[i]&&admins[i].owner)return;
   removeAdminDoc(email);  // store.js → admins 컬렉션
 }
 function comingSoon(name){ showToast(`${name}은 다음 단계에서 만들어요`); }
-function logout(){ adminSection=null; if(typeof exitApp==='function') exitApp(); else doLogout(); }  // 저장+락해제+로그아웃
+function logout(){ adminSection=null; if(typeof signOutNow==='function') signOutNow(); else doLogout(); }  // 저장 후 실제 로그아웃
 let closeTime='20:00';
 function setCloseTime(v){ closeTime=v; saveData(); }
 function resetData(){ location.reload(); }

@@ -1021,7 +1021,7 @@ function renderSettle(){
     if(!b.paid){
       return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">
-          <button class="btn pay small" onclick="openSettleMsg(${b.sid})">납입 요청 메시지</button>
+          <button class="btn pay small" onclick="openSettleMsg(${b.sid},${b.id})">납입 요청 메시지</button>
           <button class="btn settle small" onclick="settleBill(${b.id})">받았어요</button>
         </div></div>`;
     }
@@ -1221,22 +1221,44 @@ function markSettled(id){
   saveData(); renderSettle();
   showToast(`${s.name} ${s.plan}회 정산 완료 · 새 클래스 시작`);
 }
-function openSettleMsg(id){
-  const s=st(id); const mL=(now.getMonth()+1)+'월';
-  const text=`안녕하세요, ${s.guardian}님.
-${s.name} 학생이 ${s.plan}회 수업을 모두 마쳤습니다.
+function openSettleMsg(id, billId){
+  const s=st(id);
+  const g=(s.guardians&&s.guardians[0])||{};
+  const gName=g.name||s.guardian||'보호자';
+  const b = billId!=null ? bills.find(x=>x.id===billId) : null;
 
-· 이번 ${mL} 수업 ${monthCount(s.id)}회
-· 다음 ${s.plan}회권 수업료 : ${won(priceOf(s))}
+  // 이번(해당) 회차 기간·회차수
+  let list, startMs, endMs, cnt, done;
+  if(b){                                   // 완주해서 생긴 정산 건
+    list=billSessions(b); startMs=b.startDate||list[0]||null; endMs=b.endDate; cnt=b.plan; done=b.plan;
+  } else {                                 // 진행 중(미리 안내)
+    const ci=currentClassInfo(s);
+    list=ci.sessions; startMs=ci.start; endMs=ci.end; cnt=s.plan; done=doneCountOf(s);
+  }
+  const finished = done>=cnt;
+  const fD=(ms)=>{ if(!ms) return '-'; const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
+  const headLine = finished
+    ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
+    : `${s.name} 학생의 이번 회차 수업이 ${fD(endMs)} 완료 예정입니다.`;
+  const amt = b ? b.amount : priceOf(s);
+  const who = [academy.name||'', academy.owner||''].filter(Boolean).join(' ');
+  const text=`안녕하세요. ${gName}님.
+${headLine}
 
-결제 안내드립니다. 감사합니다.`;
+· 이번 회차 : ${fD(startMs)} ~ ${fD(endMs)} (${cnt}회)
+· 수업료 : ${won(amt)}
+
+결제 안내 드립니다.
+감사합니다.${who?`\n${who} 드림`:''}`;
+
   _msgCtx={id, text};
+  const kakao = g.kakao!==false;
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 납입 요청</h3>
-    <div class="cap">${s.kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'}</div>
-    <div class="msg">${text}</div>
+    <div class="cap">${kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'}</div>
+    <div class="msg" style="white-space:pre-line">${text}</div>
     <div class="sheet-btns">
-      ${s.kakao?`<button class="btn kakao" onclick="sendVia('카카오톡',${id})">카톡으로 보내기</button>`:''}
+      ${kakao?`<button class="btn kakao" onclick="sendVia('카카오톡',${id})">카톡으로 보내기</button>`:''}
       <button class="btn sms" onclick="sendVia('문자',${id})">문자로 보내기</button>
     </div>`;
   document.getElementById('scrim').classList.add('show');

@@ -904,59 +904,93 @@ function renderStudents(){
 }
 
 /* ===== 정산 ===== */
+/* 정산 화면 기준 월 (기본 이번 달, ‹ › 로 이동) */
+let settleYM=null;
+function settleBaseYM(){ return settleYM ? {y:settleYM.y, m:settleYM.m} : {y:now.getFullYear(), m:now.getMonth()}; }
+function settleNav(d){ const b=settleBaseYM(); let m=b.m+d, y=b.y; if(m<0){m=11;y--;} if(m>11){m=0;y++;} settleYM={y,m}; renderSettle(); }
+function settleThisMonth(){ settleYM=null; renderSettle(); }
+
 function renderSettle(){
   normalizeBills();
   const el=document.getElementById('v-settle');
-  const nowM=now.getMonth(), nowY=now.getFullYear();
+  const B=settleBaseYM(); const vY=B.y, vM=B.m;
+  const isThisMonth = (vY===now.getFullYear() && vM===now.getMonth());
+  const mL=(vM+1)+'월';
+
   const unpaid = bills.filter(b=>!b.paid).sort((a,b)=>a.endDate-b.endDate);
-  const paidThisMonth = bills.filter(b=>b.paid && b.paidDate &&
-    new Date(b.paidDate).getMonth()===nowM && new Date(b.paidDate).getFullYear()===nowY)
+  const paidMonth = bills.filter(b=>b.paid && b.paidDate &&
+    new Date(b.paidDate).getMonth()===vM && new Date(b.paidDate).getFullYear()===vY)
     .sort((a,b)=>b.paidDate-a.paidDate);
-  const monthPaidAmt = paidThisMonth.reduce((a,b)=>a+b.amount,0);
+  const monthPaidAmt = paidMonth.reduce((a,b)=>a+b.amount,0);
   const unpaidAmt = unpaid.reduce((a,b)=>a+b.amount,0);
-  const mL=(nowM+1)+'월';
 
   const billRow=(b)=>{
     const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
     if(!b.paid){
       return `<div class="row">
         <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
-        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--clay);font-weight:600">미납</span></div>
+        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 수업 끝남 · <span style="color:var(--clay);font-weight:600">아직 못 받음</span></div>
         <div class="row-btns" style="margin-top:10px">
           <button class="btn pay small" onclick="openSettleMsg(${b.sid})">납입 요청 메시지</button>
-          <button class="btn settle small" onclick="settleBill(${b.id})">정산 완료 처리</button>
+          <button class="btn settle small" onclick="settleBill(${b.id})">받았어요</button>
         </div></div>`;
     }
     return `<div class="row" style="opacity:.72">
         <div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
-        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--green);font-weight:600">정산 완료</span></div>
+        <div class="mg-line">🧾 ${billMonthTxt(b)} · ${b.plan}회 · <span style="color:var(--green);font-weight:600">받음</span></div>
         <div class="row-btns" style="margin-top:10px">
-          <button class="btn ghost small" disabled style="opacity:.45;cursor:default">납입 요청 (완료됨)</button>
-          <button class="btn ghost small" onclick="unsettleBill(${b.id})">정산 완료 취소</button>
+          <button class="btn ghost small" onclick="unsettleBill(${b.id})">받음 취소</button>
         </div></div>`;
   };
 
-  const progRows = students.slice().sort((a,b)=>a.name.localeCompare(b.name,'ko')).map(s=>{
+  // 진행 중 학생 → 곧 끝남(2주 이내) / 수업 중
+  const todayK=dayKey(now.getTime());
+  const prog = students.slice().map(s=>{
     const endMs=cycleEndOf(s);
-    const endTxt = endMs ? new Date(endMs).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '미정';
-    return `<div class="row">
-      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${doneCountOf(s)}/${s.plan}회</span></div>
-      <div class="mg-line">🗓 정산 예정일 <b>${endTxt}</b> (회차 마지막 수업일)</div>
-      <div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">납입 요청 메시지</button></div>
-    </div>`;
-  }).join('');
+    const days = endMs ? Math.round((dayKey(endMs)-todayK)/86400000) : null;
+    return {s, endMs, days};
+  }).sort((a,b)=> (a.endMs||9e15)-(b.endMs||9e15));
+  const soon = prog.filter(p=>p.days!=null && p.days>=0 && p.days<=14);
+  const later = prog.filter(p=>!(p.days!=null && p.days>=0 && p.days<=14));
 
-  el.innerHTML=`
-    <div class="sum"><div class="k">${mL} 정산 완료</div><div class="big num">${won(monthPaidAmt)}</div>
+  const progRow=(p, hi)=>{
+    const s=p.s;
+    const endTxt = p.endMs ? new Date(p.endMs).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '미정';
+    const dTxt = p.days==null ? '' : (p.days===0 ? '<b style="color:var(--clay)">오늘 마지막</b>'
+      : p.days>0 ? `<b style="color:${hi?'var(--clay)':'var(--ink)'}">${p.days}일 남음</b>` : '');
+    return `<div class="row"${hi?' style="border:1.4px solid var(--amber)"':''}>
+      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${doneCountOf(s)}/${s.plan}회</span></div>
+      <div class="mg-line">🗓 마지막 수업 <b>${endTxt}</b>${dTxt?' · '+dTxt:''} · ${won(priceOf(s))}</div>
+      ${hi?`<div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">미리 납입 안내</button></div>`:''}
+    </div>`;
+  };
+
+  const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
+  const monthNav=`<div style="display:flex;align-items:center;gap:9px;margin:2px 0 12px">
+    <button onclick="settleNav(-1)" aria-label="이전달" style="${navBtn}">‹</button>
+    <span style="flex:1;text-align:center;font-weight:600;font-size:15px">${vY}년 ${mL}${isThisMonth?' · 이번 달':''}</span>
+    <button onclick="settleNav(1)" aria-label="다음달" style="${navBtn}">›</button>
+    ${isThisMonth?'':`<button onclick="settleThisMonth()" style="border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;padding:0 11px;height:30px;cursor:pointer;font-family:inherit">이번 달</button>`}
+  </div>`;
+
+  el.innerHTML=monthNav+`
+    <div class="sum"><div class="k">${mL}에 받은 돈</div><div class="big num">${won(monthPaidAmt)}</div>
       <div class="split">
-        <div><div class="k">미납 대기</div><div class="v">${won(unpaidAmt)}</div></div>
+        <div><div class="k">아직 못 받은 돈</div><div class="v" style="${unpaidAmt?'color:var(--clay)':''}">${won(unpaidAmt)}</div></div>
         <div><div class="k">미납 건수</div><div class="v" style="${unpaid.length?'color:var(--clay)':''}">${unpaid.length}건</div></div>
       </div></div>
-    <div class="block-h"><span class="h">정산 필요 (미납)</span>${unpaid.length?`<span class="cnt">${unpaid.length}</span>`:''}</div>
-    ${unpaid.length ? unpaid.map(billRow).join('') : '<div class="muted-card">미납 건이 없어요. 클래스(회차)를 완주하면 여기에 정산 건이 자동으로 생겨요.</div>'}
-    ${paidThisMonth.length ? `<div class="block-h" style="margin-top:24px"><span class="h">${mL} 정산 완료</span></div>`+paidThisMonth.map(billRow).join('') : ''}
-    <div class="block-h" style="margin-top:24px"><span class="h">진행 중 · 정산 예정</span></div>
-    ${progRows || '<div class="muted-card">진행 중인 학생이 없어요.</div>'}`;
+
+    <div class="block-h"><span class="h">💰 받을 돈 (수업 끝남)</span>${unpaid.length?`<span class="cnt">${unpaid.length}</span>`:''}</div>
+    ${unpaid.length ? unpaid.map(billRow).join('') : '<div class="muted-card">받을 돈이 없어요. 클래스를 다 채우면 여기에 자동으로 생겨요.</div>'}
+
+    <div class="block-h" style="margin-top:24px"><span class="h">⏰ 곧 끝나요 (2주 이내)</span>${soon.length?`<span class="cnt">${soon.length}</span>`:''}</div>
+    ${soon.length ? soon.map(p=>progRow(p,true)).join('') : '<div class="muted-card">2주 이내에 끝나는 학생이 없어요.</div>'}
+
+    <div class="block-h" style="margin-top:24px"><span class="h">📚 수업 중</span>${later.length?`<span class="cnt">${later.length}</span>`:''}</div>
+    ${later.length ? later.map(p=>progRow(p,false)).join('') : '<div class="muted-card">수업 중인 학생이 없어요.</div>'}
+
+    <div class="block-h" style="margin-top:24px"><span class="h">✅ ${mL}에 받은 돈</span>${paidMonth.length?`<span class="cnt">${paidMonth.length}</span>`:''}</div>
+    ${paidMonth.length ? paidMonth.map(billRow).join('') : `<div class="muted-card">${mL}에 받은 정산이 없어요.</div>`}`;
 }
 /* ===== 정산 건(청구서) — 클래스 완주 시 자동 생성, 완료 처리해야 사라짐, 미납 누적 ===== */
 function billMonthTxt(b){ const d=new Date(b.endDate); return `${d.getMonth()+1}월분`; }
@@ -1791,6 +1825,7 @@ function renderReport(){
 function goTab(v){
   saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
   if(v==='today') attnDate=null;   // 출석부는 항상 오늘부터
+  if(v==='settle') settleYM=null;  // 정산은 항상 이번 달부터
   document.querySelectorAll('.bt').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('v-'+v).classList.add('active');

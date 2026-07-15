@@ -851,6 +851,7 @@ function studentCard(s, forDay){
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)}</div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
+  const pastHtml = pastClassesHtml(s);
   const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
   const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
   return `<div class="row">
@@ -862,6 +863,7 @@ function studentCard(s, forDay){
       <div class="stat"><div class="k">남은 횟수</div><div class="v">${Math.max(0,s.plan-doneN)}회</div></div>
     </div>
     <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
+    ${pastHtml}
     ${calBtn}${calHtml}
   </div>`;
 }
@@ -904,12 +906,71 @@ function renderStudents(){
 }
 
 /* ===== 정산 ===== */
+/* 어떤 날짜가 그 학생의 수업일인지 (회차 계산과 동일 규칙) */
+function isSessionDay(s, k){
+  if(!s || !s.days) return false;
+  if((makeupLog[s.id]||[]).some(mk=>dayKey(mk.t)===k)) return true;   // 보강일
+  const d=new Date(k);
+  if(!s.days.includes(d.getDay())) return false;
+  if((absentLog[s.id]||[]).some(t=>dayKey(t)===k)) return false;      // 결석 제외
+  if((skipLog[s.id]||[]).some(t=>dayKey(t)===k)) return false;        // 휴강 제외
+  if(isHoliday(k)) return false;                                      // 휴일 제외
+  return true;
+}
+/* 종료일부터 거꾸로 count회 수업일 수집 (오름차순 반환) */
+function sessionDaysBack(s, endMs, count){
+  const out=[], base=dayKey(endMs);
+  for(let i=0;i<900 && out.length<count;i++){
+    const d=new Date(base); d.setDate(d.getDate()-i); const k=dayKey(d.getTime());
+    if(isSessionDay(s,k)) out.push(k);
+  }
+  return out.reverse();
+}
+
+/* 지난 회차(클래스) 이력 표시 상태 */
+let histAllOpen=new Set(), histRowOpen=new Set();
+function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
+function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
+/* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
+function pastClassesHtml(s){
+  const all=(packHistory[s.id]||[]).slice().sort((a,b)=>(b.end||0)-(a.end||0));
+  if(!all.length) return `<div class="mg-line" style="color:var(--muted)">📚 지난 클래스 : 아직 없어요</div>`;
+  const openAll=histAllOpen.has(s.id);
+  const show=openAll?all:all.slice(0,3);
+  const rows=show.map(h=>{
+    const key=s.id+'-'+h.no;
+    const list=Array.isArray(h.sessions)&&h.sessions.length?h.sessions
+      : (h.end? sessionDaysBack(s,h.end,h.done||h.plan||0) : []);
+    const st_=h.start||(list.length?list[0]:null), en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
+    const period=(st_&&en)?`${fmtMD(st_)} ~ ${fmtMD(en)}`:(en?`~ ${fmtMD(en)}`:'기간 미상');
+    const open=histRowOpen.has(key);
+    const detail=open?`<div style="background:var(--bg);border-radius:9px;padding:9px 11px;margin-top:7px">
+      ${list.length?list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0">
+          <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
+        :'<div style="font-size:12.5px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
+    </div>`:'';
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px;background:var(--card)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회</span>
+        <span style="font-size:12.5px;color:var(--muted)">${h.amount?won(h.amount):''}</span></div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
+      <button class="btn ghost small" style="margin-top:7px;width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
+      ${detail}</div>`;
+  }).join('');
+  const more = all.length>3 ? `<button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="toggleHistAll(${s.id})">${openAll?'접기 ▲':`전체 보기 (${all.length}개) ▾`}</button>` : '';
+  return `<div style="margin-top:10px">
+    <div class="mg-line" style="margin-bottom:6px">📚 <b>지난 클래스</b> (${all.length}개)</div>
+    ${rows}${more}</div>`;
+}
+
 /* 정산 건 '자세히' 펼침 상태 */
 let billOpen=new Set();
 function toggleBill(id){ if(billOpen.has(id))billOpen.delete(id); else billOpen.add(id); renderSettle(); }
 /* 정산 건의 회차 날짜 목록 (없으면 실제 출결 기록에서 복원) */
 function billSessions(b){
-  if(Array.isArray(b.sessions) && b.sessions.length) return b.sessions;
+  if(Array.isArray(b.sessions) && b.sessions.length>=(b.plan||0)) return b.sessions;
+  const s=st(b.sid);
+  if(s) return sessionDaysBack(s, b.endDate, b.plan||0);   // 달력에서 거꾸로 복원
   const mine = sessions.filter(x=>x.sid===b.sid && dayKey(x.date)<=b.endDate)
     .map(x=>dayKey(x.date)).sort((a,b2)=>a-b2);
   return mine.slice(-(b.plan||0));
@@ -1048,14 +1109,14 @@ function doRollover(id){
   }
   // 완주한 클래스의 회차 날짜 목록
   let sessList = byCalendar ? info.sessions.slice(0, s.plan) : null;
-  if(!sessList || !sessList.length){
-    const mine = sessions.filter(x=>x.sid===id && dayKey(x.date)<=endMs)
-      .map(x=>dayKey(x.date)).sort((a,b)=>a-b);
-    sessList = mine.slice(-s.plan);        // 실제 등하원 기록에서 마지막 plan개
+  if(!sessList || sessList.length < s.plan){
+    sessList = sessionDaysBack(s, endMs, s.plan);   // 종료일부터 거꾸로 plan회
   }
   createBill(s, endMs, {startDate: sessList[0] || info.start || null, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
-  hist.push({no:hist.length+1, plan:s.plan, done:s.plan, start:info.start||null, settledDate:new Date(endMs)});
+  hist.push({no:hist.length+1, plan:s.plan, done:s.plan,
+    start: sessList[0] || info.start || null, end: endMs,
+    sessions: sessList, amount: priceOf(s), settledDate:new Date(endMs)});
   cycleDone[id]=0;
   s.cycleStart = nextSessionAfter(s, endMs);  // 다음 클래스 = 완주 다음 수업일부터
   s.cycleEnd=null;
@@ -1099,8 +1160,11 @@ function unsettleBill(bid){
 function markSettled(id){
   const s=st(id);
   const hist=packHistory[id]||(packHistory[id]=[]);
+  const _endMs=cycleEndOf(s)||dayKey(now.getTime());
+  const _list=sessionDaysBack(s,_endMs,doneCountOf(s)||s.plan);
   hist.push({no:hist.length+1, plan:s.plan, done:doneCountOf(s),
-    start:cycleStartOf(s)||null, settledDate:new Date()});
+    start:_list[0]||cycleStartOf(s)||null, end:_endMs,
+    sessions:_list, amount:priceOf(s), settledDate:new Date()});
   payments.push({sid:id,date:new Date(),plan:s.plan,amount:priceOf(s)});
   cycleDone[id]=0;              // 새 클래스 시작
   s.cycleStart=null; s.cycleEnd=null;  // 새 회차는 자동 계산(과거는 packHistory에 보존)
@@ -1297,6 +1361,7 @@ function manageCard(s, forDay){
     <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
     <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차</div>
     <div class="mg-line">${gLines}</div>
+    ${pastClassesHtml(s)}
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
       <button class="btn ghost small" onclick="toggleMngCal(${s.id})">${mngCal.open===s.id?'달력 닫기':'달력 보기'}</button>

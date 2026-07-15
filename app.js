@@ -217,6 +217,12 @@ function homeBaseMs(){ return homeDate ? homeDate.getTime() : dayKey(now.getTime
 function homeNav(d){ const b=new Date(homeBaseMs()); b.setDate(b.getDate()+d); homeDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderHome(); }
 function homeToday(){ homeDate=null; renderHome(); }
 
+/* 출석부 기준 날짜 (기본 오늘, ‹ › 로 이동) */
+let attnDate=null;
+function attnBaseMs(){ return attnDate ? attnDate.getTime() : dayKey(now.getTime()); }
+function attnNav(d){ const b=new Date(attnBaseMs()); b.setDate(b.getDate()+d); attnDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderToday(); }
+function attnToday(){ attnDate=null; renderToday(); }
+
 /* ===== 홈 ===== */
 function renderHome(){
   normalizeBills();
@@ -318,18 +324,46 @@ function progBar(s){
 function setPackView(id,i){packView[id]=i;renderToday();}
 function renderToday(){
   const el=document.getElementById('v-today');
-  const list=todayRoster().slice().sort((a,b)=>(timeFor(a,todayIdx)||a.time||'').localeCompare(timeFor(b,todayIdx)||b.time||''));
-  // 상단 요약
+  const aMs=attnBaseMs(); const aDate=new Date(aMs); const dowA=aDate.getDay();
+  const isToday = aDate.toDateString()===now.toDateString();
+  const list=(isToday ? todayRoster() : studentsOnDate(aMs)).slice()
+    .sort((a,b)=>(timeFor(a,dowA)||a.time||'').localeCompare(timeFor(b,dowA)||b.time||''));
+  // 날짜 이동
+  const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
+  const dateNav=`<div style="display:flex;align-items:center;gap:9px;margin:2px 0 12px">
+    <button onclick="attnNav(-1)" aria-label="전날" style="${navBtn}">‹</button>
+    <span style="flex:1;text-align:center;font-weight:600;font-size:15px">${aDate.getMonth()+1}월 ${aDate.getDate()}일 ${WD[dowA]}요일${isToday?' · 오늘':''}</span>
+    <button onclick="attnNav(1)" aria-label="다음날" style="${navBtn}">›</button>
+    ${isToday?'':`<button onclick="attnToday()" style="border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;padding:0 11px;height:30px;cursor:pointer;font-family:inherit">오늘</button>`}
+  </div>`;
+  // 상단 요약 (그날 기준)
+  const isAbsentOn=(sid)=>(absentLog[sid]||[]).some(x=>dayKey(x)===aMs);
+  const doneOn=(sid)=>sessions.find(x=>x.sid===sid && dayKey(x.date)===aMs);
   const total=list.length;
-  const absentN=list.filter(s=>isAbsentToday(s.id)).length;
-  const attendN=list.filter(s=>live[s.id]!=null||doneToday(s.id)).length; // 등원=온 아이(하원 포함)
+  const absentN=list.filter(s=>isToday?isAbsentToday(s.id):isAbsentOn(s.id)).length;
+  const attendN=list.filter(s=>isToday ? (live[s.id]!=null||doneToday(s.id)) : !!doneOn(s.id)).length;
   const summary=`<div class="attn-sum">
-    <div class="as-item"><div class="as-v num">${total}</div><div class="as-k">오늘 총원</div></div>
+    <div class="as-item"><div class="as-v num">${total}</div><div class="as-k">${isToday?'오늘 총원':'총원'}</div></div>
     <div class="as-item"><div class="as-v num" style="color:var(--green)">${attendN}</div><div class="as-k">등원</div></div>
     <div class="as-item"><div class="as-v num" style="color:var(--clay)">${absentN}</div><div class="as-k">결석</div></div>
   </div>`;
 
   const cardOf=(s)=>{
+    if(!isToday){
+      // 다른 날 = 보기 전용 (그날 출결 현황)
+      const done=doneOn(s.id), abs=isAbsentOn(s.id);
+      let stx, sc;
+      if(abs){ stx='결석'; sc='var(--clay)'; }
+      else if(done){ stx = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '수업 완료'; sc='var(--green)'; }
+      else { stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)'; }
+      return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':''}">
+        <div class="card-top"><div class="who">
+          <div class="name">${s.name}</div>
+          <div class="plan" style="color:${sc}">${stx}</div>
+        </div></div>
+        ${abs?`<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button></div>`:''}
+      </div>`;
+    }
     const isLive=live[s.id]!=null;
     const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
     const isAbsent=isAbsentToday(s.id);
@@ -404,7 +438,7 @@ function renderToday(){
     </div>`;
   };
   // 1시간 단위로 묶어 시간대 헤더(주황 알약) + 학생 카드
-  const hourOf=(s)=>{ const t=(timeFor(s,todayIdx)||s.time||''); return t?t.slice(0,2)+':00':'시간 미정'; };
+  const hourOf=(s)=>{ const t=(timeFor(s,dowA)||s.time||''); return t?t.slice(0,2)+':00':'시간 미정'; };
   let cards='', _lastHour=null;
   list.forEach(s=>{
     const hour=hourOf(s);
@@ -417,13 +451,13 @@ function renderToday(){
     }
     cards+=cardOf(s);
   });
-  const empty=list.length?'':'<div class="empty">오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.</div>';
+  const empty=list.length?'':`<div class="empty">${isToday?'오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.':'이 날은 예정된 학생이 없어요.'}</div>`;
   const cand=students.filter(x=>!isTodayStudent(x));
   const addBox=`<div class="add-wrap"><div class="add-title">오늘만 추가하기</div>
     <div class="add-desc">보강·대체 등 오늘만 오는 학생을 골라 출석부에 넣어요. 정규 요일표는 바뀌지 않아요.</div>
     ${cand.length?`<div class="chips">`+cand.map(x=>`<button class="chip" onclick="addTemp(${x.id})">＋ ${x.name}</button>`).join('')+`</div>`
       :`<div class="add-desc" style="margin:0">추가할 수 있는 다른 학생이 없어요.</div>`}</div>`;
-  el.innerHTML=summary+empty+cards+addBox;
+  el.innerHTML=dateNav+summary+empty+cards+(isToday?addBox:'');
   updateLiveCount();
 }
 let openCal=null, calCur=null, payHistOpen=false;
@@ -1750,11 +1784,12 @@ function renderReport(){
 
 function goTab(v){
   saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
+  if(v==='today') attnDate=null;   // 출석부는 항상 오늘부터
   document.querySelectorAll('.bt').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
-  const labels={home:'', today:'출석부 · '+dateStr, students:'학생', settle:'정산',
+  const labels={home:'', today:'출석부', students:'학생', settle:'정산',
     counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';

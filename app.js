@@ -1117,8 +1117,10 @@ function doRollover(id){
   if(!sessList || sessList.length < s.plan){
     sessList = sessionDaysBack(s, endMs, s.plan);   // 종료일부터 거꾸로 plan회
   }
+  if(endMs > dayKey(now.getTime())) endMs = dayKey(now.getTime());   // 종료일은 오늘을 넘지 않음
   createBill(s, endMs, {startDate: sessList[0] || info.start || null, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
+  if(hist.some(h=>h.end===endMs)){ cycleDone[id]=0; s.cycleStart=nextSessionAfter(s,endMs); s.cycleEnd=null; return true; }  // 같은 클래스 이력 중복 방지
   hist.push({no:hist.length+1, plan:s.plan, done:s.plan,
     start: sessList[0] || info.start || null, end: endMs,
     sessions: sessList, amount: priceOf(s), settledDate:new Date(endMs)});
@@ -1127,9 +1129,52 @@ function doRollover(id){
   s.cycleEnd=null;
   return true;
 }
+/* 지난 클래스 이력·정산건 데이터 정리(옛 오류 보정, 1회성 자동 실행)
+   - 미래 종료일 → 오늘로 보정
+   - 회차 날짜 미저장 → 달력으로 복원해 영구 저장
+   - 시작일 오류(시작>종료) → 회차 목록 첫날로 교정
+   - 같은 종료일 이력 중복 제거 + 차수 재부여(오래된 것=1차) */
+function normalizeHistory(){
+  let ch=false; const today=dayKey(now.getTime());
+  students.forEach(s=>{
+    let hist=(packHistory[s.id]||[]);
+    hist.forEach(h=>{
+      let en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
+      if(en==null) return;
+      if(en>today){ en=today; ch=true; }                 // 미래 종료일 보정
+      if(h.end!==en){ h.end=en; ch=true; }
+      const cnt=h.done||h.plan||0;
+      if(!Array.isArray(h.sessions) || h.sessions.length<cnt){
+        h.sessions=sessionDaysBack(s,en,cnt); ch=true;   // 회차 날짜 복원·저장
+      }
+      const st0=h.sessions.length? h.sessions[0] : null;
+      if(st0 && h.start!==st0){ h.start=st0; ch=true; }  // 시작일 교정
+      if(h.amount==null){ h.amount=priceOf(s); ch=true; }
+    });
+    const seen={}, out=[];
+    hist.slice().sort((a,b)=>(a.end||0)-(b.end||0)).forEach(h=>{
+      if(h.end!=null && seen[h.end]){ ch=true; return; } // 중복 제거
+      if(h.end!=null) seen[h.end]=1;
+      out.push(h);
+    });
+    out.forEach((h,i)=>{ if(h.no!==i+1){ h.no=i+1; ch=true; } });  // 차수 재부여
+    packHistory[s.id]=out;
+  });
+  bills.forEach(b=>{
+    const s2=st(b.sid); if(!s2) return;
+    if(b.endDate>today){ b.endDate=today; ch=true; }     // 정산건 미래 종료일 보정
+    if(!Array.isArray(b.sessions) || b.sessions.length<b.plan){
+      b.sessions=sessionDaysBack(s2,b.endDate,b.plan);
+      b.startDate=b.sessions[0]||null; ch=true;
+    }
+  });
+  if(ch) saveData();
+  return ch;
+}
+
 // 로드 시 완주한 클래스 자동 롤오버 (밀린 것도 순차 처리)
 function autoRolloverAll(){
-  let changed=false;
+  let changed=normalizeHistory();   // 옛 데이터 오류 정리 먼저
   students.forEach(s=>{ let g=0; while(g++<24 && doRollover(s.id)) changed=true; });
   if(changed){ saveData(); refreshCurrentView && refreshCurrentView(); }
   return changed;

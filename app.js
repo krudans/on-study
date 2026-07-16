@@ -418,8 +418,9 @@ function renderToday(){
 
     // 헤더 상태 텍스트/색
     let statusText, statusColor;
-    if(done){ statusText = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '하원 완료'; statusColor='var(--green)'; }
-    else if(isLive){ statusText = `수업 중 · 등원 ${new Date(live[s.id]).toTimeString().slice(0,5)}`; statusColor='var(--amber)'; }
+    const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
+    if(done){ statusText = done.start ? `하원 완료 · ${tBtn(hm(done.start)+'~'+hm(done.end))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
+    else if(isLive){ statusText = `수업 중 · 등원 ${tBtn(hm(live[s.id]))}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const t=timeFor(s,dowA)||s.time||'';   // 그룹 헤더와 동일한 '요일별 시간' 사용
       const mk=(makeupLog[s.id]||[]).find(x=>dayKey(x.t)===aMs);
@@ -1748,6 +1749,48 @@ function saveStudent(id){
   else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }
   saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
 }
+/* ===== 등원·하원 시간 수정 ===== */
+function openTimeEdit(id){
+  const s=st(id);
+  const rec=sessions.find(x=>x.sid===id && dayKey(x.date)===dayKey(now.getTime()));
+  const isLive=live[id]!=null;
+  if(!rec && !isLive){ showToast('오늘 등원 기록이 없어요'); return; }
+  const startMs = isLive ? live[id] : (rec&&rec.start);
+  const endMs = rec&&rec.end;
+  const v=(ms)=> ms? new Date(ms).toTimeString().slice(0,5) : '';
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 시간 수정</h3>
+    <div class="cap">실제 등원·하원 시각으로 고칠 수 있어요. ${isLive?'아직 수업 중이라 등원 시각만 고칩니다.':''}</div>
+    <div class="fld"><label>등원 시각</label>
+      <input type="time" id="teStart" class="note-select" value="${v(startMs)}"></div>
+    ${isLive?'':`<div class="fld"><label>하원 시각</label>
+      <input type="time" id="teEnd" class="note-select" value="${v(endMs)}"></div>`}
+    <div class="sheet-btns">
+      <button class="btn start" onclick="saveTimeEdit(${id})">저장</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function saveTimeEdit(id){
+  const s=st(id);
+  const base=dayKey(now.getTime());
+  const toMs=(hhmm)=>{ if(!hhmm) return null; const [h,m]=hhmm.split(':').map(Number);
+    const d=new Date(base); d.setHours(h,m,0,0); return d.getTime(); };
+  const sv=(document.getElementById('teStart')||{}).value||'';
+  const evEl=document.getElementById('teEnd');
+  const ev=evEl?evEl.value:'';
+  if(!sv){ showToast('등원 시각을 입력해주세요'); return; }
+  const startMs=toMs(sv), endMs=ev?toMs(ev):null;
+  if(endMs && endMs<=startMs){ showToast('하원 시각이 등원 시각보다 빨라요'); return; }
+  if(live[id]!=null) live[id]=startMs;                       // 수업 중이면 등원 시각만
+  const rec=sessions.find(x=>x.sid===id && dayKey(x.date)===base);
+  if(rec){
+    rec.start=startMs;
+    if(endMs){ rec.end=endMs; rec.min=Math.max(1, Math.round((endMs-startMs)/60000)); }
+  }
+  saveData(); closeSheet(); renderToday();
+  showToast(`${s.name} 시간을 ${sv}${ev?'~'+ev:''}로 고쳤어요`);
+}
+
 /* ===== 안내문 보내기 (학생별 · 직접 작성) ===== */
 function pickNoticeCh(kakao){
   const sheet=document.getElementById('sheet');

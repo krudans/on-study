@@ -1001,7 +1001,8 @@ function studentCard(s, forDay){
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
-  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
+  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)
+    <button class="btn ghost small" style="width:auto;padding:3px 8px;font-size:11px;margin-left:6px;display:inline-block" onclick="askConfirmCurrent(${s.id})">회차 확정</button></div>`;
   const pastHtml = pastClassesHtml(s);
   const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
   const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
@@ -1126,6 +1127,98 @@ function histCalendar(s, h, list){
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 /* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
+/* ===== 회차 확정 — 프로그램이 계산한 일정을 원장님이 확인 후 고정 ===== */
+/* 지난 클래스: 계산된 회차 날짜를 확정(고정)해서 다시 계산되지 않게 함 */
+function askConfirmHist(sid, no){
+  const s=st(sid);
+  const h=(packHistory[sid]||[]).find(x=>x.no===no);
+  if(!h){ showToast('기록을 찾을 수 없어요'); return; }
+  const cnt=h.done||h.plan||0;
+  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
+  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:(en?sessionDaysBack(s,en,cnt):[]);
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} ${no}차 확정</h3>
+    <div class="cap">프로그램이 계산한 <b>${cnt}회</b> 일정이에요. 실제와 맞으면 확정하세요.
+      확정하면 이 날짜로 <b>고정</b>되고 다시 계산되지 않아요.</div>
+    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;max-height:230px;overflow-y:auto">
+      ${list.length? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
+        <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
+        : '<div style="font-size:13px;color:var(--muted)">계산된 날짜가 없어요. 학생 수정에서 시작일을 넣어주세요.</div>'}
+    </div>
+    <div class="cap" style="margin-top:10px">📅 ${list.length?`${fmtMD(list[0])} ~ ${fmtMD(list[list.length-1])}`:'기간 미상'}</div>
+    <div class="sheet-btns" style="margin-top:12px">
+      <button class="btn settle" ${list.length?'':'disabled'} onclick="confirmHist(${sid},${no})">맞아요 · 확정</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>
+    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="closeSheet();goTab('manage')">날짜가 달라요 · 학생 수정에서 고치기</button>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function confirmHist(sid, no){
+  const s=st(sid);
+  const h=(packHistory[sid]||[]).find(x=>x.no===no);
+  if(!h) return;
+  const cnt=h.done||h.plan||0;
+  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
+  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:(en?sessionDaysBack(s,en,cnt):[]);
+  if(!list.length){ showToast('계산된 날짜가 없어 확정할 수 없어요'); return; }
+  h.sessions=list.slice(); h.start=list[0]; h.end=list[list.length-1]; h.confirmed=true;
+  saveData(); closeSheet(); refreshCurrentView();
+  showToast(`${s.name} ${no}차 확정 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})`);
+}
+function unconfirmHist(sid, no){
+  const h=(packHistory[sid]||[]).find(x=>x.no===no);
+  if(!h) return;
+  h.confirmed=false; saveData(); refreshCurrentView();
+  showToast('확정을 해제했어요 (다시 계산됨)');
+}
+
+/* 이번 클래스: 계산된 지난 수업일을 실제 기록으로 확정 */
+function askConfirmCurrent(sid){
+  const s=st(sid);
+  const info=currentClassInfo(s);
+  const todayK=dayKey(now.getTime());
+  const past=info.sessions.filter(k=>k<=todayK);
+  const need=past.filter(k=>!hasRecordOn(sid,k));       // 아직 기록이 없는 날
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 이번 회차 확정</h3>
+    <div class="cap">프로그램이 계산한 <b>오늘까지 ${past.length}회</b>예요. 맞으면 확정하세요.
+      확정하면 각 날짜가 <b>수업 기록으로 저장</b>돼서 회차가 흔들리지 않아요.</div>
+    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;max-height:230px;overflow-y:auto">
+      ${past.length? past.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
+        <span style="color:var(--muted)">${i+1}회차</span>
+        <span>${fmtMD(t)} ${hasRecordOn(sid,t)?'<b style="color:#2F7A4F">기록됨</b>':'<span style="color:var(--amber)">예상</span>'}</span></div>`).join('')
+        : '<div style="font-size:13px;color:var(--muted)">아직 지난 수업이 없어요.</div>'}
+    </div>
+    <div class="cap" style="margin-top:10px">${need.length?`${need.length}일이 기록으로 저장됩니다 (예정 시각 ${durLabel(durOf(s))} 기준)`:'이미 모두 기록돼 있어요'}</div>
+    <div class="sheet-btns" style="margin-top:12px">
+      <button class="btn settle" ${past.length?'':'disabled'} onclick="confirmCurrent(${sid})">맞아요 · 확정</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>
+    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="closeSheet();openStudentSheet(${sid})">회차가 달라요 · 현재 회차 고치기</button>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function confirmCurrent(sid){
+  const s=st(sid);
+  const info=currentClassInfo(s);
+  const todayK=dayKey(now.getTime());
+  const past=info.sessions.filter(k=>k<=todayK);
+  let added=0;
+  past.forEach(k=>{
+    if(hasRecordOn(sid,k)) return;
+    const dow=new Date(k).getDay();
+    const mk=(makeupLog[sid]||[]).find(x=>dayKey(x.t)===k);
+    const t=(mk&&mk.time)?mk.time:(timeFor(s,dow)||s.time||'16:00');
+    const [h,m]=t.split(':').map(Number);
+    const d=new Date(k); d.setHours(h,m,0,0);
+    const start=d.getTime(), end=start+((mk&&mk.dur?+mk.dur:durOf(s))*60000);
+    const rec={sid, date:new Date(start)};
+    setSessionTimes(rec, start, end);
+    sessions.push(rec); added++;
+  });
+  cycleDone[sid]=past.length;                 // 확정 = 계산된 회차 그대로
+  if(!s.cycleStart && info.start) s.cycleStart=info.start;   // 시작일도 고정
+  saveData(); closeSheet(); refreshCurrentView();
+  showToast(`${s.name} 이번 회차 확정 · ${past.length}회 (${added}일 기록 추가)`);
+}
+
 function pastClassesHtml(s){
   // 1차 → 2차 순(오래된 것부터). 차수 우선, 없으면 종료일 순
   const all=(packHistory[s.id]||[]).slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)));
@@ -1138,7 +1231,8 @@ function pastClassesHtml(s){
     // 종료일: 저장값 → 정산일 순
     const en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
     // 회차 목록: 저장된 게 온전하면 사용, 아니면 종료일부터 거꾸로 복원(정산 건과 동일 규칙)
-    let list = (Array.isArray(h.sessions) && h.sessions.length>=cnt) ? h.sessions
+    let list = h.confirmed && Array.isArray(h.sessions) ? h.sessions        // 원장님이 확정한 기록 → 그대로 사용
+             : (Array.isArray(h.sessions) && h.sessions.length>=cnt) ? h.sessions
              : (en ? sessionDaysBack(s, en, cnt) : []);
     // 시작일: 회차 목록의 첫날. 저장된 start가 종료일보다 뒤면(옛 데이터 오류) 무시
     let st_ = list.length ? list[0] : ((h.start && en && h.start<=en) ? h.start : null);
@@ -1153,12 +1247,16 @@ function pastClassesHtml(s){
     const calHtml=calOpen? histCalendar(s, h, list) : '';
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px;background:var(--card)">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회</span>
+        <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회
+          ${(h.confirmed || (en && en < dayKey(now.getTime())))?'<span style="font-size:10.5px;font-weight:600;color:#2F7A4F;background:#E7F1EA;border-radius:5px;padding:1px 5px;margin-left:4px">확정</span>':'<span style="font-size:10.5px;font-weight:600;color:#854F0B;background:#FAEEDA;border-radius:5px;padding:1px 5px;margin-left:4px">예상</span>'}</span>
         <span style="font-size:12.5px;color:var(--muted)">${h.amount?won(h.amount):''}</span></div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
       <div style="display:flex;gap:6px;margin-top:7px">
         <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
         <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+        ${(h.confirmed || (en && en < dayKey(now.getTime())))
+          ? `<button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="askConfirmHist(${s.id},${h.no})">날짜 수정</button>`
+          : `<button class="btn settle small" style="width:auto;padding:5px 10px;font-size:12px" onclick="askConfirmHist(${s.id},${h.no})">이 기간 확정</button>`}
       </div>
       ${detail}${calHtml}</div>`;
   }).join('');
@@ -1354,6 +1452,18 @@ function confirmPastOnce(){
 function normalizeHistory(){
   let ch=false; const today=dayKey(now.getTime());
   if(confirmPastOnce()) ch=true;                    // 과거 일괄 확정(최초 1회)
+  // 오늘 이전에 끝난 지난 클래스는 '확정'으로 간주하고 날짜를 고정(다시 계산되지 않게)
+  students.forEach(s=>{
+    (packHistory[s.id]||[]).forEach(h=>{
+      if(h.confirmed) return;
+      const en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
+      if(!en || en >= today) return;
+      const cnt=h.done||h.plan||0;
+      const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:sessionDaysBack(s,en,cnt);
+      if(list.length){ h.sessions=list.slice(); h.start=list[0]; h.end=list[list.length-1]; }
+      h.confirmed=true; ch=true;
+    });
+  });
   // '오늘만 추가'가 지난 날짜 것이면 정리(어제 보강 학생이 오늘 출석부에 남지 않게)
   if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempDay=null; ch=true; }
   students.forEach(s=>{
@@ -1656,7 +1766,8 @@ function manageCard(s, forDay){
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt} · <b>${durLabel(durOf(s))}</b></div>
     <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
-    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차</div>
+    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차
+      <button class="btn ghost small" style="width:auto;padding:3px 8px;font-size:11px;margin-left:6px;display:inline-block" onclick="askConfirmCurrent(${s.id})">회차 확정</button></div>
     <div class="mg-line">${gLines}</div>
     ${pastClassesHtml(s)}
     <div class="row-btns" style="margin-top:11px">

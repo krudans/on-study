@@ -73,6 +73,22 @@ function guardiansOf(s){
   if(Array.isArray(s.guardians)&&s.guardians.length) return s.guardians;
   return [{name:s.guardian||'', phone:s.phone||'', kakao:s.kakao!==false}];
 }
+/* CSS 캐시로 스타일이 옛 버전이어도 반드시 적용돼야 하는 필수 수정 (JS는 항상 최신 로드) */
+(function injectCriticalCSS(){
+  try{
+    if(document.getElementById('os-critical')) return;
+    const st=document.createElement('style'); st.id='os-critical';
+    st.textContent=`
+      .sheet{max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+      .sc-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+      .sc-cell{min-width:0;min-height:0;overflow:hidden}
+      .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+      .cal-d{min-width:0}
+    `;
+    (document.head||document.documentElement).appendChild(st);
+  }catch(e){}
+})();
+
 /* 수업 시간(길이): 주3회 이상=60분, 주2회 이하=90분 (학생별 변경 가능) */
 const DUR_OPTS=[[60,'1시간'],[90,'1시간 30분']];
 function defaultDur(days){ return (days&&days.length>=3) ? 60 : 90; }

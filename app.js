@@ -34,7 +34,10 @@ let workdaysExtra={};
 // 학원 기본 정보
 let academy={name:'', owner:'', phone:''};
 // 알림톡 자동발송 사용 여부 (템플릿 승인·서버 배포 전엔 false = 열어주기)
-let autoSend=false;
+let autoSend=false;                    // 알림톡 자동 발송
+let autoSms=false;                     // 문자 자동 발송(알림톡 실패 시 대체 포함)
+let sendKinds={start:true,end:true,absent:true,settle:true,guide:true};  // 항목별 발송 on/off
+const sendOn=(kind)=> sendKinds[kind]!==false;
 // 발송 문구: 종류별 문자 문구(sms) + 알림톡 템플릿 코드(code). 문자문구를 #{} 형태로 변환해 카카오 심사 신청에 사용.
 let msgTemplates={
   start:  { sms:'[{학원명}] {학생명} 학생이 {시각}에 등원했습니다.', code:'' },
@@ -738,21 +741,30 @@ function resend(id,kind){ openNotify(id,kind); }
    메시지를 복사한 뒤 카톡 앱을 열어 붙여넣기. 데스크탑에선 문자앱이 없어 열리지 않을 수 있어요(모바일 앱에서 사용). */
 let _notifyCtx=null;
 /* 알림톡 서버 발송 (Functions). 실패/미배포면 {ok:false} 반환 → 앱이 열어주기로 폴백 */
-async function serverSend(to, kind, text){
+async function serverSend(to, kind, text, opt){
   try{
     if(!fbFunctions) return {ok:false, channel:'no-server'};
+    const o=opt||{alimtalk:autoSend, sms:autoSms};
     const call=fbFunctions.httpsCallable('sendNotify');
-    const r=await call({to, kind, text, fallbackSms:true});
+    const r=await call({to, kind, text,
+      useAlimtalk: !!o.alimtalk,          // 알림톡 발송 여부
+      useSms: !!o.sms,                    // 문자 발송 여부
+      fallbackSms: !!(o.alimtalk && o.sms) // 알림톡 실패 시 문자 대체
+    });
     return r.data || {ok:false};
   }catch(e){ return {ok:false, channel:'error', message:String(e)}; }
 }
 /* 자동발송: 보호자 전원에게 알림톡. 하나라도 실패하면 열어주기로 폴백 */
 async function autoSendAll(sid, kind, text, gs){
   const s=st(sid);
-  showToast(`${s.name} 알림톡 발송 중…`);
+  const chan = autoSend ? (autoSms?'알림톡':'알림톡') : '문자';
+  showToast(`${s.name} ${chan} 발송 중…`);
   let fail=0;
-  for(const g of gs){ const r=await serverSend(g.phone, kind, text); if(!r||!r.ok) fail++; }
-  if(fail===0){ showToast(`${s.name} 보호자에게 알림톡 발송 완료`); return; }
+  for(const g of gs){
+    const r=await serverSend(g.phone, kind, text, {alimtalk:autoSend, sms:autoSms});
+    if(!r||!r.ok) fail++;
+  }
+  if(fail===0){ showToast(`${s.name} 보호자에게 ${chan} 발송 완료${(autoSend&&autoSms)?' (실패 시 문자 대체)':''}`); return; }
   showToast('자동 발송이 안 돼 메시지 열기로 전환합니다');
   _notifyCtx={gs, text}; openMsgTo(0);
 }
@@ -791,8 +803,9 @@ function openNotify(id,kind){
   const word=kind==='start'?'등원':kind==='absent'?'결석':'하원';
   const gs=guardiansOf(s);
   const text=buildNotifyText(s,kind);
+  if(!sendOn(kind)){ logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} 기록 (알림 꺼짐)`); return; }
   gs.forEach(g=>logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} → ${g.name}(${g.kakao?'카톡':'문자'})`));
-  if(autoSend && fbFunctions){ autoSendAll(id, kind, text, gs); return; }
+  if((autoSend||autoSms) && fbFunctions){ autoSendAll(id, kind, text, gs); return; }
   _notifyCtx={gs,text};
   if(gs.length===1){ openMsgTo(0); return; }
   // 보호자 2명 이상 → 각각 열기 선택
@@ -1281,7 +1294,7 @@ function openMsgWith(sid, text, forceKakao){
 function sendVia(ch,id){
   const s=st(id); const text=(_msgCtx&&_msgCtx.id===id)?_msgCtx.text:'';
   logAdd(id,'pay',`${s.name} 납입 요청 (${ch}) → ${s.guardian}`);
-  if(autoSend && fbFunctions){ closeSheet(); autoSendAll(id, 'settle', text, guardiansOf(s)); return; }
+  if((autoSend||autoSms) && fbFunctions && sendOn('settle')){ closeSheet(); autoSendAll(id, 'settle', text, guardiansOf(s)); return; }
   openMsgWith(id, text, ch==='카카오톡');
 }
 function closeSheet(){document.getElementById('scrim').classList.remove('show');}
@@ -1714,14 +1727,39 @@ function renderAcademy(){
     </div>
     <div class="set-sec">
       <h3>알림톡 자동 발송</h3>
-      <div class="cap">켜면 등원·하원·정산·안내를 <b>카카오 알림톡으로 자동 발송</b>합니다(카톡 실패 시 문자 자동전환). 발송 서버·템플릿 승인이 완료돼야 실제로 나갑니다. 준비 전에는 꺼두세요(끄면 기존 '메시지 열어주기'로 동작).</div>
+      <div class="cap">켜면 <b>카카오 알림톡으로 자동 발송</b>합니다. 발송 서버·템플릿 승인이 완료돼야 실제로 나갑니다. 준비 전에는 꺼두세요.</div>
       <div class="seg2" style="margin-top:8px">
-        <button type="button" class="${autoSend?'on':''}" onclick="setAutoSend(true)">자동 발송 켜기</button>
-        <button type="button" class="${!autoSend?'on':''}" onclick="setAutoSend(false)">끄기 (열어주기)</button>
+        <button type="button" class="${autoSend?'on':''}" onclick="setAutoSend(true)">알림톡 켜기</button>
+        <button type="button" class="${!autoSend?'on':''}" onclick="setAutoSend(false)">끄기</button>
       </div>
+    </div>
+    <div class="set-sec">
+      <h3>문자 자동 발송</h3>
+      <div class="cap">켜면 <b>문자(SMS/LMS)로 자동 발송</b>합니다. 알림톡도 켜져 있으면 <b>알림톡 우선 → 실패 시 문자로 대체</b>됩니다. 발신번호 사전등록이 완료돼야 실제로 나갑니다.</div>
+      <div class="seg2" style="margin-top:8px">
+        <button type="button" class="${autoSms?'on':''}" onclick="setAutoSms(true)">문자 켜기</button>
+        <button type="button" class="${!autoSms?'on':''}" onclick="setAutoSms(false)">끄기</button>
+      </div>
+      <div class="cap" style="margin-top:8px">${(!autoSend&&!autoSms)?'지금은 <b>둘 다 꺼짐</b> — 버튼을 누르면 기존처럼 문자/카톡 앱을 <b>열어드립니다</b>(원장님이 직접 전송).':''}</div>
+    </div>
+    <div class="set-sec">
+      <h3>항목별 발송 켜기 / 끄기</h3>
+      <div class="cap">보내고 싶은 알림만 켜두세요. <b>끈 항목은 자동 발송도, 메시지 열기도 하지 않습니다</b>(기록만 남아요).</div>
+      ${MSG_KINDS.map(([k,label])=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)">
+          <span style="font-size:14px;font-weight:600">${label}</span>
+          <div class="seg2" style="width:auto;margin:0">
+            <button type="button" class="${sendOn(k)?'on':''}" style="padding:6px 14px;font-size:13px" onclick="toggleSendKind('${k}')">켜짐</button>
+            <button type="button" class="${!sendOn(k)?'on':''}" style="padding:6px 14px;font-size:13px" onclick="toggleSendKind('${k}')">꺼짐</button>
+          </div>
+        </div>`).join('')}
     </div>`;
 }
-function setAutoSend(v){ autoSend=!!v; saveData(); renderAcademy(); showToast(v?'알림톡 자동 발송 켜짐':'자동 발송 꺼짐 (열어주기)'); }
+function setAutoSend(v){ autoSend=!!v; saveData(); renderAcademy(); showToast(v?'알림톡 자동 발송 켜짐':'알림톡 자동 발송 꺼짐'); }
+function setAutoSms(v){ autoSms=!!v; saveData(); renderAcademy(); showToast(v?'문자 자동 발송 켜짐':'문자 자동 발송 꺼짐'); }
+function toggleSendKind(k){ sendKinds[k]=!sendOn(k); saveData(); renderAcademy();
+  const label=(MSG_KINDS.find(x=>x[0]===k)||[])[1]||k;
+  showToast(`${label} 알림 ${sendOn(k)?'켜짐':'꺼짐'}`); }
 function setAcademy(){
   academy={
     name:(document.getElementById('acName')||{}).value?.trim()||'',
@@ -1878,7 +1916,7 @@ function openGuide(sid,mode){
 function sendGuide(ch,id){
   const s=st(id); const text=(_msgCtx&&_msgCtx.id===id)?_msgCtx.text:'';
   logAdd(id,'pay',`${s.name} 학습 안내 (${ch}) → ${s.guardian}`);
-  if(autoSend && fbFunctions){ closeSheet(); autoSendAll(id, 'guide', text, guardiansOf(s)); return; }
+  if((autoSend||autoSms) && fbFunctions && sendOn('guide')){ closeSheet(); autoSendAll(id, 'guide', text, guardiansOf(s)); return; }
   openMsgWith(id, text, ch==='카카오톡');
 }
 
@@ -2027,7 +2065,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, msgTemplates,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
     live, tempToday:[...tempToday], logbook,   // 등원중 상태 · 오늘만 추가 · 오늘 알림
   };
 }
@@ -2053,6 +2091,8 @@ function applyState(d){
   if(d.skipLog) skipLog=d.skipLog;
   if(d.academy) academy=Object.assign({name:'',owner:'',phone:''}, d.academy);
   if(typeof d.autoSend==='boolean') autoSend=d.autoSend;
+  if(typeof d.autoSms==='boolean') autoSms=d.autoSms;
+  if(d.sendKinds && typeof d.sendKinds==='object') sendKinds=Object.assign({start:true,end:true,absent:true,settle:true,guide:true}, d.sendKinds);
   if(d.msgTemplates) for(const k in d.msgTemplates){ if(msgTemplates[k]) msgTemplates[k]=Object.assign({sms:'',code:''}, d.msgTemplates[k]); }
   // 등원 중 상태: 오늘 것만 복원(어제 것이 남아 '수업 중'으로 보이지 않게)
   if(d.live && typeof d.live==='object'){

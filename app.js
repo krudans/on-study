@@ -379,7 +379,8 @@ function renderToday(){
     if(done){ statusText = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '하원 완료'; statusColor='var(--green)'; }
     else if(isLive){ statusText = `수업 중 · 등원 ${new Date(live[s.id]).toTimeString().slice(0,5)}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
-    else { statusText = `${isTemp?'오늘 임시':'예정 '+s.time} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
+    else { const t=timeFor(s,dowA)||s.time||'';   // 그룹 헤더와 동일한 '요일별 시간' 사용
+      statusText = `${isTemp?'오늘 임시 '+t:'예정 '+t} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
 
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
     let action;
@@ -1638,9 +1639,11 @@ function deleteStudent(id){
 /* ===== 전체 일정 (모든 학생 스케줄) ===== */
 let schedCur=null, schedSel=null;
 // 특정 날짜(ms, 00:00)에 수업 예정인 학생들
+// 그 날짜가 오늘이면 '오늘만 추가(임시)' 학생도 포함 → 출석부와 인원이 항상 같음
+function isTempOn(s, ms){ return dayKey(ms)===dayKey(now.getTime()) && tempToday.has(s.id) && !s.days.includes(new Date(ms).getDay()); }
 function studentsOnDate(ms){
   const d=new Date(ms), dow=d.getDay();
-  return students.filter(s=>s.days.includes(dow) && !beforeStart(s,ms))
+  return students.filter(s=> (s.days.includes(dow) && !beforeStart(s,ms)) || isTempOn(s,ms))
     .sort((a,b)=> (timeFor(a,dow)||'').localeCompare(timeFor(b,dow)||''));
 }
 function schedNav(delta){ schedCur.setMonth(schedCur.getMonth()+delta); schedSel=null; renderSchedule(); }
@@ -1691,7 +1694,7 @@ function renderSchedule(){
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
         return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
-          <div class="row-top"><span class="name">${s.name}</span>${statusHtml}</div>
+          <div class="row-top"><span class="name">${s.name}${isTempOn(s,schedSel)?' <span style="font-size:11px;font-weight:600;color:#fff;background:var(--amber);border-radius:6px;padding:2px 7px;vertical-align:middle">임시</span>':''}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
           <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${doneCountOf(s)}회</div>
           <div class="row-btns" style="margin-top:9px">

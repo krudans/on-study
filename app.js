@@ -73,6 +73,15 @@ function guardiansOf(s){
   if(Array.isArray(s.guardians)&&s.guardians.length) return s.guardians;
   return [{name:s.guardian||'', phone:s.phone||'', kakao:s.kakao!==false}];
 }
+/* 수업 시간(길이): 주3회 이상=60분, 주2회 이하=90분 (학생별 변경 가능) */
+const DUR_OPTS=[[60,'1시간'],[90,'1시간 30분']];
+function defaultDur(days){ return (days&&days.length>=3) ? 60 : 90; }
+function durOf(s){ return (s&&+s.dur) ? +s.dur : defaultDur(s?s.days:[]); }
+function durLabel(m){ const f=DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분'); }
+function endTimeOf(t, dur){ if(!t) return ''; const [h,mi]=String(t).split(':').map(Number);
+  const d=new Date(2000,0,1,h,mi+(+dur||60));
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+
 // 요일별 시간 (per-day 있으면 그 값, 없으면 공통 time)
 function timeFor(s,dayIdx){
   if(s.dayTimes && s.dayTimes[dayIdx]) return s.dayTimes[dayIdx];
@@ -395,7 +404,11 @@ function renderToday(){
     else if(isLive){ statusText = `수업 중 · 등원 ${new Date(live[s.id]).toTimeString().slice(0,5)}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const t=timeFor(s,dowA)||s.time||'';   // 그룹 헤더와 동일한 '요일별 시간' 사용
-      statusText = `${isTemp?'오늘 임시 '+t:'예정 '+t} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
+      const mk=(makeupLog[s.id]||[]).find(x=>dayKey(x.t)===aMs);
+      const dd=mk&&mk.dur?+mk.dur:durOf(s);
+      const tt=(mk&&mk.time)?mk.time:t;
+      const rng=tt?`${tt}~${endTimeOf(tt,dd)}`:'';
+      statusText = `${isTemp?'오늘 임시 '+rng:'예정 '+rng} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
 
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
     let action;
@@ -672,23 +685,34 @@ function unskipDay(sid, ms){
 function openMakeupSheet(id){
   const s=st(id);
   const sheet=document.getElementById('sheet');
+  const dcur=durOf(s);
   sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
-    <div class="cap">보강 날짜와 시간을 선택하세요. 달력 아래 보강일 줄에 표시돼요.</div>
-    <input type="date" id="mkDate" class="note-select">
-    <input type="time" id="mkTime" class="note-select" style="margin-top:8px">
+    <div class="cap">보강 날짜·시작 시각과 수업 시간을 선택하세요. 달력에 보강으로 표시돼요.</div>
+    <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select"></div>
+    <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||'16:00'}"></div>
+    <div class="fld"><label>수업 시간</label>
+      <div class="seg2" id="mkDurRow">
+        ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${dcur===m?'on':''}" data-dur="${m}" onclick="pickMkDur(${m})">${label}</button>`).join('')}
+      </div></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveMakeup(${id})">추가</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  sheet.dataset.mkDur=String(dcur);
   document.getElementById('scrim').classList.add('show');
+}
+function pickMkDur(m){
+  const sheet=document.getElementById('sheet'); sheet.dataset.mkDur=String(m);
+  document.querySelectorAll('#mkDurRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
 }
 function saveMakeup(id){
   const v=document.getElementById('mkDate').value;
   const tm=document.getElementById('mkTime').value;
   if(!v){showToast('날짜를 골라주세요');return;}
   const d=new Date(v+'T00:00:00');
-  (makeupLog[id]=makeupLog[id]||[]).push({t:d.getTime(), time:tm||'', done:false});
+  const mkDur = +document.getElementById('sheet').dataset.mkDur || durOf(st(id));
+  (makeupLog[id]=makeupLog[id]||[]).push({t:d.getTime(), time:tm||'', dur:mkDur, done:false});
   saveData(); closeSheet();
   if(openCal===id)document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id));
-  showToast(`${st(id).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} 추가됨`);
+  showToast(`${st(id).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} · ${durLabel(mkDur)} 추가됨`);
 }
 function markAbsent(id){ absentToday.add(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
@@ -903,7 +927,7 @@ function studentCard(s, forDay){
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
-  const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)}</div>`;
+  const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
   const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
@@ -1484,12 +1508,12 @@ function manageCard(s, forDay){
   const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
-  const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${timeFor(s,forDay)}</div>` : '';
+  const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${timeFor(s,forDay)}~${endTimeOf(timeFor(s,forDay),durOf(s))}</div>` : '';
   return `<div class="row" id="mng-${s.id}">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
     ${eduLine}${dayTime}
-    <div class="mg-line">🗓 ${days}요일 · ${timeTxt}</div>
+    <div class="mg-line">🗓 ${days}요일 · ${timeTxt} · <b>${durLabel(durOf(s))}</b></div>
     <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
     <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차</div>
     <div class="mg-line">${gLines}</div>
@@ -1649,7 +1673,7 @@ function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset[
 function togglePerDay(){const on=document.getElementById('perDayChk').checked;
   document.getElementById('dayTimes').style.display=on?'':'none'; syncDayTimes();}
 function pickDur(m){
-  const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m);
+  const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m); sheet.dataset.durTouched='1';
   document.querySelectorAll('#durRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
 }
 /* 요일을 바꾸면 아직 직접 고르지 않은 경우 기본값(3회=1시간/2회=1시간30분) 자동 반영 */
@@ -1675,6 +1699,7 @@ function saveStudent(id){
   const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
   let plan=+sheet.dataset.plan||0; if(plan<1){showToast('클래스 회차를 정해주세요');return;}
   const commonTime=document.getElementById('stTime').value||'16:00';
+  const dur = +sheet.dataset.dur || defaultDur(days);      // 수업 시간(길이)
   // 요일별 시간
   let dayTimes=null;
   if(document.getElementById('perDayChk').checked){
@@ -1699,7 +1724,7 @@ function saveStudent(id){
     grade:document.getElementById('stGrade').value, school:document.getElementById('stSchool').value.trim(),
     plan, days, time:commonTime, dayTimes, startDate, cycleStart, cycleEnd, guardians,
     // 호환용 대표(보호자1) 미러
-    guardian:guardians[0].name, kakao:guardians[0].kakao};
+    guardian:guardians[0].name, kakao:guardians[0].kakao, dur};
   data.phone_guardian=guardians[0].phone; // 참고용
   if(id){ Object.assign(st(id),data); cycleDone[id]=curDone; }
   else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }

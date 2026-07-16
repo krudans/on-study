@@ -778,9 +778,19 @@ function doRemoveTemp(id, wipe){
 function removeTemp(id){tempToday.delete(id);saveData();renderToday();}
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
+/* 수업 분(min) 계산 — 단일 소스. 시각을 바꾸는 곳은 반드시 이 함수만 사용 */
+function minsBetween(start, end){ return (start&&end) ? Math.max(1, Math.round((end-start)/60000)) : null; }
+/* 세션 기록의 시각을 설정/수정 — 모든 참조값(수업 분)이 함께 갱신됨 */
+function setSessionTimes(rec, start, end){
+  if(!rec) return rec;
+  if(start) rec.start=start;
+  if(end) rec.end=end;
+  rec.min = minsBetween(rec.start, rec.end);
+  return rec;
+}
 function complete(id, start, end){
   const rec={sid:id, date:new Date()};
-  if(start&&end){ rec.start=start; rec.end=end; rec.min=Math.max(1,Math.round((end-start)/60000)); }
+  if(start&&end) setSessionTimes(rec, start, end);
   sessions.push(rec); cycleDone[id]=(cycleDone[id]||0)+1;
   saveData();
 }
@@ -1868,7 +1878,8 @@ function _scApply(){
     if(!Object.keys(live).length&&ticker){ clearInterval(ticker); ticker=null; }
     rolloverIfComplete(id);
   }
-  saveData(); renderToday();
+  saveData();
+  refreshCurrentView();      // 지금 보고 있는 화면 갱신
 }
 function buildNotifyTextAt(s, kind, ms){
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
@@ -1914,11 +1925,9 @@ function saveTimeEdit(id){
   if(endMs && endMs<=startMs){ showToast('하원 시각이 등원 시각보다 빨라요'); return; }
   if(live[id]!=null) live[id]=startMs;                       // 수업 중이면 등원 시각만
   const rec=sessions.find(x=>x.sid===id && dayKey(x.date)===base);
-  if(rec){
-    rec.start=startMs;
-    if(endMs){ rec.end=endMs; rec.min=Math.max(1, Math.round((endMs-startMs)/60000)); }
-  }
-  saveData(); closeSheet(); renderToday();
+  setSessionTimes(rec, startMs, endMs);      // 수업 분까지 함께 갱신(단일 함수)
+  saveData(); closeSheet();
+  refreshCurrentView();      // 지금 보고 있는 화면(출석부/전체일정/학생 등) 갱신
   showToast(`${s.name} 시간을 ${sv}${ev?'~'+ev:''}로 고쳤어요`);
 }
 

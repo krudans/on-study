@@ -88,6 +88,7 @@ function guardiansOf(s){
       .cal-d{min-width:0}
       .cal-d.tod{outline:2px solid #E03131;outline-offset:-2px;font-weight:700}
       .cal-legend i.tod{background:transparent;box-shadow:inset 0 0 0 2px #E03131}
+      .sc-cell.today{outline:2px solid #E03131;outline-offset:-2px}
       .sc-wheel::-webkit-scrollbar{display:none}
     `;
     (document.head||document.documentElement).appendChild(st);

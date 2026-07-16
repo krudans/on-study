@@ -383,7 +383,7 @@
 .sc-cell{position:relative;aspect-ratio:1;min-width:0;min-height:0;overflow:hidden;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:var(--ink);background:var(--bg)}
 .sc-cell.empty{background:none;cursor:default}
 .sc-cell.has{background:#FBEFD6}
-.sc-cell.today{outline:2px solid var(--ink)}
+.sc-cell.today{outline:2px solid #E03131;outline-offset:-2px}   /* 오늘 = 빨간 테두리 (전체 일정·휴일 관리 달력) */
 .sc-cell.sel{background:var(--amber);color:#fff}
 .sc-n{font-size:10px;font-weight:700;color:var(--amber);margin-top:1px}
 .sc-cell.sel .sc-n{color:#fff}

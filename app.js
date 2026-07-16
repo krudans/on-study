@@ -86,6 +86,7 @@ function guardiansOf(s){
       .sc-cell{min-width:0;min-height:0;overflow:hidden}
       .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
       .cal-d{min-width:0}
+      .sc-wheel::-webkit-scrollbar{display:none}
     `;
     (document.head||document.documentElement).appendChild(st);
   }catch(e){}
@@ -442,7 +443,7 @@ function renderToday(){
       action=`<div class="attn-btns">
         ${first}
         <button class="btn absentbtn" onclick="markAbsent(${s.id})">결석</button>
-        <button class="btn ghost" onclick="manualComplete(${s.id})">완료</button>
+        <button class="btn ghost" onclick="openSendConfirm(${s.id},'both')">완료</button>
       </div>`;
     }
 
@@ -804,22 +805,8 @@ function manualComplete(id){
   rolloverIfComplete(id); renderToday();
 }
 
-function startSession(id){
-  live[id]=Date.now(); renderToday(); ensureTicker();
-  const s=st(id);
-  showToast(`${s.name} 등원 기록 · 보호자에게 알림을 엽니다`);
-  saveData();
-  openNotify(id,'start');
-}
-function stopSession(id){
-  const start=live[id], end=Date.now();
-  delete live[id]; complete(id,start,end); renderToday();
-  const s=st(id);
-  if(!Object.keys(live).length&&ticker){clearInterval(ticker);ticker=null;}
-  showToast(`${s.name} 하원 기록 · ${doneCountOf(s)}/${s.plan}회 · 보호자에게 알림을 엽니다`);
-  openNotify(id,'end');
-  rolloverIfComplete(id); saveData(); renderToday();
-}
+function startSession(id){ openSendConfirm(id,'start'); }
+function stopSession(id){ openSendConfirm(id,'end'); }
 function resend(id,kind){ openNotify(id,kind); }
 /* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
    메시지를 복사한 뒤 카톡 앱을 열어 붙여넣기. 데스크탑에선 문자앱이 없어 열리지 않을 수 있어요(모바일 앱에서 사용). */
@@ -1749,6 +1736,150 @@ function saveStudent(id){
   else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }
   saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
 }
+/* ===== 등원 / 하원 / 완료 확인 시트 — 시·분 드래그 휠 ===== */
+let _sc={id:null, kind:'start', tab:'start', start:null, end:null};
+const _hm=(ms)=> ms? new Date(ms).toTimeString().slice(0,5) : '';
+const SC_H=[]; for(let h=6;h<=23;h++) SC_H.push(h);
+const SC_M=[]; for(let m=0;m<60;m++) SC_M.push(m);
+const SC_ITEM=44;   // 탭하기 쉽게 넉넉히
+function _mkT(h,m){ const d=new Date(dayKey(now.getTime())); d.setHours(h,m,0,0); return d.getTime(); }
+function _round10(ms){ const d=new Date(ms); return _mkT(d.getHours(), d.getMinutes()); }
+
+function openSendConfirm(id, kind){
+  const nowMs=_round10(Date.now());
+  _sc={ id, kind, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),
+    start: (kind==='end') ? (live[id]!=null?_round10(live[id]):nowMs) : (kind==='both'? _defaultStart(id) : nowMs),
+    end:   (kind==='start') ? null : nowMs };
+  buildSendConfirm();
+  document.getElementById('scrim').classList.add('show');
+}
+function _defaultStart(id){
+  const s=st(id); const t=timeFor(s, now.getDay())||s.time||'16:00';
+  const [h,m]=t.split(':').map(Number); return _mkT(h, m);
+}
+/* 드래그 휠 한 줄 */
+function _wheel(which){
+  const ms=_sc[which]||Date.now(); const d=new Date(ms);
+  const hIdx=Math.max(0, SC_H.indexOf(d.getHours()));
+  const mIdx=Math.max(0, SC_M.indexOf(d.getMinutes()));
+  const col=(items,label,idx,type)=>`<div class="sc-wheel" id="w_${which}_${type}" data-which="${which}" data-type="${type}"
+      style="height:${SC_ITEM*3}px;overflow-y:auto;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-width:none;flex:1;text-align:center">
+      <div style="height:${SC_ITEM}px"></div>
+      ${items.map((v,i)=>`<div class="sc-op" data-v="${v}" style="height:${SC_ITEM}px;line-height:${SC_ITEM}px;scroll-snap-align:center;font-size:${i===idx?'20px':'15px'};font-weight:${i===idx?'600':'400'};color:${i===idx?'#633806':'#888780'}">${String(v).padStart(2,'0')}${label}</div>`).join('')}
+      <div style="height:${SC_ITEM}px"></div>
+    </div>`;
+  return `<div style="position:relative;background:#F8F7F2;border:1px solid var(--line);border-radius:12px;overflow:hidden">
+    <div style="position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);height:${SC_ITEM}px;background:#FAEEDA;border-radius:9px;pointer-events:none"></div>
+    <div style="position:relative;display:flex;gap:10px;padding:0 8px">${col(SC_H,'시',hIdx,'h')}${col(SC_M,'분',mIdx,'m')}</div>
+  </div>`;
+}
+function buildSendConfirm(){
+  const s=st(_sc.id), kind=_sc.kind;
+  const title = kind==='start'?'등원' : kind==='end'?'하원' : '완료 (등원·하원)';
+  const which = _sc.tab;
+  let tabs='';
+  if(kind==='both' || kind==='end'){
+    const tb=(k,label,ms)=>`<button type="button" onclick="scTab('${k}')" style="flex:1;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;${_sc.tab===k?'background:var(--ink);color:#fff;border:none':'background:var(--card);color:var(--muted);border:1px solid var(--line)'}">${label} ${_hm(ms)}</button>`;
+    tabs=`<div style="display:flex;gap:6px;margin-bottom:12px">${tb('start','등원',_sc.start)}${tb('end','하원',_sc.end)}</div>`;
+  }
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} ${title}</h3>
+    <div class="cap">시·분을 위아래로 드래그해서 맞추세요.</div>
+    ${tabs}${_wheel(which)}
+    <div id="scDur" style="font-size:11.5px;color:var(--muted);margin-top:8px;text-align:center"></div>
+    <div style="font-size:12px;color:var(--muted);margin:14px 0 5px">보낼 내용</div>
+    <div id="scPrev"></div>
+    <button class="btn start" id="scGo" style="margin-top:14px" onclick="scSend()">설정하고 알림 보내기</button>
+    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="scRecordOnly()">알림 없이 기록만</button>`;
+  _wireWheel();
+  scRefresh();
+}
+function scTab(k){ _sc.tab=k; buildSendConfirm(); }
+/* 휠 스크롤 → 값 반영 */
+function _wireWheel(){
+  document.querySelectorAll('.sc-wheel').forEach(el=>{
+    const items=[...el.querySelectorAll('.sc-op')];
+    const type=el.dataset.type, which=el.dataset.which;
+    const cur=new Date(_sc[which]||Date.now());
+    const val = type==='h' ? cur.getHours() : cur.getMinutes();
+    const idx=Math.max(0, items.findIndex(x=>+x.dataset.v===val));
+    el.scrollTop = idx*SC_ITEM;
+    items.forEach((it,j)=>{ it.style.cursor='pointer';
+      it.addEventListener('click', ()=>{ el.scrollTo({top:j*SC_ITEM, behavior:'smooth'}); });
+    });
+    let t=null;
+    el.addEventListener('scroll', ()=>{
+      clearTimeout(t);
+      t=setTimeout(()=>{
+        const i=Math.round(el.scrollTop/SC_ITEM);
+        const v=+(items[Math.max(0,Math.min(items.length-1,i))].dataset.v);
+        const d=new Date(_sc[which]||Date.now());
+        const h = type==='h' ? v : d.getHours();
+        const m = type==='m' ? v : d.getMinutes();
+        _sc[which]=_mkT(h,m);
+        items.forEach((x,j)=>{ const on=j===i; x.style.fontSize=on?'20px':'15px'; x.style.fontWeight=on?'600':'400'; x.style.color=on?'#633806':'#888780'; });
+        scRefresh();
+      }, 140);   // 멈춘 뒤 확정 (휙 넘어감 방지)
+    });
+  });
+}
+/* 미리보기·수업분·탭라벨 갱신 (시트 재생성 없이) */
+function scRefresh(){
+  const s=st(_sc.id), kind=_sc.kind;
+  const bad = (kind!=='start' && _sc.start && _sc.end && _sc.end<=_sc.start);
+  const durMin=(_sc.start&&_sc.end)?Math.max(1,Math.round((_sc.end-_sc.start)/60000)):null;
+  const dur=document.getElementById('scDur');
+  if(dur) dur.innerHTML = kind==='start' ? '' :
+    (bad?'<b style="color:var(--clay)">⚠ 하원이 등원보다 빨라요</b>':`수업 ${durMin}분 · 예정 ${durLabel(durOf(s))}`);
+  const pv=document.getElementById('scPrev');
+  if(pv){
+    const one=(k,ms)=>`<div class="msg" style="white-space:pre-line">${buildNotifyTextAt(s,k,ms).replace(/</g,'&lt;')}</div>`;
+    pv.innerHTML = kind==='start' ? one('start',_sc.start)
+      : kind==='end' ? one('end',_sc.end)
+      : one('start',_sc.start)+'<div style="height:6px"></div>'+one('end',_sc.end);
+  }
+  const go=document.getElementById('scGo'); if(go){ go.disabled=!!bad; go.style.opacity=bad?'.45':''; }
+  document.querySelectorAll('.sc-wheel').forEach(()=>{});
+  // 탭 라벨 시각 갱신
+  const tabBtns=document.querySelectorAll('.sheet button[onclick^="scTab"]');
+  if(tabBtns.length===2){ tabBtns[0].innerHTML=`등원 ${_hm(_sc.start)}`; tabBtns[1].innerHTML=`하원 ${_hm(_sc.end)}`; }
+}
+function scRecordOnly(){ const s=st(_sc.id), k=_sc.kind; _scApply(); closeSheet();
+  showToast(`${s.name} ${k==='start'?'등원':'하원'} 기록 완료 (알림 없음)`); }
+/* 설정하고 알림 보내기 — 카톡/문자는 학생 설정대로 자동 */
+function scSend(){
+  const id=_sc.id, kind=_sc.kind, s=st(id);
+  _scApply();
+  const g=guardiansOf(s)[0]||{};
+  const kakao = g.kakao!==false;
+  const kinds = kind==='start' ? ['start'] : kind==='end' ? ['end'] : ['start','end'];
+  const on = kinds.filter(k=>sendOn(k));
+  if(!on.length){ closeSheet(); showToast(`${s.name} 기록 완료 (알림 꺼짐)`); return; }
+  const text = on.map(k=>buildNotifyTextAt(s,k, k==='start'?_sc.start:_sc.end)).join('\n');
+  guardiansOf(s).forEach(gg=>logAdd(id, on[on.length-1], `${s.name} ${on.map(k=>k==='start'?'등원':'하원').join('+')} → ${gg.name}(${kakao?'카톡':'문자'})`));
+  if((autoSend||autoSms) && fbFunctions){ closeSheet(); autoSendAll(id, on[on.length-1], text, guardiansOf(s)); return; }
+  openMsgWith(id, text, kakao);
+}
+function _scApply(){
+  const id=_sc.id;
+  if(_sc.kind==='start'){ live[id]=_sc.start; ensureTicker(); }
+  else {
+    delete live[id]; complete(id, _sc.start, _sc.end);
+    if(!Object.keys(live).length&&ticker){ clearInterval(ticker); ticker=null; }
+    rolloverIfComplete(id);
+  }
+  saveData(); renderToday();
+}
+function buildNotifyTextAt(s, kind, ms){
+  const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
+  const g=guardiansOf(s)[0]||{};
+  const vars={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
+    보호자명:g.name||'보호자', 시각:_hm(ms), 회차:String(doneCountOf(s)),
+    금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
+  const out=applyVars(tpl, vars).trim();
+  return out || `[${academy.name||'On-study'}] ${s.name} 학생이 ${_hm(ms)}에 ${kind==='start'?'등원':'하원'}했습니다.`;
+}
+
 /* ===== 등원·하원 시간 수정 ===== */
 function openTimeEdit(id){
   const s=st(id);

@@ -259,30 +259,31 @@ function monthCount(sid){return sessions.filter(s=>s.sid===sid &&
   s.date.getMonth()===now.getMonth() && s.date.getFullYear()===now.getFullYear()).length;}
 const st=(id)=>students.find(s=>s.id===id);
 
-let tempToday=new Set();
-let tempDay=null;        // '오늘만 추가'가 적용되는 날짜(dayKey) — 다른 날이면 자동으로 비움
+let tempToday=new Set();   // [폐기 예정] 옛 데이터 이전용
+let tempDay=null;
+/* 보강 = makeupLog 하나로 관리 (예전 '임시 추가'와 동일한 개념) */
+function makeupOn(sid, k){ return (makeupLog[sid]||[]).find(x=>dayKey(x.t)===dayKey(k)) || null; }
+function isMakeupDay(s, k){ return !!makeupOn(s.id, k); }
 let seedUntil=null;      // 이 날짜 이전의 지난 수업일은 '확정'으로 인정(과거 기록 일괄 확정 시점)
 let tempTimes={};        // 오늘만 추가한 학생의 시각·수업시간 {id:{time:'15:00',dur:60}}
 /* 오늘 이 학생의 시각 (임시 추가 > 보강 > 요일표) — 단일 소스 */
 function todayTimeOf(s, k){
   const kk = k || dayKey(now.getTime());
-  if(tempToday.has(s.id) && tempTimes[s.id] && tempTimes[s.id].time) return tempTimes[s.id].time;
-  const mk=(makeupLog[s.id]||[]).find(x=>dayKey(x.t)===kk);
+  const mk=makeupOn(s.id, kk);
   if(mk && mk.time) return mk.time;
   return timeFor(s, new Date(kk).getDay()) || s.time || '';
 }
 /* 오늘 이 학생의 수업 시간(분) (임시 추가 > 보강 > 학생 설정) */
 function todayDurOf(s, k){
   const kk = k || dayKey(now.getTime());
-  if(tempToday.has(s.id) && tempTimes[s.id] && tempTimes[s.id].dur) return +tempTimes[s.id].dur;
-  const mk=(makeupLog[s.id]||[]).find(x=>dayKey(x.t)===kk);
+  const mk=makeupOn(s.id, kk);
   if(mk && mk.dur) return +mk.dur;
   return durOf(s);
 }
 let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 // 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
-const isTodayStudent=(x)=> tempToday.has(x.id) || (isClassDay(x, dayKey(now.getTime())) && !beforeStart(x, dayKey(now.getTime())));
+const isTodayStudent=(x)=> isClassDay(x, dayKey(now.getTime())) && !beforeStart(x, dayKey(now.getTime()));
 const todayRoster=()=>students.filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));
 
 // 학생의 지난 출석일(요일표 기준, 오늘 이전) — 달력 표시용
@@ -457,7 +458,7 @@ function renderToday(){
       </div>`;
     }
     const isLive=live[s.id]!=null;
-    const isTemp=tempToday.has(s.id) && !isClassDay(s, aMs);   // 휴일이면 정규 요일이어도 임시
+    const isMk=isMakeupDay(s, aMs);   // 보강일 (예전 '오늘만 추가'와 동일)
     const isAbsent=isAbsentToday(s.id);
     const done=doneToday(s.id);
     const shownDay=doneCountOf(s);
@@ -472,7 +473,7 @@ function renderToday(){
     else { const tt=todayTimeOf(s,aMs);           // 임시 추가 > 보강 > 요일표 (그룹 헤더와 동일)
       const dd=todayDurOf(s,aMs);
       const rng=tt?`${tt}~${endTimeOf(tt,dd)}`:'';
-      statusText = `${isTemp?'오늘 임시 '+rng:'예정 '+rng} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
+      statusText = `${isMk?'보강 '+rng:'예정 '+rng} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
 
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
     let action;
@@ -508,7 +509,7 @@ function renderToday(){
         <span class="since">${isLive?'등원 '+new Date(live[s.id]).toTimeString().slice(0,5):''}</span></div>
       <div class="row-btns" style="margin-top:8px">
         <button class="btn ghost small" onclick="toggleCal(${s.id})">달력 보기</button>
-        ${isTemp?`<button class="btn ghost small" onclick="removeTemp(${s.id})">오늘 빼기</button>`:''}
+        ${(isMk&&isToday)?`<button class="btn ghost small" onclick="askRemoveMakeup(${s.id},${aMs})">보강 빼기</button>`:''}
       </div>
       <div class="resend">
         <button onclick="resend(${s.id},'start')">↩ 등원 알림</button><span class="sep">·</span>
@@ -524,10 +525,10 @@ function renderToday(){
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
         <div class="who">
-          <div class="name">${s.name}${isTemp?' <span style="font-size:11px;font-weight:700;color:#fff;background:var(--amber);border-radius:6px;padding:2px 7px;vertical-align:middle">임시</span>':''}</div>
+          <div class="name">${s.name}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
           <div class="plan" style="color:${statusColor}">${statusText}</div>
         </div>
-        ${isTemp?`<button onclick="askRemoveTemp(${s.id})" title="오늘 임시 추가 취소" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
+        ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
         ${toggleBtn}
       </div>
       ${detail}
@@ -548,24 +549,23 @@ function renderToday(){
     }
     cards+=cardOf(s);
   });
-  const empty=list.length?'':`<div class="empty">${isToday?'오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.':'이 날은 예정된 학생이 없어요.'}</div>`;
-  const cand=students.filter(x=>!isTodayStudent(x));
-  // 오늘 임시로 추가된 학생 (빼기 가능)
-  const added=[...tempToday].map(id=>st(id)).filter(x=>x && !isClassDay(x, aMs));
+  const empty=list.length?'':`<div class="empty">이 날은 예정된 학생이 없어요. 아래에서 보강을 넣을 수 있어요.</div>`;
+  const cand=students.filter(x=>!list.some(y=>y.id===x.id));      // 그 날 명단에 없는 학생
+  const added=students.filter(x=>makeupOn(x.id, aMs));            // 그 날 보강인 학생 (단일 소스)
   const addedBox = added.length ? `<div style="margin-bottom:10px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">오늘 추가된 학생</div>
-      ${added.map(x=>{ const ti=tempTimes[x.id]||{};
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${isToday?'오늘':fmtMD(aMs)} 보강</div>
+      ${added.map(x=>{ const ti=makeupOn(x.id, aMs)||{};
         return `<div style="display:flex;justify-content:space-between;align-items:center;background:#FAEEDA;border-radius:9px;padding:8px 10px;margin-bottom:6px">
           <span style="font-size:13px;color:#633806"><b>${x.name}</b> · ${ti.time||'-'}${ti.time?'~'+endTimeOf(ti.time, ti.dur||durOf(x)):''} · ${durLabel(ti.dur||durOf(x))}</span>
-          <button onclick="askRemoveTemp(${x.id})" style="border:none;background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
+          <button onclick="askRemoveMakeup(${x.id},${aMs})" style="border:none;background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
         </div>`; }).join('')}
     </div>` : '';
-  const addBox=`<div class="add-wrap"><div class="add-title">오늘만 추가하기</div>
-    <div class="add-desc">보강·대체 등 오늘만 오는 학생을 골라 출석부에 넣어요. 시각·수업 시간을 정해서 넣습니다. 정규 요일표는 바뀌지 않아요.</div>
+  const addBox=`<div class="add-wrap"><div class="add-title">${isToday?'오늘':fmtMD(aMs)} 보강 추가</div>
+    <div class="add-desc">이 날 하루만 오는 학생을 골라 넣어요. 시각·수업 시간을 정합니다. 정규 요일표는 그대로고, <b>회차·예상 종료일에는 반영</b>돼요.</div>
     ${addedBox}
-    ${cand.length?`<div class="chips">`+cand.map(x=>`<button class="chip" onclick="addTemp(${x.id})">＋ ${x.name}</button>`).join('')+`</div>`
+    ${cand.length?`<div class="chips">`+cand.map(x=>`<button class="chip" onclick="addTemp(${x.id},${aMs})">＋ ${x.name}</button>`).join('')+`</div>`
       :`<div class="add-desc" style="margin:0">추가할 수 있는 다른 학생이 없어요.</div>`}</div>`;
-  el.innerHTML=dateNav+summary+empty+cards+(isToday?addBox:'');
+  el.innerHTML=dateNav+summary+empty+cards+addBox;   // 어느 날짜든 보강 추가 가능
   updateLiveCount();
 }
 let openCal=null, calCur=null, payHistOpen=false;
@@ -650,10 +650,22 @@ function buildCalendar(s, cal, prevClick, nextClick){
 
   // 보강일
   const mks=(makeupLog[s.id]||[]).slice().sort((a,b)=>a.t-b.t);
-  const mkText=mks.length? mks.map(mk=>{const d=new Date(mk.t);
-    return `${d.getMonth()+1}.${d.getDate()}${mk.time?' '+mk.time:''}${mk.done?' ✓':''}`;}).join(', ') : '없음';
-  const mkLine=`<div class="cf-row"><span class="cf-k">보강일</span>
-    <span class="cf-v">${mkText} ${document.body.dataset.mode==='admin'?`<button class="cf-more" onclick="openMakeupSheet(${s.id})">＋ 지정</button>`:''}</span></div>`;
+  // 보강일: 목록 + 각각 빼기 + 등록 버튼 (앱·관리자 공통)
+  const mkList = mks.length ? mks.slice().sort((a,b)=>a.t-b.t).map(mk=>{
+      const d=new Date(mk.t);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:8px;padding:6px 9px;margin-top:5px">
+        <span style="font-size:12.5px;color:#4A3690"><b>${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})</b>
+          ${mk.time?` ${mk.time}~${endTimeOf(mk.time, mk.dur||durOf(s))}`:''} · ${durLabel(mk.dur||durOf(s))}${mk.done?' ✓ 완료':''}</span>
+        <button onclick="askRemoveMakeup(${s.id},${mk.t})" style="border:none;background:#fff;border-radius:6px;padding:3px 8px;font-size:11.5px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
+      </div>`; }).join('')
+    : `<div style="font-size:12.5px;color:var(--muted);margin-top:4px">없음</div>`;
+  const mkLine=`<div class="cf-row" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="cf-k">보강일</span>
+        <button class="cf-more" onclick="openMakeupSheet(${s.id})">＋ 보강 등록</button>
+      </div>
+      ${mkList}
+    </div>`;
 
   // 이번 회차 요약(시작~종료)
   const rangeLine=`<div class="cf-row"><span class="cf-k">이번 회차</span>
@@ -777,8 +789,8 @@ function openMakeupSheet(id){
   const sheet=document.getElementById('sheet');
   const dcur=durOf(s);
   sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
-    <div class="cap">보강 날짜·시작 시각과 수업 시간을 선택하세요. 달력에 보강으로 표시돼요.</div>
-    <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select"></div>
+    <div class="cap">보강 날짜·시작 시각과 수업 시간을 정하세요. <b>회차·예상 종료일에 자동 반영</b>되고 달력에 보라색으로 표시돼요.</div>
+    <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select" value="${new Date(dayKey(now.getTime())).toISOString().slice(0,10)}"></div>
     <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||'16:00'}"></div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="mkDurRow">
@@ -799,10 +811,13 @@ function saveMakeup(id){
   if(!v){showToast('날짜를 골라주세요');return;}
   const d=new Date(v+'T00:00:00');
   const mkDur = +document.getElementById('sheet').dataset.mkDur || durOf(st(id));
-  (makeupLog[id]=makeupLog[id]||[]).push({t:d.getTime(), time:tm||'', dur:mkDur, done:false});
-  saveData(); closeSheet();
-  if(openCal===id)document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id));
-  showToast(`${st(id).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} · ${durLabel(mkDur)} 추가됨`);
+  const k=dayKey(d.getTime());
+  const mks=(makeupLog[id]=makeupLog[id]||[]);
+  const ex=mks.find(x=>dayKey(x.t)===k);
+  if(ex){ ex.time=tm||ex.time; ex.dur=mkDur; }        // 같은 날 다시 등록하면 수정
+  else mks.push({t:k, time:tm||'', dur:mkDur, done:false});
+  saveData(); closeSheet(); refreshCurrentView();      // 목록·달력·회차·종료일 모두 갱신
+  showToast(`${st(id).name} 보강 ${d.getMonth()+1}.${d.getDate()}${tm?' '+tm:''} · ${durLabel(mkDur)} 저장됨`);
 }
 function markAbsent(id){ absentToday.add(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
@@ -836,14 +851,16 @@ function clearAbsentFrom(sid, dayMs){
   showToast(`${st(sid).name} 결석 취소`);
 }
 /* 오늘만 추가 — 시작 시각·수업 시간을 정해서 넣기 */
-function openTempSheet(id){
+function openTempSheet(id, dateMs){
   const s=st(id);
-  const dow=now.getDay();
-  const defT = timeFor(s,dow) || s.time || '16:00';     // 그 학생 기본 시각(없으면 16:00)
+  const k=dayKey(dateMs||now.getTime());
+  const dow=new Date(k).getDay();
+  const defT = timeFor(s,dow) || s.time || '16:00';     // 그 날 요일 기준 기본 시각
   const defD = durOf(s);
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} 오늘만 추가</h3>
-    <div class="cap">보강·대체로 오늘만 오는 경우예요. <b>시작 시각과 수업 시간</b>을 정해주세요. 정규 요일표는 바뀌지 않아요.</div>
+  sheet.dataset.tpDate=String(k);
+  sheet.innerHTML=`<h3>${s.name} ${dayKey(now.getTime())===k?'오늘':fmtMD(k)} 보강</h3>
+    <div class="cap"><b>${fmtMD(k)}</b> 하루만 오는 수업이에요. <b>시작 시각과 수업 시간</b>을 정해주세요. 정규 요일표는 그대로고, <b>회차·예상 종료일에 반영</b>됩니다.</div>
     <div class="fld"><label>시작 시각</label>
       <input type="time" id="tpTime" class="note-select" value="${defT}"></div>
     <div class="fld"><label>수업 시간</label>
@@ -851,7 +868,7 @@ function openTempSheet(id){
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${defD===m?'on':''}" data-dur="${m}" onclick="pickTpDur(${m})">${label}</button>`).join('')}
       </div></div>
     <div class="sheet-btns">
-      <button class="btn start" onclick="saveTemp(${id})">추가</button>
+      <button class="btn start" onclick="saveTemp(${id})">보강 추가</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   sheet.dataset.tpDur=String(defD);
   document.getElementById('scrim').classList.add('show');
@@ -861,49 +878,47 @@ function pickTpDur(m){
   document.querySelectorAll('#tpDurRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
 }
 function saveTemp(id){
+  const sheet=document.getElementById('sheet');
   const t=(document.getElementById('tpTime')||{}).value||'';
   if(!t){ showToast('시작 시각을 정해주세요'); return; }
-  const dur=+document.getElementById('sheet').dataset.tpDur || durOf(st(id));
-  const k=dayKey(now.getTime());
-  tempDay=k; tempToday.add(id); tempTimes[id]={time:t, dur};
-  // 오늘을 '수업 있는 날(보강)'로 등록 → 달력·회차·예상 종료일에 자동 반영
-  const mks=(makeupLog[id]=makeupLog[id]||[]);
+  const dur=+sheet.dataset.tpDur || durOf(st(id));
+  const k=+sheet.dataset.tpDate || dayKey(now.getTime());     // 보고 있던 날짜
+  const mks=(makeupLog[id]=makeupLog[id]||[]);                // 보강 = 단일 소스
   const ex=mks.find(x=>dayKey(x.t)===k);
-  if(ex){ ex.time=t; ex.dur=dur; }
-  else mks.push({t:k, time:t, dur, done:false, temp:true});
-  saveData(); closeSheet(); renderToday();
-  showToast(`${st(id).name} 오늘 ${t}~${endTimeOf(t,dur)} 추가 · 수업일에 반영됨`);
+  if(ex){ ex.time=t; ex.dur=dur; } else mks.push({t:k, time:t, dur, done:false});
+  saveData(); closeSheet(); refreshCurrentView();     // 출석부·전체 일정 등 현재 화면 갱신
+  showToast(`${st(id).name} ${fmtMD(k)} 보강 ${t}~${endTimeOf(t,dur)} 추가됨`);
 }
-function addTemp(id){ openTempSheet(id); }
-/* 임시 추가 취소 — 출결 기록이 있으면 함께 지울지 확인 */
-function askRemoveTemp(id){
-  const s=st(id);
-  const hasRec = live[id]!=null || doneToday(id) || isAbsentToday(id);
-  if(!hasRec){ removeTemp(id); showToast(`${s.name} 오늘 출석부에서 뺐어요`); return; }
+function addTemp(id, dateMs){ openTempSheet(id, dateMs); }
+/* 보강 빼기 — 출결 기록이 있으면 함께 지울지 확인 */
+function removeMakeup(id, dayMs){
+  const k=dayKey(dayMs);
+  if(makeupLog[id]) makeupLog[id]=makeupLog[id].filter(x=>dayKey(x.t)!==k);
+  saveData(); refreshCurrentView();
+}
+function askRemoveMakeup(id, dayMs){
+  const s=st(id), k=dayKey(dayMs);
+  const hasRec = live[id]!=null || sessions.some(x=>x.sid===id && dayKey(x.date)===k)
+    || (absentLog[id]||[]).some(t=>dayKey(t)===k);
+  if(!hasRec){ removeMakeup(id,k); showToast(`${s.name} 보강을 뺐어요`); return; }
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} 오늘 빼기</h3>
-    <div class="cap">오늘 <b>출결 기록(등원·하원·결석)</b>이 있어요. 함께 지우고 출석부에서 뺄까요?<br>회차도 원래대로 되돌아갑니다.</div>
+  sheet.innerHTML=`<h3>${s.name} 보강 빼기</h3>
+    <div class="cap">이 날 <b>출결 기록(등원·하원·결석)</b>이 있어요. 함께 지우고 뺄까요?<br>회차도 원래대로 되돌아갑니다.</div>
     <div class="sheet-btns">
-      <button class="btn pay" onclick="doRemoveTemp(${id},true)">기록까지 지우고 빼기</button>
-      <button class="btn ghost" onclick="doRemoveTemp(${id},false)">기록은 두고 빼기</button>
+      <button class="btn pay" onclick="doRemoveMakeup(${id},${k},true)">기록까지 지우고 빼기</button>
+      <button class="btn ghost" onclick="doRemoveMakeup(${id},${k},false)">기록은 두고 빼기</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   document.getElementById('scrim').classList.add('show');
 }
-function doRemoveTemp(id, wipe){
-  const s=st(id);
+function doRemoveMakeup(id, dayMs, wipe){
+  const s=st(id), k=dayKey(dayMs);
   if(wipe){
-    if(live[id]!=null){ delete live[id]; }
-    if(doneToday(id)) undoToday(id);        // 세션·회차 되돌리기
-    if(isAbsentToday(id)) clearAbsent(id);
+    if(live[id]!=null) delete live[id];
+    if(sessions.some(x=>x.sid===id && dayKey(x.date)===k)) undoOn(id,k);
+    if((absentLog[id]||[]).some(t=>dayKey(t)===k)) clearAbsentFrom(id,k);
   }
-  removeTemp(id); closeSheet();
-  showToast(`${s.name} 오늘 출석부에서 뺐어요${wipe?' (기록 삭제)':''}`);
-}
-function removeTemp(id){
-  const k=dayKey(now.getTime());
-  tempToday.delete(id); delete tempTimes[id];
-  if(makeupLog[id]) makeupLog[id]=makeupLog[id].filter(x=>!(dayKey(x.t)===k && x.temp));   // 임시로 넣은 보강만 제거
-  saveData(); renderToday();
+  removeMakeup(id,k); closeSheet();
+  showToast(`${s.name} 보강을 뺐어요${wipe?' (기록 삭제)':''}`);
 }
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
@@ -1536,19 +1551,19 @@ function normalizeHistory(){
       h.confirmed=true; ch=true;
     });
   });
-  // '오늘만 추가'가 지난 날짜 것이면 정리(어제 보강 학생이 오늘 출석부에 남지 않게)
-  if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempTimes={}; tempDay=null; ch=true; }
-  // 임시로 추가된 학생은 그날을 '수업 있는 날(보강)'로 등록 — 달력·회차·종료일 자동 반영
-  [...tempToday].forEach(id=>{
-    const s0=st(id); if(!s0) return;
-    const mks=(makeupLog[id]=makeupLog[id]||[]);
-    if(!mks.some(x=>dayKey(x.t)===today)){
-      const ti=tempTimes[id]||{};
-      mks.push({t:today, time:ti.time||timeFor(s0, new Date(today).getDay())||s0.time||'16:00',
-        dur:ti.dur||durOf(s0), done:false, temp:true});
-      ch=true;
-    }
-  });
+  // [이전 버전 호환] 옛 '오늘만 추가'(tempToday) → 보강(makeupLog)으로 옮기고 폐기
+  if(tempToday.size && tempDay){
+    [...tempToday].forEach(id=>{
+      const s0=st(id); if(!s0) return;
+      const mks=(makeupLog[id]=makeupLog[id]||[]);
+      if(!mks.some(x=>dayKey(x.t)===tempDay)){
+        const ti=(tempTimes&&tempTimes[id])||{};
+        mks.push({t:tempDay, time:ti.time||timeFor(s0, new Date(tempDay).getDay())||s0.time||'16:00',
+          dur:ti.dur||durOf(s0), done:false});
+      }
+    });
+    tempToday=new Set(); tempTimes={}; tempDay=null; ch=true;
+  }
   students.forEach(s=>{
     let hist=(packHistory[s.id]||[]);
     hist.forEach(h=>{
@@ -2392,11 +2407,11 @@ function deleteStudent(id){
 let schedCur=null, schedSel=null;
 // 특정 날짜(ms, 00:00)에 수업 예정인 학생들
 // 그 날짜가 오늘이면 '오늘만 추가(임시)' 학생도 포함 → 출석부와 인원이 항상 같음
-function isTempOn(s, ms){ return dayKey(ms)===dayKey(now.getTime()) && tempToday.has(s.id) && !isClassDay(s, dayKey(ms)); }
+function isTempOn(s, ms){ return isMakeupDay(s, dayKey(ms)); }   // 호환용 별칭
 function studentsOnDate(ms){
   const d=new Date(ms), dow=d.getDay(), k=dayKey(ms);
-  return students.filter(s=> (isClassDay(s,k) && !beforeStart(s,ms)) || isTempOn(s,ms))
-    .sort((a,b)=> (timeFor(a,dow)||'').localeCompare(timeFor(b,dow)||''));
+  return students.filter(s=> isClassDay(s,k) && !beforeStart(s,ms))
+    .sort((a,b)=> (todayTimeOf(a,k)||'').localeCompare(todayTimeOf(b,k)||''));
 }
 function schedNav(delta){ schedCur.setMonth(schedCur.getMonth()+delta); schedSel=null; renderSchedule(); }
 function pickSchedDay(ms){ schedSel=ms; renderSchedule(); }
@@ -2446,7 +2461,7 @@ function renderSchedule(){
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
         return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
-          <div class="row-top"><span class="name">${s.name}${isTempOn(s,schedSel)?' <span style="font-size:11px;font-weight:600;color:#fff;background:var(--amber);border-radius:6px;padding:2px 7px;vertical-align:middle">임시</span>':''}</span>${statusHtml}</div>
+          <div class="row-top"><span class="name">${s.name}${isMakeupDay(s,dayKey(schedSel))?' <span style="font-size:11px;font-weight:600;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
           <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${doneCountOf(s)}회</div>
           <div class="row-btns" style="margin-top:9px">
@@ -2465,7 +2480,26 @@ function renderSchedule(){
         <span>${y}년 ${m+1}월</span><button onclick="schedNav(1)">›</button></div>
       <div class="sc-grid">${dows}${cells}</div>
     </div>
-    ${listHtml}`;
+    ${listHtml}
+    ${schedMakeupBox(schedSel)}`;
+}
+/* 전체 일정: 그 날짜의 보강 목록 + 바로 등록 */
+function schedMakeupBox(selMs){
+  if(selMs==null) return '';
+  const k=dayKey(selMs);
+  const onDate=studentsOnDate(k);
+  const mkList=students.filter(x=>makeupOn(x.id,k));
+  const cand=students.filter(x=>!onDate.some(y=>y.id===x.id));
+  const mkHtml = mkList.length ? mkList.map(x=>{ const mk=makeupOn(x.id,k)||{};
+      return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:9px;padding:8px 10px;margin-bottom:6px">
+        <span style="font-size:13px;color:#4A3690"><b>${x.name}</b> · ${mk.time||'-'}${mk.time?'~'+endTimeOf(mk.time, mk.dur||durOf(x)):''} · ${durLabel(mk.dur||durOf(x))}</span>
+        <button onclick="askRemoveMakeup(${x.id},${k})" style="border:none;background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
+      </div>`; }).join('') : '';
+  return `<div class="add-wrap" style="margin-top:14px"><div class="add-title">${fmtMD(k)} 보강 추가</div>
+    <div class="add-desc">이 날 하루만 오는 학생을 골라 넣어요. 정규 요일표는 그대로고, <b>회차·예상 종료일에 반영</b>돼요.</div>
+    ${mkHtml?`<div style="margin-bottom:10px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">이 날 보강</div>${mkHtml}</div>`:''}
+    ${cand.length?`<div class="chips">`+cand.map(x=>`<button class="chip" onclick="addTemp(${x.id},${k})">＋ ${x.name}</button>`).join('')+`</div>`
+      :`<div class="add-desc" style="margin:0">추가할 수 있는 다른 학생이 없어요.</div>`}</div>`;
 }
 
 /* ===== 학원 관리 (기본 정보) ===== */
@@ -2956,7 +2990,7 @@ function snapshot(){
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
-    live, tempToday:[...tempToday], tempDay, tempTimes, logbook, seedUntil,   // 등원중 · 오늘만 추가(시각 포함) · 오늘 알림 · 확정 기준일
+    live, logbook, seedUntil,   // 등원중 · 오늘 알림 · 확정 기준일 (보강은 makeupLog로 통합)
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }

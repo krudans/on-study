@@ -86,6 +86,8 @@ function guardiansOf(s){
       .sc-cell{min-width:0;min-height:0;overflow:hidden}
       .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
       .cal-d{min-width:0}
+      .cal-d.tod{outline:2px solid #E03131;outline-offset:-2px;font-weight:700}
+      .cal-legend i.tod{background:transparent;box-shadow:inset 0 0 0 2px #E03131}
       .sc-wheel::-webkit-scrollbar{display:none}
     `;
     (document.head||document.documentElement).appendChild(st);
@@ -610,7 +612,7 @@ function monthGrid(sid, y, m, sets, opts){
     else if(sets.makeup.has(t)){ style+='background:#EAE3F7;color:#6B4FBB;font-weight:700;'; }
     else if(sets.absent.has(t)) c+=' absent';
     else if(sets.session.has(t)) c+=(t<=todayT?' att':' up');
-    if(t===todayT && !sets.absent.has(t) && !sets.skip.has(t)) c+=' tod';
+    if(t===todayT) c+=' tod';       // 오늘은 어떤 상태든 빨간 테두리
     const clickable = !o.readonly && document.body.dataset.mode==='admin' && t>=todayT;
     if(clickable) style+='cursor:pointer;';
     grid+=`<div class="${c}" style="${style}" ${clickable?`onclick="calDayClick(${sid},${t})"`:''}>${dd}</div>`;
@@ -1965,7 +1967,7 @@ function rpRender(){
     if(_rp.start && _rp.end && t>_rp.start && t<_rp.end) style+='background:#FAEEDA;color:#854F0B;';
     if(t===_rp.start || t===_rp.end) style+='background:var(--amber);color:#fff;font-weight:700;';
     else if(isClass) style+='box-shadow:inset 0 0 0 1.5px #C9E4D3;';
-    if(t===todayK) style+='outline:2px solid var(--ink);outline-offset:-2px;';
+    if(t===todayK) style+='outline:2px solid #E03131;outline-offset:-2px;';
     grid+=`<div class="cal-d" style="${style}" onclick="rpPick(${t})">${dd}</div>`;
   }
   box.innerHTML=`<div class="cal" style="margin-top:8px">

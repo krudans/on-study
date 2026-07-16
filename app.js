@@ -39,15 +39,20 @@ let autoSms=false;                     // 문자 자동 발송(알림톡 실패 
 let sendKinds={start:true,end:true,absent:true,settle:true,guide:true};  // 항목별 발송 on/off
 const sendOn=(kind)=> sendKinds[kind]!==false;
 // 발송 문구: 종류별 문자 문구(sms) + 알림톡 템플릿 코드(code). 문자문구를 #{} 형태로 변환해 카카오 심사 신청에 사용.
+const OLD_SETTLE_TPL='[{학원명}] {학생명} 학생 {회차}회 수업이 마무리되었습니다. 수업료 {금액}원 안내드립니다.';
+const DEFAULT_SETTLE_TPL='안녕하세요. {보호자명}님.\n{완료안내}\n\n· 이번 회차 : {기간} ({회차}회)\n· 수업료 : {금액}원\n\n결제 안내 드립니다.\n감사합니다.\n{학원명} {원장명} 드림';
 let msgTemplates={
   start:  { sms:'[{학원명}] {학생명} 학생이 {시각}에 등원했습니다.', code:'' },
   end:    { sms:'[{학원명}] {학생명} 학생이 {시각}에 하원했습니다. 오늘도 수고하셨습니다.', code:'' },
   absent: { sms:'[{학원명}] {학생명} 학생이 오늘 수업에 결석 처리되었습니다.', code:'' },
-  settle: { sms:'[{학원명}] {학생명} 학생 {회차}회 수업이 마무리되었습니다. 수업료 {금액}원 안내드립니다.', code:'' },
+  settle: { sms:DEFAULT_SETTLE_TPL, code:'' },
   guide:  { sms:'[{학원명}] {학생명} 학생 학습 안내입니다.\n{내용}', code:'' }
 };
 const MSG_KINDS=[['start','등원'],['end','하원'],['absent','결석'],['settle','정산 요청'],['guide','학습 안내']];
-const VAR_EXAMPLE={학원명:'온스터디', 학생명:'김철수', 시각:'16:00', 회차:'8', 금액:'100,000', 내용:'덧셈 연습 30문제 중 28점'};
+const VAR_EXAMPLE={학원명:'온스터디', 원장명:'김원장', 학생명:'김철수', 보호자명:'김보호', 시각:'16:00',
+  회차:'8', 금액:'100,000', 내용:'덧셈 연습 30문제 중 28점',
+  시작일:'6.19(금)', 종료일:'7.15(수)', 기간:'6.19(금) ~ 7.15(수)',
+  완료안내:'김철수 학생의 이번 회차 수업을 모두 마쳤습니다.'};
 function applyVars(text, vars){ return String(text||'').replace(/\{([^}]+)\}/g,(m,k)=> vars[k]!=null?vars[k]:m); }
 function toKakaoTemplate(text){ return String(text||'').replace(/\{([^}]+)\}/g,'#{$1}'); }
 // 학생의 전체 차수 목록(지난 + 현재)
@@ -1235,13 +1240,11 @@ function markSettled(id){
   saveData(); renderSettle();
   showToast(`${s.name} ${s.plan}회 정산 완료 · 새 클래스 시작`);
 }
-function openSettleMsg(id, billId){
+/* 납입 요청 문구 = 결과지·알림폼의 '정산 요청' 문구를 사용(변수 자동 치환) */
+function buildSettleText(id, billId){
   const s=st(id);
   const g=(s.guardians&&s.guardians[0])||{};
-  const gName=g.name||s.guardian||'보호자';
   const b = billId!=null ? bills.find(x=>x.id===billId) : null;
-
-  // 이번(해당) 회차 기간·회차수
   let list, startMs, endMs, cnt, done;
   if(b){                                   // 완주해서 생긴 정산 건
     list=billSessions(b); startMs=b.startDate||list[0]||null; endMs=b.endDate; cnt=b.plan; done=b.plan;
@@ -1251,26 +1254,32 @@ function openSettleMsg(id, billId){
   }
   const finished = done>=cnt;
   const fD=(ms)=>{ if(!ms) return '-'; const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
-  const headLine = finished
-    ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
-    : `${s.name} 학생의 이번 회차 수업이 ${fD(endMs)} 완료 예정입니다.`;
   const amt = b ? b.amount : priceOf(s);
-  const who = [academy.name||'', academy.owner||''].filter(Boolean).join(' ');
-  const text=`안녕하세요. ${gName}님.
-${headLine}
-
-· 이번 회차 : ${fD(startMs)} ~ ${fD(endMs)} (${cnt}회)
-· 수업료 : ${won(amt)}
-
-결제 안내 드립니다.
-감사합니다.${who?`\n${who} 드림`:''}`;
-
+  const vars={
+    학원명: academy.name||'', 원장명: academy.owner||'',
+    학생명: s.name, 보호자명: g.name||s.guardian||'보호자',
+    회차: String(cnt), 금액: won(amt).replace(/원$/,''),
+    시작일: fD(startMs), 종료일: fD(endMs), 기간: `${fD(startMs)} ~ ${fD(endMs)}`,
+    시각: new Date().toTimeString().slice(0,5), 내용:'',
+    완료안내: finished ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
+                      : `${s.name} 학생의 이번 회차 수업이 ${fD(endMs)} 완료 예정입니다.`
+  };
+  const tpl=(msgTemplates.settle&&msgTemplates.settle.sms)||'';
+  const out=applyVars(tpl, vars).trim();
+  if(out) return out;
+  // 문구 미설정 시 기본
+  return `안녕하세요. ${vars.보호자명}님.\n${vars.완료안내}\n\n· 이번 회차 : ${vars.기간} (${cnt}회)\n· 수업료 : ${won(amt)}\n\n결제 안내 드립니다.\n감사합니다.`;
+}
+function openSettleMsg(id, billId){
+  const s=st(id);
+  const g=(s.guardians&&s.guardians[0])||{};
+  const text=buildSettleText(id, billId);
   _msgCtx={id, text};
   const kakao = g.kakao!==false;
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 납입 요청</h3>
-    <div class="cap">${kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'}</div>
-    <div class="msg" style="white-space:pre-line">${text}</div>
+    <div class="cap">${kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'} 문구는 <b>알림 문구</b> 메뉴에서 바꿀 수 있어요.</div>
+    <div class="msg" style="white-space:pre-line">${text.replace(/</g,'&lt;')}</div>
     <div class="sheet-btns">
       ${kakao?`<button class="btn kakao" onclick="sendVia('카카오톡',${id})">카톡으로 보내기</button>`:''}
       <button class="btn sms" onclick="sendVia('문자',${id})">문자로 보내기</button>
@@ -1316,7 +1325,7 @@ function renderAdmin(){
     {k:'academy',t:'학원 관리',d:'학원명 · 원장명 · 대표전화',ready:true},
     {k:'classmgmt',t:'휴일 관리',d:'휴일 등록 · 토·일·공휴일 기본 휴일',ready:true},
     {k:'send',t:'발송 · 상담',d:'카톡/문자 발송, 상담 기록',ready:true},
-    {k:'guide',t:'결과지 · 알림폼',d:'학습 안내 양식 만들고 발송',ready:true},
+    {k:'guide',t:'알림 문구',d:'등원·하원·정산 등 보낼 문구 편집',ready:true},
     {k:'payhist',t:'정산 내역',d:'차수별 결제 이력',ready:true},
     {k:'people',t:'관리자 등록',d:'로그인 권한이 있는 사람 관리',ready:true},
     {k:'basic',t:'수업 기본 설정',d:'클래스 금액 · 마감 알림 시각',ready:true},
@@ -1837,33 +1846,75 @@ function renderPayhist(){
      : `<div class="muted-card">아직 정산 내역이 없어요.</div>`}`;
 }
 
+/* 알림 문구 화면: 항목별 접이식(아코디언) */
+let guideOpen=new Set(), guideAdv=new Set();
+function toggleGuide(k){ if(guideOpen.has(k))guideOpen.delete(k); else guideOpen.add(k); renderGuide(); }
+function toggleGuideAdv(k){ if(guideAdv.has(k))guideAdv.delete(k); else guideAdv.add(k); renderGuide(); }
+function guideVars(k){
+  const base=['학원명','원장명','학생명','보호자명'];
+  if(k==='start'||k==='end') return [...base,'시각'];
+  if(k==='absent') return [...base,'시각'];
+  if(k==='settle') return [...base,'완료안내','기간','시작일','종료일','회차','금액'];
+  return [...base,'내용','회차'];
+}
+function insertVar(k,name){
+  const ta=document.getElementById('tpl_'+k); if(!ta) return;
+  const st_=ta.selectionStart||ta.value.length, en=ta.selectionEnd||st_;
+  ta.value=ta.value.slice(0,st_)+'{'+name+'}'+ta.value.slice(en);
+  ta.focus(); ta.selectionStart=ta.selectionEnd=st_+name.length+2;
+  livePreview(k);
+}
+function livePreview(k){
+  const ta=document.getElementById('tpl_'+k); if(!ta) return;
+  const vars=Object.assign({}, VAR_EXAMPLE, {학원명:academy.name||VAR_EXAMPLE.학원명, 원장명:academy.owner||VAR_EXAMPLE.원장명});
+  const pv=document.getElementById('pv_'+k); if(pv) pv.textContent=applyVars(ta.value, vars);
+  const kk=document.getElementById('kk_'+k); if(kk) kk.textContent=toKakaoTemplate(ta.value);
+}
 function renderGuide(){
   const el=document.getElementById('v-guide');
-  const tplCards = MSG_KINDS.map(([k,label])=>{
-    const sms = (msgTemplates[k]&&msgTemplates[k].sms)||'';
-    const code = (msgTemplates[k]&&msgTemplates[k].code)||'';
-    const preview = applyVars(sms, Object.assign({}, VAR_EXAMPLE, {학원명: academy.name||VAR_EXAMPLE.학원명}));
-    const kakao = toKakaoTemplate(sms);
-    return `<div class="set-sec">
-      <h3>${label} 알림</h3>
-      <div class="fld"><label>문자 문구 <span class="hint">변수: {학원명} {학생명} {시각} {회차} {금액} {내용}</span></label>
-        <textarea id="tpl_${k}" class="note-select" rows="3" style="width:100%;resize:vertical" onchange="setMsgTemplate('${k}')">${sms.replace(/</g,'&lt;')}</textarea></div>
-      <div class="cap" style="margin-top:2px">문자 미리보기</div>
-      <div class="msg" style="margin-top:4px">${preview.replace(/</g,'&lt;')}</div>
-      <div class="cap" style="margin-top:8px">카톡(알림톡) 템플릿 — 카카오 심사 신청에 그대로 사용</div>
-      <div class="msg" id="kk_${k}" style="margin-top:4px">${kakao.replace(/</g,'&lt;')}</div>
-      <button class="btn ghost small" style="width:auto;margin-top:6px;padding:8px 14px" onclick="copyKakaoTpl('${k}')">카톡 템플릿 복사</button>
-      <div class="fld" style="margin-top:10px"><label>알림톡 템플릿 코드 <span class="hint">심사 통과 후 받은 코드</span></label>
-        <input id="code_${k}" class="note-select" value="${code}" placeholder="예: ONSTUDY_${k.toUpperCase()}" onchange="setMsgTemplate('${k}')"></div>
-    </div>`;
+  const vars=(k)=>Object.assign({}, VAR_EXAMPLE, {학원명:academy.name||VAR_EXAMPLE.학원명, 원장명:academy.owner||VAR_EXAMPLE.원장명});
+  const cards = MSG_KINDS.map(([k,label])=>{
+    const sms=(msgTemplates[k]&&msgTemplates[k].sms)||'';
+    const code=(msgTemplates[k]&&msgTemplates[k].code)||'';
+    const open=guideOpen.has(k), adv=guideAdv.has(k);
+    const on=sendOn(k);
+    const oneLine=applyVars(sms, vars(k)).split('\n')[0].slice(0,42)+(sms.length>42?'…':'');
+    const head=`<button onclick="toggleGuide('${k}')" style="width:100%;display:flex;align-items:center;gap:10px;background:none;border:none;padding:14px 16px;cursor:pointer;font-family:inherit;text-align:left">
+      <span style="font-size:15px;font-weight:700;color:var(--ink);white-space:nowrap">${label}</span>
+      <span style="font-size:11px;font-weight:600;border-radius:6px;padding:2px 7px;${on?'background:#E7F1EA;color:#2F7A4F':'background:#F1EFE8;color:#9A988F'}">${on?'보냄':'끔'}</span>
+      <span style="flex:1;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${oneLine||'문구 없음'}</span>
+      <span style="color:var(--muted);font-size:13px">${open?'▲':'▾'}</span>
+    </button>`;
+    const body = open ? `<div style="padding:0 16px 16px">
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:6px">보낼 내용 — 아래 <b>＋ 버튼</b>을 눌러 학생 이름 같은 값을 넣을 수 있어요.</div>
+      <textarea id="tpl_${k}" rows="5" style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:11px;font-family:inherit;font-size:14px;line-height:1.6;background:#fff"
+        oninput="livePreview('${k}')" onchange="setMsgTemplate('${k}')">${sms.replace(/</g,'&lt;')}</textarea>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        ${guideVars(k).map(v=>`<button onclick="insertVar('${k}','${v}')" style="border:1px solid var(--line);background:#F7F6F1;border-radius:20px;padding:5px 10px;font-size:12px;color:var(--ink);cursor:pointer;font-family:inherit">＋ ${v}</button>`).join('')}
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin:12px 0 5px">이렇게 나가요 (예시)</div>
+      <div id="pv_${k}" style="background:#F7F6F1;border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.65;white-space:pre-line;color:var(--ink)">${applyVars(sms, vars(k)).replace(/</g,'&lt;')}</div>
+      <button onclick="toggleGuideAdv('${k}')" style="margin-top:10px;background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:4px 0">${adv?'▲ 카카오 알림톡 설정 접기':'▾ 카카오 알림톡 설정 (나중에)'}</button>
+      ${adv?`<div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:10px">
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:5px">카카오에 심사 신청할 때 아래 문구를 그대로 제출하세요.</div>
+        <div id="kk_${k}" style="background:#FAF7EE;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-line;color:#6B5A32">${toKakaoTemplate(sms).replace(/</g,'&lt;')}</div>
+        <button class="btn ghost small" style="width:auto;margin-top:7px;padding:7px 12px;font-size:12px" onclick="copyKakaoTpl('${k}')">문구 복사</button>
+        <div style="margin-top:9px"><label style="font-size:12.5px;color:var(--muted)">심사 통과 후 받은 템플릿 코드</label>
+          <input id="code_${k}" value="${code}" placeholder="예: ONSTUDY_${k.toUpperCase()}" onchange="setMsgTemplate('${k}')"
+            style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:inherit;font-size:13px;margin-top:4px;background:#fff"></div>
+      </div>`:''}
+    </div>` : '';
+    return `<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;overflow:hidden">${head}${body}</div>`;
   }).join('');
 
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
-    <h2 class="page-h">결과지 · 알림폼</h2>
-    <p class="page-cap">발송 문구를 한 번 작성하면 문자로는 그대로, 카톡은 심사받은 템플릿 코드로 나갑니다. 카톡 템플릿 문구는 아래에서 복사해 카카오(롯데이노베이트) 심사에 신청하세요.</p>
-    <div class="block-h"><span class="h">발송 문구 관리</span></div>
-    ${tplCards}
-    <div class="block-h" style="margin-top:22px"><span class="h">학생별 학습 안내(결과지) 보내기</span></div>
+    <h2 class="page-h">알림 문구</h2>
+    <p class="page-cap">학부모에게 나가는 문구를 정해요. 항목을 눌러 펼치고 고치면 <b>바로 반영</b>됩니다.
+      보낼지 말지는 <b>학원 관리 → 항목별 발송</b>에서 켜고 끕니다.</p>
+    <div style="max-width:640px">${cards}</div>
+    <div class="block-h" style="margin-top:26px"><span class="h">학습 안내(결과지) 보내기</span></div>
+    <p class="page-cap" style="margin-top:-4px">학생별로 이번 회차·이번 주 학습 내용을 정리해 보냅니다.</p>
+    <div style="max-width:640px">
     ${students.map(s=>{
       const cnt=monthCount(s.id);
       return `<div class="row">
@@ -1873,15 +1924,18 @@ function renderGuide(){
           <button class="btn start small" onclick="openGuide(${s.id},'pack')">이번 회차 결과지</button>
           <button class="btn ghost small" onclick="openGuide(${s.id},'week')">이번 주</button>
         </div></div>`;
-    }).join('')}`;
+    }).join('')}
+    </div>`;
 }
 function setMsgTemplate(k){
-  const sms=(document.getElementById('tpl_'+k)||{}).value||'';
-  const code=(document.getElementById('code_'+k)||{}).value||'';
-  msgTemplates[k]={ sms:sms.trim(), code:code.trim() };
-  // 미리보기·카톡템플릿 갱신
+  const cur=msgTemplates[k]||{sms:'',code:''};
+  const taEl=document.getElementById('tpl_'+k);
+  const codeEl=document.getElementById('code_'+k);
+  const sms = taEl ? taEl.value : cur.sms;        // 입력칸이 없으면(접힘) 기존 값 유지
+  const code = codeEl ? codeEl.value : cur.code;
+  msgTemplates[k]={ sms:String(sms).trim(), code:String(code).trim() };
   const kk=document.getElementById('kk_'+k); if(kk) kk.textContent=toKakaoTemplate(sms);
-  saveData();
+  saveData(); showToast('문구를 저장했어요');
 }
 function copyKakaoTpl(k){
   const txt=toKakaoTemplate((msgTemplates[k]&&msgTemplates[k].sms)||'');
@@ -2041,7 +2095,7 @@ function goTab(v){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부', students:'학생', settle:'정산',
-    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'결과지 · 알림폼', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
+    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'알림 문구', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
   ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
@@ -2097,6 +2151,8 @@ function applyState(d){
   if(typeof d.autoSms==='boolean') autoSms=d.autoSms;
   if(d.sendKinds && typeof d.sendKinds==='object') sendKinds=Object.assign({start:true,end:true,absent:true,settle:true,guide:true}, d.sendKinds);
   if(d.msgTemplates) for(const k in d.msgTemplates){ if(msgTemplates[k]) msgTemplates[k]=Object.assign({sms:'',code:''}, d.msgTemplates[k]); }
+  // 정산 문구가 옛 기본값이거나 비어 있으면 새 기본 문구로 자동 갱신(원장님이 고친 문구는 그대로 둠)
+  if(msgTemplates.settle && (!msgTemplates.settle.sms || msgTemplates.settle.sms===OLD_SETTLE_TPL)) msgTemplates.settle.sms=DEFAULT_SETTLE_TPL;
   // 등원 중 상태: 오늘 것만 복원(어제 것이 남아 '수업 중'으로 보이지 않게)
   if(d.live && typeof d.live==='object'){
     const t=dayKey(now.getTime()); const nl={};

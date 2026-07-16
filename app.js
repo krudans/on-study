@@ -1127,7 +1127,8 @@ function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); el
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 /* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
 function pastClassesHtml(s){
-  const all=(packHistory[s.id]||[]).slice().sort((a,b)=>(b.end||0)-(a.end||0));
+  // 1차 → 2차 순(오래된 것부터). 차수 우선, 없으면 종료일 순
+  const all=(packHistory[s.id]||[]).slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)));
   if(!all.length) return `<div class="mg-line" style="color:var(--muted)">📚 지난 클래스 : 아직 없어요</div>`;
   const openAll=histAllOpen.has(s.id);
   const show=openAll?all:all.slice(0,3);

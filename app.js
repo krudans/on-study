@@ -79,7 +79,9 @@ function guardiansOf(s){
     if(document.getElementById('os-critical')) return;
     const st=document.createElement('style'); st.id='os-critical';
     st.textContent=`
-      .sheet{max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+      .scrim.show{align-items:flex-end;overflow-y:auto}
+      .sheet{max-height:calc(100% - 20px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+        padding-bottom:calc(26px + env(safe-area-inset-bottom,0px))}
       .sc-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
       .sc-cell{min-width:0;min-height:0;overflow:hidden}
       .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}

@@ -547,6 +547,41 @@ function calNav(id,delta){ calCur.m+=delta;
 function togglePayHist(id){ payHistOpen=!payHistOpen;
   document.getElementById('cal-'+id).innerHTML=buildCalendar(st(id)); }
 
+/* 기간이 걸친 달 목록 */
+function monthsBetween(startMs, endMs){
+  const out=[]; if(!startMs) return out;
+  const a=new Date(startMs), b=new Date(endMs||startMs);
+  let y=a.getFullYear(), m=a.getMonth();
+  for(let i=0;i<12;i++){
+    out.push({y,m});
+    if(y===b.getFullYear() && m===b.getMonth()) break;
+    m++; if(m>11){ m=0; y++; }
+  }
+  return out;
+}
+/* 한 달 달력 격자 (색칠 규칙 공용) */
+function monthGrid(sid, y, m, sets, opts){
+  const o=opts||{};
+  const todayT=dayKey(now.getTime());
+  const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+  let grid='';
+  ['일','월','화','수','목','금','토'].forEach(w=>grid+=`<div class="cal-wd">${w}</div>`);
+  for(let i=0;i<first;i++) grid+='<div></div>';
+  for(let dd=1;dd<=days;dd++){
+    const t=new Date(y,m,dd).getTime();
+    let c='cal-d', style='';
+    if(sets.skip.has(t)){ style+='background:#EDEDED;color:#B0ADA6;text-decoration:line-through;'; }
+    else if(sets.makeup.has(t)){ style+='background:#EAE3F7;color:#6B4FBB;font-weight:700;'; }
+    else if(sets.absent.has(t)) c+=' absent';
+    else if(sets.session.has(t)) c+=(t<=todayT?' att':' up');
+    if(t===todayT && !sets.absent.has(t) && !sets.skip.has(t)) c+=' tod';
+    const clickable = !o.readonly && document.body.dataset.mode==='admin' && t>=todayT;
+    if(clickable) style+='cursor:pointer;';
+    grid+=`<div class="${c}" style="${style}" ${clickable?`onclick="calDayClick(${sid},${t})"`:''}>${dd}</div>`;
+  }
+  return `<div class="cal-nav" style="justify-content:center"><span>${y}년 ${m+1}월</span></div>
+    <div class="cal-grid">${grid}</div>`;
+}
 function buildCalendar(s, cal, prevClick, nextClick){
   cal = cal || calCur;
   const info=currentClassInfo(s);
@@ -555,27 +590,10 @@ function buildCalendar(s, cal, prevClick, nextClick){
   const makeupSet=new Set(info.makeups);
   const skipSet=new Set(info.skips);
   const todayT=dayKey(now.getTime());
-  const y=cal.y, m=cal.m;
-  const first=new Date(y,m,1).getDay();
-  const days=new Date(y,m+1,0).getDate();
-
-  let grid='';
-  ['일','월','화','수','목','금','토'].forEach(w=>grid+=`<div class="cal-wd">${w}</div>`);
-  for(let i=0;i<first;i++)grid+='<div></div>';
-  for(let dd=1;dd<=days;dd++){
-    const t=new Date(y,m,dd).getTime();
-    let c='cal-d', style='';
-    if(skipSet.has(t)){ style+='background:#EDEDED;color:#B0ADA6;text-decoration:line-through;'; }
-    else if(makeupSet.has(t)){ style+='background:#EAE3F7;color:#6B4FBB;font-weight:700;'; }
-    else if(absentSet.has(t)) c+=' absent';
-    else if(sessionSet.has(t)) c+=(t<=todayT?' att':' up');
-    if(t===todayT && !absentSet.has(t) && !skipSet.has(t))c+=' tod';
-    const editable = document.body.dataset.mode==='admin';
-    const clickable = editable && t>=todayT;
-    if(clickable) style+='cursor:pointer;';
-    const onclick = clickable ? `onclick="calDayClick(${s.id},${t})"` : '';
-    grid+=`<div class="${c}" style="${style}" ${onclick}>${dd}</div>`;
-  }
+  const sets={session:sessionSet, absent:absentSet, makeup:makeupSet, skip:skipSet};
+  // 이번 회차가 걸친 달을 모두 표시 (예: 7.9~8.6 → 7월 + 8월)
+  const ms=monthsBetween(info.start||new Date(cal.y,cal.m,1).getTime(), info.end||info.start);
+  const grids = (ms.length?ms:[{y:cal.y,m:cal.m}]).map(x=>monthGrid(s.id, x.y, x.m, sets)).join('<div style="height:10px"></div>');
 
   // 지난 정산 (직전 1건 + 전체 이력)
   const pays=payments.filter(p=>p.sid===s.id).sort((a,b)=>b.date-a.date);
@@ -604,10 +622,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
     <span class="cf-v">${fmtD(info.start)} ~ ${fmtD(info.end)} · ${doneCountOf(s)}/${s.plan}회</span></div>`;
 
   return `<div class="cal">
-    <div class="cal-nav"><button onclick="${prevClick||`calNav(${s.id},-1)`}" aria-label="이전 달">‹</button>
-      <span>${y}년 ${m+1}월</span>
-      <button onclick="${nextClick||`calNav(${s.id},1)`}" aria-label="다음 달">›</button></div>
-    <div class="cal-grid">${grid}</div>
+    ${grids}
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
       <span><i class="lg" style="background:#EAE3F7"></i>보강</span><span><i class="lg" style="background:#EDEDED"></i>휴강</span>
       <span><i class="lg ab"></i>결석</span><span><i class="lg tod"></i>오늘</span></div>
@@ -1060,7 +1075,21 @@ function sessionDaysBack(s, endMs, count){
 }
 
 /* 지난 회차(클래스) 이력 표시 상태 */
-let histAllOpen=new Set(), histRowOpen=new Set();
+let histAllOpen=new Set(), histRowOpen=new Set(), histCalOpen=new Set();
+function toggleHistCal(key){ if(histCalOpen.has(key))histCalOpen.delete(key); else histCalOpen.add(key);
+  renderStudents(); if(document.getElementById('v-manage')) renderManage(); }
+/* 지난 클래스 달력 — 그 기간이 걸친 달을 모두 표시, 그 회차 날짜를 출석으로 색칠 */
+function histCalendar(s, h, list){
+  const sets={ session:new Set(list||[]), absent:new Set((absentLog[s.id]||[]).map(dayKey).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)),
+    makeup:new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)),
+    skip:new Set((skipLog[s.id]||[]).map(dayKey).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)) };
+  const st_=h.start||(list&&list[0]), en=h.end||(list&&list[list.length-1]);
+  const ms=monthsBetween(st_, en);
+  const grids=ms.map(x=>monthGrid(s.id, x.y, x.m, sets, {readonly:true})).join('<div style="height:10px"></div>');
+  return `<div class="cal" style="margin-top:8px">${grids}
+    <div class="cal-legend"><span><i class="lg att"></i>수업</span><span><i class="lg" style="background:#EAE3F7"></i>보강</span>
+      <span><i class="lg ab"></i>결석</span></div></div>`;
+}
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 /* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
@@ -1081,18 +1110,23 @@ function pastClassesHtml(s){
     let st_ = list.length ? list[0] : ((h.start && en && h.start<=en) ? h.start : null);
     const period=(st_&&en)?`${fmtMD(st_)} ~ ${fmtMD(en)}`:(en?`~ ${fmtMD(en)}`:'기간 미상');
     const open=histRowOpen.has(key);
+    const calOpen=histCalOpen.has(key);
     const detail=open?`<div style="background:var(--bg);border-radius:9px;padding:9px 11px;margin-top:7px">
       ${list.length?list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0">
           <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
         :'<div style="font-size:12.5px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
     </div>`:'';
+    const calHtml=calOpen? histCalendar(s, h, list) : '';
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px;background:var(--card)">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회</span>
         <span style="font-size:12.5px;color:var(--muted)">${h.amount?won(h.amount):''}</span></div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
-      <button class="btn ghost small" style="margin-top:7px;width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
-      ${detail}</div>`;
+      <div style="display:flex;gap:6px;margin-top:7px">
+        <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
+        <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+      </div>
+      ${detail}${calHtml}</div>`;
   }).join('');
   const more = all.length>3 ? `<button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="toggleHistAll(${s.id})">${openAll?'접기 ▲':`전체 보기 (${all.length}개) ▾`}</button>` : '';
   return `<div style="margin-top:10px">

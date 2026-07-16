@@ -1762,15 +1762,20 @@ function _mkT(h,m){ const d=new Date(dayKey(now.getTime())); d.setHours(h,m,0,0)
 function _round10(ms){ const d=new Date(ms); return _mkT(d.getHours(), d.getMinutes()); }
 
 function openSendConfirm(id, kind){
-  const nowMs=_round10(Date.now());
+  const s=st(id);
+  const plan=_defaultStart(id);                    // 예정 수업 시각(요일별 시간)
+  const planEnd=plan + durOf(s)*60000;             // 예정 하원 = 예정 + 수업 시간
+  const startMs = (kind==='end' && live[id]!=null) ? live[id] : plan;   // 하원인데 등원 기록 있으면 그 시각
   _sc={ id, kind, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),
-    start: (kind==='end') ? (live[id]!=null?_round10(live[id]):nowMs) : (kind==='both'? _defaultStart(id) : nowMs),
-    end:   (kind==='start') ? null : nowMs };
+    start: startMs,
+    end: (kind==='start') ? null : (startMs + durOf(s)*60000) };
   buildSendConfirm();
   document.getElementById('scrim').classList.add('show');
 }
 function _defaultStart(id){
-  const s=st(id); const t=timeFor(s, now.getDay())||s.time||'16:00';
+  const s=st(id); const k=dayKey(now.getTime());
+  const mk=(makeupLog[id]||[]).find(x=>dayKey(x.t)===k);           // 오늘이 보강일이면 보강 시각
+  const t=(mk&&mk.time) ? mk.time : (timeFor(s, now.getDay())||s.time||'16:00');
   const [h,m]=t.split(':').map(Number); return _mkT(h, m);
 }
 /* 드래그 휠 한 줄 */
@@ -1819,12 +1824,15 @@ function _wireWheel(){
     const cur=new Date(_sc[which]||Date.now());
     const val = type==='h' ? cur.getHours() : cur.getMinutes();
     const idx=Math.max(0, items.findIndex(x=>+x.dataset.v===val));
-    el.scrollTop = idx*SC_ITEM;
+    el.dataset.init='1';
+    const put=()=>{ el.scrollTop = idx*SC_ITEM; };
+    put(); requestAnimationFrame(put); setTimeout(()=>{ put(); el.dataset.init=''; }, 60);   // 시트가 그려진 뒤 확실히 맞춤
     items.forEach((it,j)=>{ it.style.cursor='pointer';
       it.addEventListener('click', ()=>{ el.scrollTo({top:j*SC_ITEM, behavior:'smooth'}); });
     });
     let t=null;
     el.addEventListener('scroll', ()=>{
+      if(el.dataset.init==='1') return;      // 초기 위치 잡는 중이면 무시
       clearTimeout(t);
       t=setTimeout(()=>{
         const i=Math.round(el.scrollTop/SC_ITEM);

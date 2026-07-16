@@ -455,7 +455,7 @@ function renderToday(){
       </div>`;
     }
     const isLive=live[s.id]!=null;
-    const isTemp=tempToday.has(s.id)&&!s.days.includes(todayIdx);
+    const isTemp=tempToday.has(s.id) && !isClassDay(s, aMs);   // 휴일이면 정규 요일이어도 임시
     const isAbsent=isAbsentToday(s.id);
     const done=doneToday(s.id);
     const shownDay=doneCountOf(s);
@@ -549,7 +549,7 @@ function renderToday(){
   const empty=list.length?'':`<div class="empty">${isToday?'오늘 예정된 학생이 없어요. 아래에서 추가할 수 있어요.':'이 날은 예정된 학생이 없어요.'}</div>`;
   const cand=students.filter(x=>!isTodayStudent(x));
   // 오늘 임시로 추가된 학생 (빼기 가능)
-  const added=[...tempToday].map(id=>st(id)).filter(x=>x && !x.days.includes(todayIdx));
+  const added=[...tempToday].map(id=>st(id)).filter(x=>x && !isClassDay(x, aMs));
   const addedBox = added.length ? `<div style="margin-bottom:10px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">오늘 추가된 학생</div>
       ${added.map(x=>{ const ti=tempTimes[x.id]||{};
@@ -862,11 +862,15 @@ function saveTemp(id){
   const t=(document.getElementById('tpTime')||{}).value||'';
   if(!t){ showToast('시작 시각을 정해주세요'); return; }
   const dur=+document.getElementById('sheet').dataset.tpDur || durOf(st(id));
-  tempDay=dayKey(now.getTime());
-  tempToday.add(id);
-  tempTimes[id]={time:t, dur};
+  const k=dayKey(now.getTime());
+  tempDay=k; tempToday.add(id); tempTimes[id]={time:t, dur};
+  // 오늘을 '수업 있는 날(보강)'로 등록 → 달력·회차·예상 종료일에 자동 반영
+  const mks=(makeupLog[id]=makeupLog[id]||[]);
+  const ex=mks.find(x=>dayKey(x.t)===k);
+  if(ex){ ex.time=t; ex.dur=dur; }
+  else mks.push({t:k, time:t, dur, done:false, temp:true});
   saveData(); closeSheet(); renderToday();
-  showToast(`${st(id).name} 오늘 ${t}~${endTimeOf(t,dur)} 추가됨`);
+  showToast(`${st(id).name} 오늘 ${t}~${endTimeOf(t,dur)} 추가 · 수업일에 반영됨`);
 }
 function addTemp(id){ openTempSheet(id); }
 /* 임시 추가 취소 — 출결 기록이 있으면 함께 지울지 확인 */
@@ -893,7 +897,12 @@ function doRemoveTemp(id, wipe){
   removeTemp(id); closeSheet();
   showToast(`${s.name} 오늘 출석부에서 뺐어요${wipe?' (기록 삭제)':''}`);
 }
-function removeTemp(id){ tempToday.delete(id); delete tempTimes[id]; saveData(); renderToday(); }
+function removeTemp(id){
+  const k=dayKey(now.getTime());
+  tempToday.delete(id); delete tempTimes[id];
+  if(makeupLog[id]) makeupLog[id]=makeupLog[id].filter(x=>!(dayKey(x.t)===k && x.temp));   // 임시로 넣은 보강만 제거
+  saveData(); renderToday();
+}
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
 /* 수업 분(min) 계산 — 단일 소스. 시각을 바꾸는 곳은 반드시 이 함수만 사용 */
@@ -1526,7 +1535,18 @@ function normalizeHistory(){
     });
   });
   // '오늘만 추가'가 지난 날짜 것이면 정리(어제 보강 학생이 오늘 출석부에 남지 않게)
-  if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempDay=null; ch=true; }
+  if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempTimes={}; tempDay=null; ch=true; }
+  // 임시로 추가된 학생은 그날을 '수업 있는 날(보강)'로 등록 — 달력·회차·종료일 자동 반영
+  [...tempToday].forEach(id=>{
+    const s0=st(id); if(!s0) return;
+    const mks=(makeupLog[id]=makeupLog[id]||[]);
+    if(!mks.some(x=>dayKey(x.t)===today)){
+      const ti=tempTimes[id]||{};
+      mks.push({t:today, time:ti.time||timeFor(s0, new Date(today).getDay())||s0.time||'16:00',
+        dur:ti.dur||durOf(s0), done:false, temp:true});
+      ch=true;
+    }
+  });
   students.forEach(s=>{
     let hist=(packHistory[s.id]||[]);
     hist.forEach(h=>{
@@ -2370,7 +2390,7 @@ function deleteStudent(id){
 let schedCur=null, schedSel=null;
 // 특정 날짜(ms, 00:00)에 수업 예정인 학생들
 // 그 날짜가 오늘이면 '오늘만 추가(임시)' 학생도 포함 → 출석부와 인원이 항상 같음
-function isTempOn(s, ms){ return dayKey(ms)===dayKey(now.getTime()) && tempToday.has(s.id) && !s.days.includes(new Date(ms).getDay()); }
+function isTempOn(s, ms){ return dayKey(ms)===dayKey(now.getTime()) && tempToday.has(s.id) && !isClassDay(s, dayKey(ms)); }
 function studentsOnDate(ms){
   const d=new Date(ms), dow=d.getDay(), k=dayKey(ms);
   return students.filter(s=> (isClassDay(s,k) && !beforeStart(s,ms)) || isTempOn(s,ms))

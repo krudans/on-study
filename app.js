@@ -1529,6 +1529,7 @@ function renderAdmin(){
     {k:'payhist',t:'정산 내역',d:'차수별 결제 이력',ready:true},
     {k:'people',t:'관리자 등록',d:'로그인 권한이 있는 사람 관리',ready:true},
     {k:'basic',t:'수업 기본 설정',d:'클래스 금액 · 마감 알림 시각',ready:true},
+    {k:'datacheck',t:'데이터 점검',d:'잘못된 지난 클래스·정산 기록 찾아 정리',ready:true},
   ];
   el.innerHTML=`
     <div class="acct">
@@ -1538,7 +1539,7 @@ function renderAdmin(){
       <button class="acct-out" onclick="logout()">로그아웃</button>
     </div>
     <div class="admin-menu">
-      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='classmgmt'?`goTab('classmgmt')`:m.k==='academy'?`goTab('academy')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:`comingSoon('${m.t}')`}">
+      ${menu.map(m=>`<button class="am-item" onclick="${m.k==='students'?`goTab('manage')`:m.k==='classmgmt'?`goTab('classmgmt')`:m.k==='academy'?`goTab('academy')`:m.k==='basic'?`openAdmin('basic')`:m.k==='people'?`openAdmin('people')`:m.k==='send'?`goTab('send')`:m.k==='guide'?`goTab('guide')`:m.k==='payhist'?`goTab('payhist')`:m.k==='datacheck'?`goTab('datacheck')`:`comingSoon('${m.t}')`}">
         <div class="am-tx"><div class="am-t">${m.t}</div><div class="am-d">${m.d}</div></div>
         <div class="am-go">${m.ready?'›':'준비 중'}</div></button>`).join('')}
     </div>`;
@@ -2318,6 +2319,96 @@ function renderClassMgmt(){
     </div>`;
 }
 
+/* ===== 데이터 점검 — 잘못 만들어진 지난 클래스/정산 찾기 ===== */
+/* 두 클래스의 종료일 사이에 실제 수업 가능일이 회차보다 적으면 = 있을 수 없는 기록 */
+function findBadHistory(){
+  const out=[];
+  students.forEach(s=>{
+    const hist=(packHistory[s.id]||[]).slice().sort((a,b)=>(a.end||0)-(b.end||0));
+    for(let i=1;i<hist.length;i++){
+      const prev=hist[i-1], cur=hist[i];
+      if(!prev.end || !cur.end) continue;
+      const need=cur.done||cur.plan||0;
+      let can=0;
+      for(let t=prev.end+86400000; t<=cur.end; t+=86400000){ if(isSessionDay(s, dayKey(t))) can++; }
+      if(can < need){
+        const bill=bills.find(b=>b.sid===s.id && dayKey(b.endDate)===dayKey(cur.end));
+        out.push({sid:s.id, name:s.name, no:cur.no, prevEnd:prev.end, curEnd:cur.end,
+          need, can, amount:cur.amount||(bill?bill.amount:0), billId:bill?bill.id:null, paid:bill?!!bill.paid:false});
+      }
+    }
+  });
+  return out;
+}
+/* 잘못된 차수 + (선택) 그 정산건 삭제 */
+function fixBadHistory(sid, no, withBill){
+  const s=st(sid);
+  const hist=packHistory[sid]||[];
+  const i=hist.findIndex(h=>h.no===no);
+  if(i<0){ showToast('이미 정리된 기록이에요'); return; }
+  const h=hist[i];
+  if(withBill){
+    const bi=bills.findIndex(b=>b.sid===sid && dayKey(b.endDate)===dayKey(h.end));
+    if(bi>=0) bills.splice(bi,1);
+    const pi=payments.findIndex(p=>p.sid===sid && p.date && dayKey(p.date)===dayKey(h.settledDate||h.end));
+    if(pi>=0) payments.splice(pi,1);
+  }
+  hist.splice(i,1);
+  hist.sort((a,b)=>(a.end||0)-(b.end||0)).forEach((x,j)=>x.no=j+1);   // 차수 다시 매기기
+  saveData(); closeSheet(); renderDataCheck();
+  showToast(`${s.name} ${no}차 기록을 정리했어요`);
+}
+function askFixBad(sid, no){
+  const b=findBadHistory().find(x=>x.sid===sid && x.no===no);
+  if(!b){ renderDataCheck(); return; }
+  const s=st(sid);
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} ${no}차 기록 정리</h3>
+    <div class="cap">이 기록은 <b>${fmtD(b.prevEnd)}</b>에 앞 클래스가 끝난 뒤
+      <b>${fmtD(b.curEnd)}</b>까지 <b>${b.need}회</b>를 했다고 되어 있는데,
+      그 사이 실제 수업 가능일은 <b>${b.can}일</b>뿐이라 있을 수 없는 기록이에요.</div>
+    <div class="msg">정산 ${won(b.amount||0)} · ${b.paid?'<b>받음</b>으로 표시됨':'미납'}</div>
+    <div class="cap" style="margin-top:10px">실제로 이 학생에게 <b>수업료를 한 번 더 받으셨나요?</b></div>
+    <div class="sheet-btns" style="flex-direction:column;gap:8px">
+      <button class="btn pay" style="width:100%" onclick="fixBadHistory(${sid},${no},true)">아니요 · 기록과 정산 모두 삭제</button>
+      <button class="btn ghost" style="width:100%" onclick="fixBadHistory(${sid},${no},false)">받았어요 · 정산은 두고 기록만 삭제</button>
+      <button class="btn sms" style="width:100%" onclick="closeSheet()">취소</button>
+    </div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function renderDataCheck(){
+  const el=document.getElementById('v-datacheck');
+  const bad=findBadHistory();
+  const sum=bad.reduce((a,b)=>a+(b.amount||0),0);
+  el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
+    <h2 class="page-h">데이터 점검</h2>
+    <p class="page-cap">지난 클래스·정산 기록 중 <b>있을 수 없는 것</b>을 찾아드려요.
+      예전 자동 넘김(롤오버) 오류나 등록 시 이전 기록이 부정확했던 경우 생깁니다.</p>
+    ${bad.length? `<div class="sum" style="margin-bottom:14px">
+        <div class="k">이상한 기록</div><div class="big num">${bad.length}건</div>
+        <div class="split"><div><div class="k">관련 정산액</div><div class="v">${won(sum)}</div></div>
+          <div><div class="k">확인 필요</div><div class="v" style="color:var(--clay)">원장님 판단</div></div></div>
+      </div>`
+      : `<div class="muted-card" style="border-color:var(--green)">✅ 이상한 기록이 없어요. 데이터가 깨끗합니다.</div>`}
+    ${bad.map(b=>`<div class="row" style="border:1.6px solid var(--clay)">
+      <div class="row-top"><span class="name">${b.name} · ${b.no}차</span>
+        <span class="amt">${won(b.amount||0)}</span></div>
+      <div class="mg-line">📅 앞 클래스 종료 <b>${fmtD(b.prevEnd)}</b> → 이 클래스 종료 <b>${fmtD(b.curEnd)}</b></div>
+      <div class="mg-line" style="color:var(--clay)">⚠ ${b.need}회가 필요한데 그 사이 수업 가능일은 <b>${b.can}일</b>뿐</div>
+      <div class="mg-line">💰 정산 ${b.paid?'<b style="color:var(--green)">받음</b>':'미납'}</div>
+      <div class="row-btns" style="margin-top:11px">
+        <button class="btn settle small" onclick="askFixBad(${b.sid},${b.no})">정리하기</button>
+        <button class="btn ghost small" onclick="goTab('manage')">학생 수정</button>
+      </div></div>`).join('')}
+    <div class="set-sec" style="margin-top:20px">
+      <h3>회차가 실제와 다르면</h3>
+      <div class="cap">학생 관리 → 해당 학생 <b>수정</b> → <b>현재 회차</b>에 오늘 기준 실제 회차를 넣으세요.
+        그 값이 기준이 되고, 이후에는 등원을 누른 만큼만 올라갑니다.
+        <b>이번 회차 시작일</b>도 함께 넣으면 기간이 정확해져요.</div>
+      <button class="btn ghost" onclick="goTab('manage')">학생 관리로 가기</button>
+    </div>`;
+}
+
 function renderPayhist(){
   const el=document.getElementById('v-payhist');
   const all=payments.slice().sort((a,b)=>b.date-a.date);
@@ -2587,11 +2678,11 @@ function goTab(v){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부', students:'학생', settle:'정산',
-    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'알림 문구', payhist:'정산 내역', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
+    counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'알림 문구', payhist:'정산 내역', datacheck:'데이터 점검', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
   ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
-    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy}[v])();
+    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy,datacheck:renderDataCheck}[v])();
   window.scrollTo(0,0);
 }
 document.querySelectorAll('.bt').forEach(t=>t.addEventListener('click',()=>goTab(t.dataset.v)));
@@ -2677,6 +2768,7 @@ function refreshCurrentView(){
   const v=active?active.dataset.v:'home';
   const map={home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,
-    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy};
+    send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,
+    academy:renderAcademy,datacheck:renderDataCheck};
   (map[v]||renderHome)();
 }

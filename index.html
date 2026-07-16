@@ -45,7 +45,10 @@
 </div>
 <div class="app" id="app" style="display:none">
   <header>
+    <div style="display:flex;align-items:center;gap:8px">
     <div class="brand"><h1 class="logo"><svg class="powerO" width="21" height="21" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="17" r="11" fill="none" stroke="var(--amber)" stroke-width="3.4"/><line x1="16" y1="5" x2="16" y2="15" stroke="var(--bg)" stroke-width="5.5" stroke-linecap="round"/><line x1="16" y1="6" x2="16" y2="14.5" stroke="var(--amber)" stroke-width="3.4" stroke-linecap="round"/></svg><span>n-study</span></h1><span class="live-count num" id="liveCount"></span></div>
+    <button onclick="exitApp()" aria-label="나가기" style="margin-left:auto;background:#F1EFE8;border:none;border-radius:10px;width:34px;height:34px;font-size:18px;color:#5F5E5A;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
     <div class="today-line" id="todayLine"></div>
   </header>
   <div class="tabs-removed" style="display:none"></div>
@@ -63,6 +66,7 @@
     <section class="view" id="v-send"></section>
     <section class="view" id="v-guide"></section>
     <section class="view" id="v-payhist"></section>
+    <section class="view" id="v-datacheck"></section>
     <section class="view" id="v-schedule"></section>
   </main>
   <nav class="bottombar" role="tablist">

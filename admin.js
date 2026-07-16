@@ -16,7 +16,7 @@ function renderAdminView(view){
     const sec=document.getElementById('v-'+view); if(sec) sec.classList.add('active');
     ({manage:renderManage, settle:renderSettle, schedule:renderSchedule,
       report:renderReport, payhist:renderPayhist, send:renderSend, guide:renderGuide,
-      classmgmt:renderClassMgmt, academy:renderAcademy}[view] || renderManage)();
+      classmgmt:renderClassMgmt, academy:renderAcademy, datacheck:renderDataCheck}[view] || renderManage)();
   }
 }
 function adminNav(view){ renderAdminView(view); window.scrollTo(0,0); }

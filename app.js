@@ -179,9 +179,8 @@ let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
 function setManageSort(m){ manageSort=m; renderManage(); }
 let mngDayFilter=null;   // 요일별 탭: null=전체, 1~5=월~금
 let mngQuery='';         // 학생 관리 검색어
-function setMngQuery(v){ mngQuery=v; renderManage();
-  const el=document.getElementById('mngSearch'); if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
-function clearMngQuery(){ setMngQuery(''); }
+function setMngQuery(v){ mngQuery=v; renderManageList(); }
+function clearMngQuery(){ mngQuery=''; const el=document.getElementById('mngSearch'); if(el){ el.value=''; el.focus(); } renderManageList(); }
 function matchStu(s){
   const q=(mngQuery||'').trim().toLowerCase(); if(!q) return true;
   const hay=[s.name, s.school||'', gradeLabel(s.grade||''), s.phone||'',
@@ -1476,27 +1475,14 @@ function manageCard(s, forDay){
     ${mngCal.open===s.id ? buildCalendar(s, mngCal, `mngCalNav(${s.id},-1)`, `mngCalNav(${s.id},1)`) : ''}
     </div>`;
 }
-function renderManage(){
-  const el=document.getElementById('v-manage');
+/* 목록(검색결과)만 만들기 — 입력창은 다시 그리지 않아 한글 조합이 깨지지 않음 */
+function manageListHtml(){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const pool=students.filter(matchStu);                    // 검색 결과
-  const sortBtn=(m,label,n)=>`<button onclick="setManageSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${manageSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
-  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:12px">
-    ${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>`;
+  const pool=students.filter(matchStu);
   const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
     <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
     ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;
-
-  const searchBar=`<div style="position:relative;margin-bottom:10px">
-    <input id="mngSearch" value="${(mngQuery||'').replace(/"/g,'&quot;')}" placeholder="🔍 학생 이름 · 학교 · 보호자 · 전화번호 검색"
-      oninput="setMngQuery(this.value)"
-      style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:11px 38px 11px 12px;font-family:inherit;font-size:14px;background:#fff">
-    ${mngQuery?`<button onclick="clearMngQuery()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#EDEBE4;border-radius:50%;width:22px;height:22px;cursor:pointer;color:var(--muted);font-size:13px;line-height:1">✕</button>`:''}
-  </div>`;
-  const countBar=`<div style="display:flex;justify-content:space-between;align-items:center;margin:0 2px 12px">
-    <span style="font-size:13px;color:var(--muted)">전체 <b style="color:var(--ink)">${students.length}명</b>${mngQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}</span>
-    ${manageSort==='day'&&mngDayFilter!=null?`<span style="font-size:12px;color:var(--muted)">${WD[mngDayFilter]}요일</span>`:''}
-  </div>`;
+  const count=`전체 <b style="color:var(--ink)">${students.length}명</b>${mngQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}`;
 
   let body='';
   if(manageSort==='name'){
@@ -1511,8 +1497,8 @@ function renderManage(){
   } else { // 요일별
     const dayOrder=[1,2,3,4,5];
     const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
-    const dtab=(v,label,n)=>`<button onclick="setMngDay(${v})" style="padding:8px 12px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${mngDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}<span style="opacity:.7;font-weight:500"> ${n}</span></button>`;
     const cntOf=(d)=>pool.filter(s=>s.days.includes(d)).length;
+    const dtab=(v,label,n)=>`<button onclick="setMngDay(${v})" style="padding:8px 12px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${mngDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}<span style="opacity:.7;font-weight:500"> ${n}</span></button>`;
     const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
       ${dtab(null,'전체',pool.length)}${dayOrder.map(d=>dtab(d,WD[d],cntOf(d))).join('')}</div>`;
     const shown=(mngDayFilter==null)?dayOrder:[mngDayFilter];
@@ -1527,13 +1513,33 @@ function renderManage(){
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
-  else if(!pool.length) body=`<div class="muted-card">'${mngQuery}' 검색 결과가 없어요.</div>`;
-
+  else if(!pool.length) body=`<div class="muted-card">검색 결과가 없어요.</div>`;
+  return {count, body};
+}
+/* 검색 입력: 목록만 교체 (입력창은 그대로 → 한글 조합 정상) */
+function renderManageList(){
+  const r=manageListHtml();
+  const c=document.getElementById('mngCount'); if(c) c.innerHTML=r.count;
+  const l=document.getElementById('mngList'); if(l) l.innerHTML=r.body;
+  const x=document.getElementById('mngClear'); if(x) x.style.display=mngQuery?'':'none';
+}
+function renderManage(){
+  const el=document.getElementById('v-manage');
+  const r=manageListHtml();
+  const sortBtn=(m,label)=>`<button onclick="setManageSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${manageSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">학생 관리</h2>
     <p class="page-cap">학생을 추가·수정하고 회차·요일·시간과 보호자 정보를 설정해요.</p>
     <button class="btn start" style="margin-bottom:14px" onclick="openStudentSheet(null)">＋ 학생 추가</button>
-    ${searchBar}${sortBar}${countBar}${body}`;
+    <div style="position:relative;margin-bottom:10px">
+      <input id="mngSearch" value="${(mngQuery||'').replace(/"/g,'&quot;')}" placeholder="🔍 학생 이름 · 학교 · 보호자 · 전화번호 검색"
+        oninput="setMngQuery(this.value)"
+        style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:11px 38px 11px 12px;font-family:inherit;font-size:14px;background:#fff">
+      <button id="mngClear" onclick="clearMngQuery()" style="display:${mngQuery?'':'none'};position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#EDEBE4;border-radius:50%;width:22px;height:22px;cursor:pointer;color:var(--muted);font-size:13px;line-height:1">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>
+    <div id="mngCount" style="font-size:13px;color:var(--muted);margin:0 2px 12px">${r.count}</div>
+    <div id="mngList">${r.body}</div>`;
 }
 function openStudentSheet(id){
   const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null};

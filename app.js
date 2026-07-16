@@ -178,6 +178,16 @@ function gradeOrder(v){ const i=GRADES.findIndex(g=>g[0]===v); return i<0?99:i; 
 let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
 function setManageSort(m){ manageSort=m; renderManage(); }
 let mngDayFilter=null;   // 요일별 탭: null=전체, 1~5=월~금
+let mngQuery='';         // 학생 관리 검색어
+function setMngQuery(v){ mngQuery=v; renderManage();
+  const el=document.getElementById('mngSearch'); if(el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+function clearMngQuery(){ setMngQuery(''); }
+function matchStu(s){
+  const q=(mngQuery||'').trim().toLowerCase(); if(!q) return true;
+  const hay=[s.name, s.school||'', gradeLabel(s.grade||''), s.phone||'',
+    ...guardiansOf(s).map(g=>`${g.name||''} ${g.phone||''}`)].join(' ').toLowerCase();
+  return hay.includes(q);
+}
 function setMngDay(v){ mngDayFilter=v; renderManage(); }
 
 let live={};         // sid -> 등원 시작 epoch(ms) — 저장/복원 대상
@@ -1460,6 +1470,7 @@ function manageCard(s, forDay){
     <div class="row-btns" style="margin-top:11px">
       <button class="btn ghost small" onclick="openStudentSheet(${s.id})">수정</button>
       <button class="btn ghost small" onclick="toggleMngCal(${s.id})">${mngCal.open===s.id?'달력 닫기':'달력 보기'}</button>
+      <button class="btn pay small" onclick="openNoticeSheet(${s.id})">안내문</button>
       <button class="btn ghost small" onclick="askDeleteStudent(${s.id})">삭제</button>
     </div>
     ${mngCal.open===s.id ? buildCalendar(s, mngCal, `mngCalNav(${s.id},-1)`, `mngCalNav(${s.id},1)`) : ''}
@@ -1468,44 +1479,61 @@ function manageCard(s, forDay){
 function renderManage(){
   const el=document.getElementById('v-manage');
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const sortBtn=(m,label)=>`<button onclick="setManageSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${manageSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
-  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:16px">
+  const pool=students.filter(matchStu);                    // 검색 결과
+  const sortBtn=(m,label,n)=>`<button onclick="setManageSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${manageSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:12px">
     ${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>`;
-  const grpH=(t)=>`<div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">${t}</div>`;
+  const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
+    <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
+    ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;
+
+  const searchBar=`<div style="position:relative;margin-bottom:10px">
+    <input id="mngSearch" value="${(mngQuery||'').replace(/"/g,'&quot;')}" placeholder="🔍 학생 이름 · 학교 · 보호자 · 전화번호 검색"
+      oninput="setMngQuery(this.value)"
+      style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:11px 38px 11px 12px;font-family:inherit;font-size:14px;background:#fff">
+    ${mngQuery?`<button onclick="clearMngQuery()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#EDEBE4;border-radius:50%;width:22px;height:22px;cursor:pointer;color:var(--muted);font-size:13px;line-height:1">✕</button>`:''}
+  </div>`;
+  const countBar=`<div style="display:flex;justify-content:space-between;align-items:center;margin:0 2px 12px">
+    <span style="font-size:13px;color:var(--muted)">전체 <b style="color:var(--ink)">${students.length}명</b>${mngQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}</span>
+    ${manageSort==='day'&&mngDayFilter!=null?`<span style="font-size:12px;color:var(--muted)">${WD[mngDayFilter]}요일</span>`:''}
+  </div>`;
 
   let body='';
   if(manageSort==='name'){
-    body = students.slice().sort(byName).map(s=>manageCard(s)).join('');
+    body = pool.slice().sort(byName).map(s=>manageCard(s)).join('');
   } else if(manageSort==='grade'){
-    const groups={}; students.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
+    const groups={}; pool.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
     const order=[...GRADES.map(g=>g[0]),'none'];
     body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
-      return grpH(label) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
+      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
     }).join('');
-  } else { // 요일별: 전체/월~금 탭 + 시간대 소제목
+  } else { // 요일별
     const dayOrder=[1,2,3,4,5];
     const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
-    const dtab=(v,label)=>`<button onclick="setMngDay(${v})" style="padding:8px 14px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${mngDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
-    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${dtab(null,'전체')}${dayOrder.map(d=>dtab(d,WD[d])).join('')}</div>`;
+    const dtab=(v,label,n)=>`<button onclick="setMngDay(${v})" style="padding:8px 12px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${mngDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}<span style="opacity:.7;font-weight:500"> ${n}</span></button>`;
+    const cntOf=(d)=>pool.filter(s=>s.days.includes(d)).length;
+    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+      ${dtab(null,'전체',pool.length)}${dayOrder.map(d=>dtab(d,WD[d],cntOf(d))).join('')}</div>`;
     const shown=(mngDayFilter==null)?dayOrder:[mngDayFilter];
     const groups=shown.map(d=>{
-      const list=students.filter(s=>s.days.includes(d))
+      const list=pool.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
-      let html=grpH(`${WD[d]}요일 (${list.length}명)`); let curT=null;
+      let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
       list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=manageCard(s,d); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
+  else if(!pool.length) body=`<div class="muted-card">'${mngQuery}' 검색 결과가 없어요.</div>`;
 
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">학생 관리</h2>
     <p class="page-cap">학생을 추가·수정하고 회차·요일·시간과 보호자 정보를 설정해요.</p>
     <button class="btn start" style="margin-bottom:14px" onclick="openStudentSheet(null)">＋ 학생 추가</button>
-    ${sortBar}${body}`;
+    ${searchBar}${sortBar}${countBar}${body}`;
 }
 function openStudentSheet(id){
   const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null};
@@ -1628,6 +1656,63 @@ function saveStudent(id){
   else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }
   saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
 }
+/* ===== 안내문 보내기 (학생별 · 직접 작성) ===== */
+function pickNoticeCh(kakao){
+  const sheet=document.getElementById('sheet');
+  sheet.dataset.ntKakao = kakao?'1':'0';
+  const a=document.getElementById('ntKakao'), b=document.getElementById('ntSms');
+  if(a) a.classList.toggle('on', kakao);
+  if(b) b.classList.toggle('on', !kakao);
+}
+function insertNoticeVar(name){
+  const ta=document.getElementById('noticeText'); if(!ta) return;
+  const st_=ta.selectionStart||ta.value.length, en=ta.selectionEnd||st_;
+  ta.value=ta.value.slice(0,st_)+'{'+name+'}'+ta.value.slice(en);
+  ta.focus(); ta.selectionStart=ta.selectionEnd=st_+name.length+2;
+}
+function openNoticeSheet(id){
+  const s=st(id);
+  const gs=guardiansOf(s); const g=gs[0]||{};
+  const kakaoDefault = g.kakao!==false;
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 안내문 보내기</h3>
+    <div class="cap">보호자에게 보낼 내용을 직접 작성하세요. ${gs.length>1?`보호자 ${gs.length}명 모두에게 보냅니다.`:`받는 사람: <b>${g.name||'보호자'}</b> ${g.phone||''}`}</div>
+    <div class="fld"><label>보내는 방법</label>
+      <div class="seg2">
+        <button type="button" id="ntKakao" class="${kakaoDefault?'on':''}" onclick="pickNoticeCh(true)">카카오톡</button>
+        <button type="button" id="ntSms" class="${kakaoDefault?'':'on'}" onclick="pickNoticeCh(false)">문자</button>
+      </div></div>
+    <div class="fld"><label>내용</label>
+      <textarea id="noticeText" rows="6" placeholder="예: 이번 주 금요일은 학원 사정으로 휴강합니다. 보강일은 개별 안내드리겠습니다."
+        style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:11px;font-family:inherit;font-size:14px;line-height:1.6;background:#fff"></textarea>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+        ${['학생명','보호자명','학원명','원장명'].map(v=>`<button type="button" onclick="insertNoticeVar('${v}')" style="border:1px solid var(--line);background:#F7F6F1;border-radius:20px;padding:5px 10px;font-size:12px;color:var(--ink);cursor:pointer;font-family:inherit">＋ ${v}</button>`).join('')}
+      </div></div>
+    <div class="sheet-btns">
+      <button class="btn start" onclick="sendNotice(${id})">보내기</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  sheet.dataset.ntKakao = kakaoDefault?'1':'0';
+  document.getElementById('scrim').classList.add('show');
+}
+function sendNotice(id){
+  const s=st(id);
+  const sheet=document.getElementById('sheet');
+  const raw=(document.getElementById('noticeText')||{}).value||'';
+  if(!raw.trim()){ showToast('보낼 내용을 적어주세요'); return; }
+  const kakao = sheet.dataset.ntKakao==='1';
+  const g=guardiansOf(s)[0]||{};
+  const text=applyVars(raw.trim(), {학생명:s.name, 보호자명:g.name||'보호자',
+    학원명:academy.name||'', 원장명:academy.owner||''});
+  logAdd(id,'pay',`${s.name} 안내문 (${kakao?'카톡':'문자'}) → ${g.name||'보호자'}`);
+  // 자동 발송이 켜져 있으면 서버로, 아니면 메시지 앱 열기
+  if((autoSend||autoSms) && fbFunctions){
+    closeSheet();
+    autoSendAll(id, 'guide', text, guardiansOf(s));
+    return;
+  }
+  openMsgWith(id, text, kakao);
+}
+
 function askDeleteStudent(id){
   const s=st(id);
   const sheet=document.getElementById('sheet');

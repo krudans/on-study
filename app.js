@@ -300,6 +300,17 @@ function upcomingDates(st){
 }
 
 /* 홈 화면 기준 날짜 (기본 오늘, ‹ › 로 이동) */
+/* 날짜 이동 바 — 홈·출석부 공용. 버튼 위치가 절대 움직이지 않도록 고정 폭 */
+function dateNavBar(ms, prevFn, nextFn, todayFn){
+  const d=new Date(ms), isToday = dayKey(ms)===dayKey(now.getTime());
+  const btn='width:34px;height:34px;flex:0 0 34px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;padding:0';
+  return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 12px">
+    <button onclick="${prevFn}" aria-label="전날" style="${btn}">‹</button>
+    <span style="flex:1;min-width:0;text-align:center;font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일${isToday?' · 오늘':''}</span>
+    <button onclick="${nextFn}" aria-label="다음날" style="${btn}">›</button>
+    <button onclick="${todayFn}" style="flex:0 0 44px;width:44px;height:34px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:0;${isToday?'visibility:hidden':''}">오늘</button>
+  </div>`;
+}
 let homeDate=null;
 function homeBaseMs(){ return homeDate ? homeDate.getTime() : dayKey(now.getTime()); }
 function homeNav(d){ const b=new Date(homeBaseMs()); b.setDate(b.getDate()+d); homeDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderHome(); }
@@ -344,13 +355,8 @@ function renderHome(){
 
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   el.innerHTML=`
-    <div class="greet"><div class="hi">안녕하세요, 원장님</div>
-      <div class="dt" style="display:flex;align-items:center;gap:9px;margin-top:2px">
-        <button onclick="homeNav(-1)" aria-label="전날" style="${navBtn}">‹</button>
-        <span style="min-width:150px;text-align:center;font-weight:600">${hDate.getMonth()+1}월 ${hDate.getDate()}일 ${WD[hDate.getDay()]}요일${isToday?' · 오늘':''}</span>
-        <button onclick="homeNav(1)" aria-label="다음날" style="${navBtn}">›</button>
-        ${isToday?'':`<button onclick="homeToday()" style="border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;padding:0 11px;height:30px;cursor:pointer;font-family:inherit">오늘</button>`}
-      </div></div>
+    <div class="greet"><div class="hi">안녕하세요, 원장님</div></div>
+    ${dateNavBar(hDate.getTime(), 'homeNav(-1)', 'homeNav(1)', 'homeToday()')}
     <div class="hero">
       <div class="ring">
         <svg width="96" height="96" viewBox="0 0 96 96">
@@ -418,12 +424,7 @@ function renderToday(){
     .sort((a,b)=>(timeFor(a,dowA)||a.time||'').localeCompare(timeFor(b,dowA)||b.time||''));
   // 날짜 이동
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-  const dateNav=`<div style="display:flex;align-items:center;gap:9px;margin:2px 0 12px">
-    <button onclick="attnNav(-1)" aria-label="전날" style="${navBtn}">‹</button>
-    <span style="flex:1;text-align:center;font-weight:600;font-size:15px">${aDate.getMonth()+1}월 ${aDate.getDate()}일 ${WD[dowA]}요일${isToday?' · 오늘':''}</span>
-    <button onclick="attnNav(1)" aria-label="다음날" style="${navBtn}">›</button>
-    ${isToday?'':`<button onclick="attnToday()" style="border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;padding:0 11px;height:30px;cursor:pointer;font-family:inherit">오늘</button>`}
-  </div>`;
+  const dateNav=dateNavBar(aMs, 'attnNav(-1)', 'attnNav(1)', 'attnToday()');   // 홈과 동일한 공용 바
   // 상단 요약 (그날 기준)
   const isAbsentOn=(sid)=>(absentLog[sid]||[]).some(x=>dayKey(x)===aMs);
   const doneOn=(sid)=>sessions.find(x=>x.sid===sid && dayKey(x.date)===aMs);

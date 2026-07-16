@@ -210,6 +210,7 @@ function monthCount(sid){return sessions.filter(s=>s.sid===sid &&
 const st=(id)=>students.find(s=>s.id===id);
 
 let tempToday=new Set();
+let tempDay=null;        // '오늘만 추가'가 적용되는 날짜(dayKey) — 다른 날이면 자동으로 비움
 let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 // 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
@@ -704,7 +705,7 @@ function clearAbsentFrom(sid, dayMs){
   saveData(); renderSchedule();
   showToast(`${st(sid).name} 결석 취소`);
 }
-function addTemp(id){tempToday.add(id);saveData();renderToday();}
+function addTemp(id){ tempDay=dayKey(now.getTime()); tempToday.add(id); saveData(); renderToday(); }
 function removeTemp(id){tempToday.delete(id);saveData();renderToday();}
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
@@ -1164,6 +1165,8 @@ function doRollover(id){
    - 같은 종료일 이력 중복 제거 + 차수 재부여(오래된 것=1차) */
 function normalizeHistory(){
   let ch=false; const today=dayKey(now.getTime());
+  // '오늘만 추가'가 지난 날짜 것이면 정리(어제 보강 학생이 오늘 출석부에 남지 않게)
+  if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempDay=null; ch=true; }
   students.forEach(s=>{
     let hist=(packHistory[s.id]||[]);
     hist.forEach(h=>{
@@ -2214,7 +2217,7 @@ function snapshot(){
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
-    live, tempToday:[...tempToday], logbook,   // 등원중 상태 · 오늘만 추가 · 오늘 알림
+    live, tempToday:[...tempToday], tempDay, logbook,   // 등원중 상태 · 오늘만 추가(날짜 포함) · 오늘 알림
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -2250,7 +2253,9 @@ function applyState(d){
     for(const k in d.live){ const v=d.live[k]; if(typeof v==='number' && dayKey(v)===t) nl[k]=v; }
     live=nl;
   }
-  if(Array.isArray(d.tempToday)) tempToday=new Set(d.tempToday);
+  // '오늘만 추가'는 그날 하루만 유효 — 다른 날짜면 비움
+  tempDay = (typeof d.tempDay==='number') ? d.tempDay : null;
+  tempToday = (Array.isArray(d.tempToday) && tempDay===dayKey(now.getTime())) ? new Set(d.tempToday) : new Set();
   if(Array.isArray(d.logbook)) logbook=d.logbook.filter(l=>l && (l.d==null || l.d===dayKey(now.getTime())));
 }
 

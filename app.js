@@ -127,7 +127,11 @@ function nextClassDay(s, fromMs){
 // 날짜를 그날 00:00 ms로
 function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
 // 이번 클래스의 '현재 회차'(오늘까지 진행된 수업 수) — 모든 화면이 이 함수 하나만 사용
-function doneCountOf(s){ if(!s) return 0; return currentClassInfo(s).sessions.filter(t=>t<=dayKey(now.getTime())).length; }
+/* 회차 = 실제 등원(등하원·완료를 누른 것) 기준. 등원을 안 눌렀으면 회차로 치지 않음.
+   cycleDone = 이번 클래스에서 등원한 횟수(학생 등록 시 입력한 '현재 회차'가 시작값). */
+function doneCountOf(s){ if(!s) return 0; return Math.max(0, cycleDone[s.id]||0); }
+/* 오늘 이 학생이 등원 기록이 있는지 (세션 기록 기준) */
+function hasRecordOn(sid, k){ return sessions.some(x=>x.sid===sid && dayKey(x.date)===k); }
 
 // 고정 공휴일 (양력·날짜 고정). 음력 명절(설·추석·석가탄신일)은 원장이 직접 휴일 지정.
 const FIXED_HOLIDAYS={'1-1':'신정','3-1':'삼일절','5-5':'어린이날','6-6':'현충일','8-15':'광복절','10-3':'개천절','10-9':'한글날','12-25':'크리스마스'};
@@ -145,7 +149,7 @@ function toggleHoliday(ms){
 // 규칙: 출석(정규수업)+보강 = 회차로 카운트, 결석은 카운트 제외(그만큼 밀림)
 function currentClassInfo(s){
   const plan=s.plan||0;
-  const info={start:null, end:null, sessions:[], absents:[], makeups:[], skips:[], windowDates:new Set()};
+  const info={start:null, end:null, sessions:[], absents:[], makeups:[], skips:[], missed:[], windowDates:new Set()};
   if(!plan || !s.days || !s.days.length) return info;
   const absentSet=new Set((absentLog[s.id]||[]).map(dayKey));
   const makeupSet=new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)));
@@ -169,6 +173,7 @@ function currentClassInfo(s){
   }
   if(start==null) start=todayK;
   info.start=start;
+  const cutoff = seedUntil || 0;   // 이 날짜 이전 수업일은 '확정'으로 인정
   // 2) 시작부터 앞으로 plan개 세션 수집 (결석·휴강은 표시만, 카운트 제외 → 밀림)
   let count=0;
   for(let i=0;i<800 && count<plan;i++){
@@ -179,6 +184,11 @@ function currentClassInfo(s){
       if(skipSet.has(k)){ info.skips.push(k); info.windowDates.add(k); continue; }
     }
     if(isSession(dd)){
+      // 지난 수업일인데 등원 기록이 없으면(버튼 미입력) 회차로 세지 않고 종료일이 뒤로 밀림
+      if(k < todayK && !hasRecordOn(s.id,k)){
+        if(k < cutoff){ /* 확정 기준일 이전 = 이미 확정된 과거 수업 */ }
+        else { info.missed.push(k); info.windowDates.add(k); continue; }   // 등원 미입력 → 회차 아님(종료일 밀림)
+      }
       info.sessions.push(k);
       if(makeupSet.has(k)) info.makeups.push(k);
       info.windowDates.add(k);
@@ -239,6 +249,7 @@ const st=(id)=>students.find(s=>s.id===id);
 
 let tempToday=new Set();
 let tempDay=null;        // '오늘만 추가'가 적용되는 날짜(dayKey) — 다른 날이면 자동으로 비움
+let seedUntil=null;      // 이 날짜 이전의 지난 수업일은 '확정'으로 인정(과거 기록 일괄 확정 시점)
 let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 // 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
@@ -396,18 +407,24 @@ function renderToday(){
 
   const cardOf=(s)=>{
     if(!isToday){
-      // 다른 날 = 보기 전용 (그날 출결 현황)
+      // 다른 날 = 그날 출결 확인 + 확정 처리
       const done=doneOn(s.id), abs=isAbsentOn(s.id);
-      let stx, sc;
-      if(abs){ stx='결석'; sc='var(--clay)'; }
-      else if(done){ stx = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '수업 완료'; sc='var(--green)'; }
+      const isPast = aMs < dayKey(now.getTime());
+      let stx, sc, btns='';
+      if(abs){ stx='결석'; sc='var(--clay)';
+        btns=`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button>`; }
+      else if(done){ stx = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '수업 완료'; sc='var(--green)';
+        btns=`<button class="btn ghost small" onclick="undoOn(${s.id},${aMs})">완료 취소</button>`; }
+      else if(isPast){ stx = `미확정 · 예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--amber)';
+        btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
+              <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
       else { stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)'; }
-      return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':''}">
+      return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top"><div class="who">
           <div class="name">${s.name}</div>
           <div class="plan" style="color:${sc}">${stx}</div>
         </div></div>
-        ${abs?`<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button></div>`:''}
+        ${btns?`<div class="row-btns" style="margin-top:8px">${btns}</div>`:''}
       </div>`;
     }
     const isLive=live[s.id]!=null;
@@ -743,6 +760,21 @@ function clearAbsent(id){ absentToday.delete(id);
   const t=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
   if(absentLog[id])absentLog[id]=absentLog[id].filter(x=>x!==t);
   saveData(); renderToday(); }
+/* 지난 날 결석 처리 */
+function markAbsentOn(id, dayMs){
+  const k=dayKey(dayMs);
+  (absentLog[id]=absentLog[id]||[]); if(!absentLog[id].includes(k)) absentLog[id].push(k);
+  saveData(); refreshCurrentView();
+  showToast(`${st(id).name} ${new Date(k).getMonth()+1}.${new Date(k).getDate()} 결석 처리`);
+}
+/* 지난 날 완료 취소 */
+function undoOn(id, dayMs){
+  const k=dayKey(dayMs); const s=st(id);
+  const i=sessions.findIndex(x=>x.sid===id && dayKey(x.date)===k);
+  if(i>=0){ sessions.splice(i,1); cycleDone[id]=Math.max(0,(cycleDone[id]||0)-1); }
+  saveData(); refreshCurrentView();
+  showToast(`${s.name} ${new Date(k).getMonth()+1}.${new Date(k).getDate()} 기록을 취소했어요`);
+}
 function clearAbsentFrom(sid, dayMs){
   const k=dayKey(dayMs);
   if(absentLog[sid]) absentLog[sid]=absentLog[sid].filter(x=>dayKey(x)!==k);
@@ -789,7 +821,7 @@ function setSessionTimes(rec, start, end){
   return rec;
 }
 function complete(id, start, end){
-  const rec={sid:id, date:new Date()};
+  const rec={sid:id, date: start ? new Date(start) : new Date()};   // 지난 날 확정 시 그 날짜로 기록
   if(start&&end) setSessionTimes(rec, start, end);
   sessions.push(rec); cycleDone[id]=(cycleDone[id]||0)+1;
   saveData();
@@ -1234,8 +1266,26 @@ function doRollover(id){
    - 회차 날짜 미저장 → 달력으로 복원해 영구 저장
    - 시작일 오류(시작>종료) → 회차 목록 첫날로 교정
    - 같은 종료일 이력 중복 제거 + 차수 재부여(오래된 것=1차) */
+/* [1회성] 오늘 이전의 지난 수업은 모두 '확정'으로 처리.
+   오늘부터는 등원(등하원·완료)을 눌러야 회차로 확정됨. */
+function confirmPastOnce(){
+  if(seedUntil) return false;                       // 이미 처리했으면 통과
+  const todayK=dayKey(now.getTime());
+  seedUntil = todayK;                               // 오늘 이전 = 확정 인정
+  students.forEach(s=>{
+    if(!s.plan || !s.days || !s.days.length) return;
+    const info=currentClassInfo(s);                 // 달력상 이번 클래스 수업일
+    const past = info.sessions.filter(k=>k<todayK).length;      // 오늘 이전 수업일 = 확정
+    const todayRec = hasRecordOn(s.id, todayK) ? 1 : 0;         // 오늘은 등원 눌렀을 때만
+    cycleDone[s.id] = past + todayRec;
+  });
+  saveData();
+  return true;
+}
+
 function normalizeHistory(){
   let ch=false; const today=dayKey(now.getTime());
+  if(confirmPastOnce()) ch=true;                    // 과거 일괄 확정(최초 1회)
   // '오늘만 추가'가 지난 날짜 것이면 정리(어제 보강 학생이 오늘 출석부에 남지 않게)
   if(tempToday.size && tempDay!==today){ tempToday=new Set(); tempDay=null; ch=true; }
   students.forEach(s=>{
@@ -1758,24 +1808,25 @@ const _hm=(ms)=> ms? new Date(ms).toTimeString().slice(0,5) : '';
 const SC_H=[]; for(let h=6;h<=23;h++) SC_H.push(h);
 const SC_M=[]; for(let m=0;m<60;m++) SC_M.push(m);
 const SC_ITEM=44;   // 탭하기 쉽게 넉넉히
-function _mkT(h,m){ const d=new Date(dayKey(now.getTime())); d.setHours(h,m,0,0); return d.getTime(); }
+function _mkT(h,m){ const d=new Date(_sc.date||dayKey(now.getTime())); d.setHours(h,m,0,0); return d.getTime(); }
 function _round10(ms){ const d=new Date(ms); return _mkT(d.getHours(), d.getMinutes()); }
 
-function openSendConfirm(id, kind){
+function openSendConfirm(id, kind, dateMs){
   const s=st(id);
+  _sc={ id, kind, date: dayKey(dateMs||now.getTime()) };   // 기준 날짜(지난 날 확정 가능)
   const plan=_defaultStart(id);                    // 예정 수업 시각(요일별 시간)
   const planEnd=plan + durOf(s)*60000;             // 예정 하원 = 예정 + 수업 시간
   const startMs = (kind==='end' && live[id]!=null) ? live[id] : plan;   // 하원인데 등원 기록 있으면 그 시각
-  _sc={ id, kind, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),
+  _sc={ id, kind, date: _sc.date, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),
     start: startMs,
     end: (kind==='start') ? null : (startMs + durOf(s)*60000) };
   buildSendConfirm();
   document.getElementById('scrim').classList.add('show');
 }
 function _defaultStart(id){
-  const s=st(id); const k=dayKey(now.getTime());
-  const mk=(makeupLog[id]||[]).find(x=>dayKey(x.t)===k);           // 오늘이 보강일이면 보강 시각
-  const t=(mk&&mk.time) ? mk.time : (timeFor(s, now.getDay())||s.time||'16:00');
+  const s=st(id); const k=_sc.date||dayKey(now.getTime());
+  const mk=(makeupLog[id]||[]).find(x=>dayKey(x.t)===k);           // 그날이 보강일이면 보강 시각
+  const t=(mk&&mk.time) ? mk.time : (timeFor(s, new Date(k).getDay())||s.time||'16:00');
   const [h,m]=t.split(':').map(Number); return _mkT(h, m);
 }
 /* 드래그 휠 한 줄 */
@@ -2497,7 +2548,7 @@ function snapshot(){
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
-    live, tempToday:[...tempToday], tempDay, logbook,   // 등원중 상태 · 오늘만 추가(날짜 포함) · 오늘 알림
+    live, tempToday:[...tempToday], tempDay, logbook, seedUntil,   // 등원중 · 오늘만 추가 · 오늘 알림 · 확정 기준일
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -2535,6 +2586,7 @@ function applyState(d){
   }
   // '오늘만 추가'는 그날 하루만 유효 — 다른 날짜면 비움
   tempDay = (typeof d.tempDay==='number') ? d.tempDay : null;
+  seedUntil = (typeof d.seedUntil==='number') ? d.seedUntil : null;
   tempToday = (Array.isArray(d.tempToday) && tempDay===dayKey(now.getTime())) ? new Set(d.tempToday) : new Set();
   if(Array.isArray(d.logbook)) logbook=d.logbook.filter(l=>l && (l.d==null || l.d===dayKey(now.getTime())));
 }

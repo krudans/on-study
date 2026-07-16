@@ -216,14 +216,24 @@ function gradeOrder(v){ const i=GRADES.findIndex(g=>g[0]===v); return i<0?99:i; 
 let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
 function setManageSort(m){ manageSort=m; renderManage(); }
 let mngDayFilter=null;   // 요일별 탭: null=전체, 1~5=월~금
-let mngQuery='';         // 학생 관리 검색어
+let mngQuery='';         // 학생 관리(관리자) 검색어
+let stuQuery='';         // 학생 탭(앱) 검색어
+function setStuQuery(v){ stuQuery=v; renderStudentsList(); }
+function clearStuQuery(){ stuQuery=''; const el=document.getElementById('stuSearch'); if(el){ el.value=''; el.focus(); } renderStudentsList(); }
 function setMngQuery(v){ mngQuery=v; renderManageList(); }
 function clearMngQuery(){ mngQuery=''; const el=document.getElementById('mngSearch'); if(el){ el.value=''; el.focus(); } renderManageList(); }
-function matchStu(s){
-  const q=(mngQuery||'').trim().toLowerCase(); if(!q) return true;
+function matchStu(s, q0){
+  const inApp = !document.getElementById('v-manage') || document.getElementById('v-manage').style.display==='none';
+  const q=((q0!=null?q0:(_activeQuery()))||'').trim().toLowerCase(); if(!q) return true;
   const hay=[s.name, s.school||'', gradeLabel(s.grade||''), s.phone||'',
     ...guardiansOf(s).map(g=>`${g.name||''} ${g.phone||''}`)].join(' ').toLowerCase();
   return hay.includes(q);
+}
+/* 지금 보고 있는 화면의 검색어 */
+function _activeQuery(){
+  const st_=document.getElementById('v-students');
+  if(st_ && st_.style.display!=='none' && document.getElementById('stuSearch')) return stuQuery;
+  return mngQuery;
 }
 function setMngDay(v){ mngDayFilter=v; renderManage(); }
 
@@ -1008,42 +1018,65 @@ function studentCard(s, forDay){
     ${calBtn}${calHtml}
   </div>`;
 }
-function renderStudents(){
-  const el=document.getElementById('v-students');
+/* 앱 학생 탭 목록 (검색 반영) — 입력창은 다시 그리지 않아 한글 조합이 안 깨짐 */
+function studentListHtml(){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const sortBtn=(m,label)=>`<button onclick="setStudentSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${studentSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
-  const sortBar=`<div style="display:flex;gap:8px;margin-bottom:16px">
-    ${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>`;
-  const grpH=(t)=>`<div style="font-size:12.5px;font-weight:700;color:var(--ink);margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">${t}</div>`;
+  const pool=students.filter(x=>matchStu(x, stuQuery));
+  const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
+    <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
+    ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;
+  const count=`전체 <b style="color:var(--ink)">${students.length}명</b>${stuQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}`;
 
   let body='';
   if(studentSort==='name'){
-    body = students.slice().sort(byName).map(s=>studentCard(s)).join('');
+    body = pool.slice().sort(byName).map(s=>studentCard(s)).join('');
   } else if(studentSort==='grade'){
-    const groups={}; students.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
+    const groups={}; pool.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
     const order=[...GRADES.map(g=>g[0]),'none'];
     body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
-      return grpH(label) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
+      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
     }).join('');
-  } else { // 요일별: 전체/월~금 탭 + 시간대 소제목
+  } else {
     const dayOrder=[1,2,3,4,5];
     const timeH=(t)=>`<div style="font-size:12px;font-weight:600;color:var(--amber);margin:12px 2px 6px 4px">${t}</div>`;
-    const dtab=(v,label)=>`<button onclick="setStuDay(${v})" style="padding:8px 14px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${stuDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
-    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${dtab(null,'전체')}${dayOrder.map(d=>dtab(d,WD[d])).join('')}</div>`;
+    const cntOf=(d)=>pool.filter(s=>s.days.includes(d)).length;
+    const dtab=(v,label,n)=>`<button onclick="setStuDay(${v})" style="padding:8px 12px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${stuDayFilter===v?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}<span style="opacity:.7;font-weight:500"> ${n}</span></button>`;
+    const tabBar=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">${dtab(null,'전체',pool.length)}${dayOrder.map(d=>dtab(d,WD[d],cntOf(d))).join('')}</div>`;
     const shown=(stuDayFilter==null)?dayOrder:[stuDayFilter];
     const groups=shown.map(d=>{
-      const list=students.filter(s=>s.days.includes(d))
+      const list=pool.filter(s=>s.days.includes(d))
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
-      let html=grpH(`${WD[d]}요일 (${list.length}명)`); let curT=null;
+      let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
       list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=studentCard(s,d); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
-  el.innerHTML=sortBar+body;
+  else if(!pool.length) body='<div class="muted-card">검색 결과가 없어요.</div>';
+  return {count, body};
+}
+function renderStudentsList(){
+  const r=studentListHtml();
+  const c=document.getElementById('stuCount'); if(c) c.innerHTML=r.count;
+  const l=document.getElementById('stuList'); if(l) l.innerHTML=r.body;
+  const x=document.getElementById('stuClear'); if(x) x.style.display=stuQuery?'':'none';
+}
+function renderStudents(){
+  const el=document.getElementById('v-students');
+  const r=studentListHtml();
+  const sortBtn=(m,label)=>`<button onclick="setStudentSort('${m}')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid var(--line);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;${studentSort===m?'background:var(--ink);color:#fff;border-color:var(--ink)':'background:var(--card);color:var(--muted)'}">${label}</button>`;
+  el.innerHTML=`<div style="position:relative;margin-bottom:10px">
+      <input id="stuSearch" value="${(stuQuery||'').replace(/"/g,'&quot;')}" placeholder="🔍 이름 · 학교 · 보호자 · 전화번호 검색"
+        oninput="setStuQuery(this.value)"
+        style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:11px 38px 11px 12px;font-family:inherit;font-size:14px;background:#fff">
+      <button id="stuClear" onclick="clearStuQuery()" style="display:${stuQuery?'':'none'};position:absolute;right:8px;top:50%;transform:translateY(-50%);border:none;background:#EDEBE4;border-radius:50%;width:22px;height:22px;cursor:pointer;color:var(--muted);font-size:13px;line-height:1">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>
+    <div id="stuCount" style="font-size:13px;color:var(--muted);margin:0 2px 12px">${r.count}</div>
+    <div id="stuList">${r.body}</div>`;
 }
 
 /* ===== 정산 ===== */
@@ -1636,7 +1669,7 @@ function manageCard(s, forDay){
 /* 목록(검색결과)만 만들기 — 입력창은 다시 그리지 않아 한글 조합이 깨지지 않음 */
 function manageListHtml(){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const pool=students.filter(matchStu);
+  const pool=students.filter(x=>matchStu(x, mngQuery));
   const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
     <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
     ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;

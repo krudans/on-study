@@ -1845,6 +1845,60 @@ function renderManage(){
     <div id="mngCount" style="font-size:13px;color:var(--muted);margin:0 2px 12px">${r.count}</div>
     <div id="mngList">${r.body}</div>`;
 }
+/* ===== 달력 클릭으로 기간(시작일~종료일) 고르기 ===== */
+let _rp={start:null, end:null, y:0, m:0, open:false};
+function rpInit(startMs, endMs){
+  const base = startMs || dayKey(now.getTime());
+  _rp={ start:startMs||null, end:endMs||null, y:new Date(base).getFullYear(), m:new Date(base).getMonth(), open:false };
+}
+function rpToggle(){ _rp.open=!_rp.open; rpRender(); }
+function rpNav(d){ _rp.m+=d; if(_rp.m<0){_rp.m=11;_rp.y--;} if(_rp.m>11){_rp.m=0;_rp.y++;} rpRender(); }
+function rpPick(ms){
+  if(_rp.start==null || (_rp.start!=null && _rp.end!=null)){ _rp.start=ms; _rp.end=null; }   // 새로 시작
+  else if(ms < _rp.start){ _rp.start=ms; }                                                    // 시작보다 앞이면 시작 교체
+  else { _rp.end=ms; }
+  rpRender();
+}
+function rpClear(){ _rp.start=null; _rp.end=null; rpRender(); }
+function rpLabel(){
+  if(!_rp.start) return '날짜를 고르세요 (자동 계산)';
+  if(!_rp.end) return `${fmtMD(_rp.start)} ~ (종료일 선택)`;
+  return `${fmtMD(_rp.start)} ~ ${fmtMD(_rp.end)}`;
+}
+function rpRender(){
+  const box=document.getElementById('rpBox'); if(!box) return;
+  const lab=document.getElementById('rpLabel'); if(lab) lab.textContent=rpLabel();
+  if(!_rp.open){ box.innerHTML=''; return; }
+  const sid=+(document.getElementById('sheet').dataset.rpSid||0);
+  const s=sid?st(sid):null;
+  const y=_rp.y, m=_rp.m;
+  const first=new Date(y,m,1).getDay(), dim=new Date(y,m+1,0).getDate();
+  const todayK=dayKey(now.getTime());
+  let grid='';
+  ['일','월','화','수','목','금','토'].forEach(w=>grid+=`<div class="cal-wd">${w}</div>`);
+  for(let i=0;i<first;i++) grid+='<div></div>';
+  for(let dd=1;dd<=dim;dd++){
+    const t=new Date(y,m,dd).getTime();
+    const isClass = s ? isClassDay(s,t) : false;
+    let style='cursor:pointer;border-radius:7px;';
+    if(_rp.start && _rp.end && t>_rp.start && t<_rp.end) style+='background:#FAEEDA;color:#854F0B;';
+    if(t===_rp.start || t===_rp.end) style+='background:var(--amber);color:#fff;font-weight:700;';
+    else if(isClass) style+='box-shadow:inset 0 0 0 1.5px #C9E4D3;';
+    if(t===todayK) style+='outline:2px solid var(--ink);outline-offset:-2px;';
+    grid+=`<div class="cal-d" style="${style}" onclick="rpPick(${t})">${dd}</div>`;
+  }
+  box.innerHTML=`<div class="cal" style="margin-top:8px">
+    <div class="cal-nav"><button type="button" onclick="rpNav(-1)">‹</button>
+      <span>${y}년 ${m+1}월</span>
+      <button type="button" onclick="rpNav(1)">›</button></div>
+    <div class="cal-grid">${grid}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <span style="font-size:11.5px;color:var(--muted)">초록 테두리 = 이 학생 수업일 · 처음 클릭=시작일, 두 번째=종료일</span>
+      <button type="button" class="btn ghost small" style="width:auto;padding:4px 9px;font-size:11.5px;margin:0" onclick="rpClear()">지우기</button>
+    </div>
+  </div>`;
+}
+
 function openStudentSheet(id){
   const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};
   const gs=guardiansOf(s);
@@ -1878,10 +1932,11 @@ function openStudentSheet(id){
       <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
     <div class="fld"><label>현재 회차 <span class="hint">이 클래스에서 지금 몇 회차 진행 중인지 (1 = 첫 수업)</span></label>
       <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="1"></div>
-    <div class="fld"><label>이번 회차 시작일 <span class="hint">비워두면 자동</span></label>
-      <input type="date" id="stCycStart" class="note-select" value="${s.cycleStart?new Date(s.cycleStart).toISOString().slice(0,10):''}"></div>
-    <div class="fld"><label>예상 종료일 <span class="hint">비워두면 자동(남은 회차·요일로 계산)</span></label>
-      <input type="date" id="stCycEnd" class="note-select" value="${s.cycleEnd?new Date(s.cycleEnd).toISOString().slice(0,10):''}"></div>
+    <div class="fld"><label>이번 회차 기간 <span class="hint">달력에서 시작일·종료일을 누르세요 (비워두면 자동)</span></label>
+      <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
+        📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ (종료일 선택)`):'날짜를 고르세요 (자동 계산)'}</span>
+      </button>
+      <div id="rpBox"></div></div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
     <div class="fld"><label>수업 시간 <span class="hint">주3회는 1시간 · 주2회는 1시간 30분</span></label>
       <div class="seg2" id="durRow">
@@ -1905,8 +1960,11 @@ function openStudentSheet(id){
       <button class="btn start" onclick="saveStudent(${id||'null'})">저장</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   sheet.dataset.plan=s.plan;
+  sheet.dataset.rpSid=id||'';
   sheet.dataset.g1kakao=(g1.kakao!==false)?'1':'0';
   sheet.dataset.g2kakao=(g2&&g2.kakao===false)?'0':'1';
+  rpInit(s.cycleStart||null, s.cycleEnd||null);   // 달력 기간 선택기 초기화
+  sheet.dataset.dur=String(durOf(s));
   syncDayTimes();
   document.getElementById('scrim').classList.add('show');
 }
@@ -1966,10 +2024,8 @@ function saveStudent(id){
   }
   const startRaw=document.getElementById('stStart').value;
   const startDate=startRaw?new Date(startRaw+'T00:00:00').getTime():null;
-  const cycStartRaw=document.getElementById('stCycStart').value;
-  const cycleStart=cycStartRaw?new Date(cycStartRaw+'T00:00:00').getTime():null;
-  const cycEndRaw=document.getElementById('stCycEnd').value;
-  const cycleEnd=cycEndRaw?new Date(cycEndRaw+'T00:00:00').getTime():null;
+  const cycleStart=_rp.start||null;      // 달력에서 고른 시작일
+  const cycleEnd=_rp.end||null;          // 달력에서 고른 종료일
   const curCycleInput=+document.getElementById('stCycle').value||1;
   const curDone=Math.max(0, curCycleInput-1);  // N회차 진행 중 = N-1회 완료
   const data={name, phone:document.getElementById('stPhone').value.trim(),

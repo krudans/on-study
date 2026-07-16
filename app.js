@@ -450,6 +450,7 @@ function renderToday(){
           <div class="name">${s.name}</div>
           <div class="plan" style="color:${statusColor}">${statusText}</div>
         </div>
+        ${isTemp?`<button onclick="askRemoveTemp(${s.id})" title="오늘 임시 추가 취소" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
         ${toggleBtn}
       </div>
       ${detail}
@@ -706,6 +707,30 @@ function clearAbsentFrom(sid, dayMs){
   showToast(`${st(sid).name} 결석 취소`);
 }
 function addTemp(id){ tempDay=dayKey(now.getTime()); tempToday.add(id); saveData(); renderToday(); }
+/* 임시 추가 취소 — 출결 기록이 있으면 함께 지울지 확인 */
+function askRemoveTemp(id){
+  const s=st(id);
+  const hasRec = live[id]!=null || doneToday(id) || isAbsentToday(id);
+  if(!hasRec){ removeTemp(id); showToast(`${s.name} 오늘 출석부에서 뺐어요`); return; }
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 오늘 빼기</h3>
+    <div class="cap">오늘 <b>출결 기록(등원·하원·결석)</b>이 있어요. 함께 지우고 출석부에서 뺄까요?<br>회차도 원래대로 되돌아갑니다.</div>
+    <div class="sheet-btns">
+      <button class="btn pay" onclick="doRemoveTemp(${id},true)">기록까지 지우고 빼기</button>
+      <button class="btn ghost" onclick="doRemoveTemp(${id},false)">기록은 두고 빼기</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function doRemoveTemp(id, wipe){
+  const s=st(id);
+  if(wipe){
+    if(live[id]!=null){ delete live[id]; }
+    if(doneToday(id)) undoToday(id);        // 세션·회차 되돌리기
+    if(isAbsentToday(id)) clearAbsent(id);
+  }
+  removeTemp(id); closeSheet();
+  showToast(`${s.name} 오늘 출석부에서 뺐어요${wipe?' (기록 삭제)':''}`);
+}
 function removeTemp(id){tempToday.delete(id);saveData();renderToday();}
 
 /* 완료 처리(1회 차감). start/end 있으면 시각·소요시간 함께 기록 */
@@ -1545,7 +1570,7 @@ function renderManage(){
     <div id="mngList">${r.body}</div>`;
 }
 function openStudentSheet(id){
-  const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null};
+  const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};
   const gs=guardiansOf(s);
   const g1=gs[0]||{name:'',phone:'',kakao:true};
   const g2=gs[1]||null;
@@ -1553,7 +1578,7 @@ function openStudentSheet(id){
   const curCycle = id ? (doneCountOf(s)+1) : 1;  // 진행 중인 회차 번호 = 완료+1 (표시와 동일 계산)
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const preset = pkgList.includes(s.plan);
-  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes()">${w}</button>`).join('');
+  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();autoDurByDays()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
   const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
   const dayTimeRows=WD.map((w,i)=>`<div class="daytime-row" data-dt="${i}" style="display:none">
@@ -1582,7 +1607,11 @@ function openStudentSheet(id){
     <div class="fld"><label>예상 종료일 <span class="hint">비워두면 자동(남은 회차·요일로 계산)</span></label>
       <input type="date" id="stCycEnd" class="note-select" value="${s.cycleEnd?new Date(s.cycleEnd).toISOString().slice(0,10):''}"></div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
-    <div class="fld"><label>시간</label><input type="time" id="stTime" class="note-select" value="${s.time||'16:00'}" oninput="syncDayTimes()">
+    <div class="fld"><label>수업 시간 <span class="hint">주3회는 1시간 · 주2회는 1시간 30분</span></label>
+      <div class="seg2" id="durRow">
+        ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${durOf(s)===m?'on':''}" data-dur="${m}" onclick="pickDur(${m})">${label}</button>`).join('')}
+      </div></div>
+    <div class="fld"><label>시간 <span class="hint">시작 시각</span></label><input type="time" id="stTime" class="note-select" value="${s.time||'16:00'}" oninput="syncDayTimes()">
       <label class="chk"><input type="checkbox" id="perDayChk" ${perOn?'checked':''} onchange="togglePerDay()"> 요일마다 시간 다르게</label>
       <div id="dayTimes" style="${perOn?'':'display:none'}">${dayTimeRows}</div></div>
     <div class="fld"><label>보호자 1</label>
@@ -1619,6 +1648,17 @@ function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset[
   document.getElementById('g'+n+'kkX').classList.toggle('on',!v);}
 function togglePerDay(){const on=document.getElementById('perDayChk').checked;
   document.getElementById('dayTimes').style.display=on?'':'none'; syncDayTimes();}
+function pickDur(m){
+  const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m);
+  document.querySelectorAll('#durRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
+}
+/* 요일을 바꾸면 아직 직접 고르지 않은 경우 기본값(3회=1시간/2회=1시간30분) 자동 반영 */
+function autoDurByDays(){
+  const sheet=document.getElementById('sheet');
+  if(sheet.dataset.durTouched==='1') return;
+  const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
+  pickDur(defaultDur(days));
+}
 function syncDayTimes(){ // per-day 행을 선택된 요일만 노출, 공통시간을 기본값으로
   const on=document.getElementById('perDayChk')&&document.getElementById('perDayChk').checked;
   const sel=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);

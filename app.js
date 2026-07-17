@@ -976,19 +976,41 @@ async function serverSend(to, kind, text, opt){
     const r=await call({to, kind, text,
       useAlimtalk: !!o.alimtalk,          // 알림톡 발송 여부
       useSms: !!o.sms,                    // 문자 발송 여부
-      fallbackSms: !!(o.alimtalk && o.sms) // 알림톡 실패 시 문자 대체
+      fallbackSms: !!(o.alimtalk && o.sms), // 알림톡 실패 시 문자 대체
+      vars: o.vars||null                    // 알림톡 변수 #{}
     });
     return r.data || {ok:false};
   }catch(e){ return {ok:false, channel:'error', message:String(e)}; }
 }
+/* 알림톡 변수(#{}) 자동 생성 */
+function notifyVarsFor(id, kind){
+  const s=st(id); if(!s) return {};
+  const g=guardiansOf(s)[0]||{};
+  const base={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
+    보호자명:g.name||'보호자', 시각:new Date().toTimeString().slice(0,5),
+    회차:String(doneCountOf(s)), 금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
+  if(kind==='settle'){
+    const ci=currentClassInfo(s);
+    const fD=(ms)=>{ if(!ms) return '-'; const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
+    const cnt=s.plan, done=doneCountOf(s);
+    base.회차=String(cnt);
+    base.시작일=fD(ci.start); base.종료일=fD(ci.end); base.기간=`${fD(ci.start)} ~ ${fD(ci.end)}`;
+    base.완료안내 = done>=cnt ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
+                             : `${s.name} 학생의 이번 회차 수업이 ${fD(ci.end)} 완료 예정입니다.`;
+  }
+  return base;
+}
 /* 자동발송: 보호자 전원에게 알림톡. 하나라도 실패하면 열어주기로 폴백 */
-async function autoSendAll(sid, kind, text, gs){
+async function autoSendAll(sid, kind, text, gs, vars){
   const s=st(sid);
   const chan = autoSend ? (autoSms?'알림톡':'알림톡') : '문자';
   showToast(`${s.name} ${chan} 발송 중…`);
+  const _v = vars || notifyVarsFor(sid, kind);
+  if(kind==='guide' && !_v.내용) _v.내용 = text;
   let fail=0;
   for(const g of gs){
-    const r=await serverSend(g.phone, kind, text, {alimtalk:autoSend, sms:autoSms});
+    const gv = Object.assign({}, _v, {보호자명: g.name||_v.보호자명||'보호자'});
+    const r=await serverSend(g.phone, kind, text, {alimtalk:autoSend, sms:autoSms, vars: gv});
     if(!r||!r.ok) fail++;
   }
   if(fail===0){ showToast(`${s.name} 보호자에게 ${chan} 발송 완료${(autoSend&&autoSms)?' (실패 시 문자 대체)':''}`); return; }

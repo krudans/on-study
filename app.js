@@ -2261,10 +2261,16 @@ function openSendConfirm(id, kind, dateMs){
   _sc={ id, kind, date: dayKey(dateMs||now.getTime()) };   // 기준 날짜(지난 날 확정 가능)
   const plan=_defaultStart(id);                    // 예정 수업 시각(임시/보강/요일표)
   const dmin=todayDurOf(s, _sc.date);              // 오늘 수업 시간(임시/보강/학생설정)
-  const startMs = (kind==='end' && live[id]!=null) ? live[id] : plan;   // 하원인데 등원 기록 있으면 그 시각
+  // ★ 기본 시각 규칙: 오늘 누른 것이면 '지금(클릭한 시각)'이 기본, 지난 날 확정이면 예정 시각
+  const isToday = _sc.date === dayKey(Date.now());
+  const clickMs = isToday ? _round10(Date.now()) : null;
+  const startMs = (kind!=='start' && live[id]!=null) ? live[id]        // 등원 기록이 있으면 그 시각 유지
+                : (kind==='start' && clickMs) ? clickMs : plan;
+  const endMs = (kind==='start') ? null
+              : (clickMs || (startMs + dmin*60000));                   // 오늘=지금 시각 · 지난 날=등원+수업시간
   _sc={ id, kind, date: _sc.date, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),
     start: startMs,
-    end: (kind==='start') ? null : (startMs + dmin*60000) };
+    end: endMs };
   buildSendConfirm();
   document.getElementById('scrim').classList.add('show');
 }

@@ -556,7 +556,8 @@ function renderToday(){
     cards+=cardOf(s);
   });
   const empty=list.length?'':`<div class="empty">이 날은 예정된 학생이 없어요. 아래에서 보강을 넣을 수 있어요.</div>`;
-  const cand=students.filter(x=>!list.some(y=>y.id===x.id));      // 그 날 명단에 없는 학생
+  const cand=students.filter(x=>!list.some(y=>y.id===x.id))       // 그 날 명단에 없는 학생
+    .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순
   const added=students.filter(x=>makeupOn(x.id, aMs));            // 그 날 보강인 학생 (단일 소스)
   const addedBox = added.length ? `<div style="margin-bottom:10px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${isToday?'오늘':fmtMD(aMs)} 보강</div>
@@ -2622,7 +2623,8 @@ function schedMakeupBox(selMs){
   const k=dayKey(selMs);
   const onDate=studentsOnDate(k);
   const mkList=students.filter(x=>makeupOn(x.id,k));
-  const cand=students.filter(x=>!onDate.some(y=>y.id===x.id));
+  const cand=students.filter(x=>!onDate.some(y=>y.id===x.id))
+    .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순
   const mkHtml = mkList.length ? mkList.map(x=>{ const mk=makeupOn(x.id,k)||{};
       return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:9px;padding:8px 10px;margin-bottom:6px">
         <span style="font-size:13px;color:#4A3690"><b>${x.name}</b> · ${mk.time||'-'}${mk.time?'~'+endTimeOf(mk.time, mk.dur||durOf(x)):''} · ${durLabel(mk.dur||durOf(x))}</span>

@@ -489,12 +489,12 @@ function renderToday(){
       action=`<button class="btn ghost" onclick="clearAbsent(${s.id})">결석 취소</button>`;
     } else {
       const first = isLive
-        ? `<button class="btn stop" onclick="stopSession(${s.id})">하원</button>`
-        : `<button class="btn start" onclick="startSession(${s.id})">등원</button>`;
+        ? `<button class="btn stop" onclick="quickSend(${s.id},'end')">하원</button>`
+        : `<button class="btn start" onclick="quickSend(${s.id},'start')">등원</button>`;
       action=`<div class="attn-btns">
         ${first}
         <button class="btn absentbtn" onclick="markAbsent(${s.id})">결석</button>
-        <button class="btn ghost" onclick="openSendConfirm(${s.id},'both')">완료</button>
+        <button class="btn ghost" onclick="openSendConfirm(${s.id},'${isLive?'end':'start'}')">수정</button>
       </div>`;
     }
 
@@ -968,6 +968,20 @@ function manualComplete(id){
 
 function startSession(id){ openSendConfirm(id,'start'); }
 function stopSession(id){ openSendConfirm(id,'end'); }
+/* 등원/하원 즉시 발송 — 시간 화면 없이 '지금' 시각으로 기록 + 알림 발송 (원장님 규칙)
+   시각을 고쳐 보내려면 [수정] 버튼(openSendConfirm)을 사용 */
+function quickSend(id, kind){
+  const s=st(id); if(!s) return;
+  const k=dayKey(Date.now());
+  _sc={ id, kind, date:k };                       // _mkT 기준 날짜 설정
+  const dmin=todayDurOf(s, k);
+  const nowMs=_round10(Date.now());
+  const startMs = (kind==='end' && live[id]!=null) ? live[id]      // 등원해 둔 시각 유지
+                : (kind==='start') ? nowMs : (nowMs - dmin*60000); // 하원인데 등원기록 없으면 지금-수업시간
+  _sc={ id, kind, date:k, tab: kind==='start'?'start':'end',
+    start: startMs, end: (kind==='start') ? null : nowMs };
+  scSend();                                        // 기록 + 발송 (기존 단일 경로 재사용)
+}
 function resend(id,kind){ openNotify(id,kind); }
 /* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
    메시지를 복사한 뒤 카톡 앱을 열어 붙여넣기. 데스크탑에선 문자앱이 없어 열리지 않을 수 있어요(모바일 앱에서 사용). */

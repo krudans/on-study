@@ -116,7 +116,11 @@ function classStartMs(s){
   if(s.startDate) return dayKey(s.startDate);
   return null;
 }
-function beforeStart(s,ms){ const stt=classStartMs(s); return stt!=null ? dayKey(ms) < stt : false; }
+function beforeStart(s,ms){
+  const k=dayKey(ms);
+  if(isMakeupDay(s,k)) return false;   // 보강일은 클래스 시작 전이어도 수업하는 날 (명단 포함)
+  const stt=classStartMs(s); return stt!=null ? k < stt : false;
+}
 
 // 기준(ms) 이후 첫 수업일 (기본 요일 스케줄)
 function nextClassDay(s, fromMs){
@@ -627,9 +631,10 @@ function buildCalendar(s, cal, prevClick, nextClick){
   const info=currentClassInfo(s);
   const sessionSet=new Set(info.sessions);
   const absentSet=new Set(info.absents);
-  const makeupSet=new Set(info.makeups);
-  const skipSet=new Set(info.skips);
   const todayT=dayKey(now.getTime());
+  // 이미 수업한 보강일은 보라(예정)가 아니라 출석(초록)으로 표시
+  const makeupSet=new Set(info.makeups.filter(k=>!(k<=todayT && hasRecordOn(s.id,k))));
+  const skipSet=new Set(info.skips);
   const sets={session:sessionSet, absent:absentSet, makeup:makeupSet, skip:skipSet};
   // 이번 회차가 걸친 달을 모두 표시 (예: 7.9~8.6 → 7월 + 8월)
   const ms=monthsBetween(info.start||new Date(cal.y,cal.m,1).getTime(), info.end||info.start);

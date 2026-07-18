@@ -377,8 +377,8 @@ function renderHome(){
       </div>
     </div>
     <div class="actions">
-      <button class="act primary" onclick="goTab('today')"><div class="t">출석체크</div><div class="d">오늘 ${todayRemain}명 남음</div></button>
       <button class="act" onclick="goTab('settle')"><div class="t">정산</div><div class="d">회차·수업료 정리</div></button>
+      <button class="act primary" onclick="goTab('today')"><div class="t">출석체크</div><div class="d">오늘 ${todayRemain}명 남음</div></button>
     </div>
     <div class="actions" style="margin-top:-12px">
       <button class="act" onclick="goTab('counsel')"><div class="t">학부모 상담</div><div class="d">상담 메모·카톡</div></button>
@@ -2265,7 +2265,9 @@ function openSendConfirm(id, kind, dateMs){
   const isToday = _sc.date === dayKey(Date.now());
   const clickMs = isToday ? _round10(Date.now()) : null;
   const startMs = (kind!=='start' && live[id]!=null) ? live[id]        // 등원 기록이 있으면 그 시각 유지
-                : (kind==='start' && clickMs) ? clickMs : plan;
+                : (kind==='start' && clickMs) ? clickMs                // 등원 = 지금
+                : (kind!=='start' && clickMs) ? (clickMs - dmin*60000) // 완료·하원인데 등원 기록 없음 = 지금-수업시간
+                : plan;
   const endMs = (kind==='start') ? null
               : (clickMs || (startMs + dmin*60000));                   // 오늘=지금 시각 · 지난 날=등원+수업시간
   _sc={ id, kind, date: _sc.date, tab: kind==='both' ? 'start' : (kind==='start'?'start':'end'),

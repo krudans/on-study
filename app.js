@@ -972,19 +972,23 @@ function resend(id,kind){ openNotify(id,kind); }
 /* 실제 발송: 문자는 sms:로 문자앱이 내용 채워 열림, 카톡은 (특정 대화방 자동입력 불가라)
    메시지를 복사한 뒤 카톡 앱을 열어 붙여넣기. 데스크탑에선 문자앱이 없어 열리지 않을 수 있어요(모바일 앱에서 사용). */
 let _notifyCtx=null;
-/* 알림톡 서버 발송 (Functions). 실패/미배포면 {ok:false} 반환 → 앱이 열어주기로 폴백 */
+/* 문자 발송 서버 (구글 앱스 스크립트 + 솔라피). 실패면 {ok:false} 반환 → 앱이 열어주기로 폴백 */
+const NOTIFY_URL='https://script.google.com/macros/s/AKfycbx7lHQWk41x2ZtrZb9wl51iWDYEMV4hTT5HZpN7PSEsmTirfIA6mbnpCjBDabvGsIv_/exec';
 async function serverSend(to, kind, text, opt){
   try{
-    if(!fbFunctions) return {ok:false, channel:'no-server'};
+    if(!NOTIFY_URL) return {ok:false, channel:'no-server'};
     const o=opt||{alimtalk:autoSend, sms:autoSms};
-    const call=fbFunctions.httpsCallable('sendNotify');
-    const r=await call({to, kind, text,
-      useAlimtalk: !!o.alimtalk,          // 알림톡 발송 여부
+    const u=firebase.auth().currentUser;
+    const idToken=u ? await u.getIdToken() : null;   // 서버가 관리자 로그인인지 검증
+    const res=await fetch(NOTIFY_URL, {method:'POST', body:JSON.stringify({to, kind, text,
+      useAlimtalk: !!o.alimtalk,          // 알림톡 발송 여부 (채널 승인 후 지원)
       useSms: !!o.sms,                    // 문자 발송 여부
       fallbackSms: !!(o.alimtalk && o.sms), // 알림톡 실패 시 문자 대체
-      vars: o.vars||null                    // 알림톡 변수 #{}
-    });
-    return r.data || {ok:false};
+      vars: o.vars||null,                   // 알림톡 변수 #{}
+      idToken
+    })});
+    const r=await res.json();
+    return r || {ok:false};
   }catch(e){ return {ok:false, channel:'error', message:String(e)}; }
 }
 /* 알림톡 변수(#{}) 자동 생성 */

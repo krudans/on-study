@@ -1976,16 +1976,28 @@ function rpInit(startMs, endMs){
 function rpToggle(){ _rp.open=!_rp.open; rpRender(); }
 function rpNav(d){ _rp.m+=d; if(_rp.m<0){_rp.m=11;_rp.y--;} if(_rp.m>11){_rp.m=0;_rp.y++;} rpRender(); }
 function rpPick(ms){
-  if(_rp.start==null || (_rp.start!=null && _rp.end!=null)){ _rp.start=ms; _rp.end=null; }   // 새로 시작
-  else if(ms < _rp.start){ _rp.start=ms; }                                                    // 시작보다 앞이면 시작 교체
-  else { _rp.end=ms; }
+  if(_rp.start==null){ _rp.start=ms; _rp.end=null; }            // 첫 클릭 = 시작일
+  else if(ms < _rp.start){ _rp.start=ms; }                      // 시작보다 앞이면 시작 교체
+  else if(ms === _rp.start){ _rp.end=null; }                    // 시작일 다시 클릭 = 종료일 해제(자동으로)
+  else { _rp.end=ms; }                                          // 시작 뒤 클릭 = 종료일 지정/변경 (리셋 없음)
   rpRender();
 }
 function rpClear(){ _rp.start=null; _rp.end=null; rpRender(); }
+/* 시작일 + 폼의 회차·요일로 예상 종료일 자동 계산 (미리보기용) */
+function rpAutoEnd(){
+  const sheet=document.getElementById('sheet'); if(!sheet||!_rp.start) return null;
+  const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
+  const plan=+sheet.dataset.plan||0;
+  if(!plan||!days.length) return null;
+  const sid=+(sheet.dataset.rpSid||0);
+  const tmp={id:sid||-1, days, plan, cycleStart:_rp.start};
+  return currentClassInfo(tmp).end;
+}
 function rpLabel(){
   if(!_rp.start) return '날짜를 고르세요 (자동 계산)';
-  if(!_rp.end) return `${fmtMD(_rp.start)} ~ (종료일 선택)`;
-  return `${fmtMD(_rp.start)} ~ ${fmtMD(_rp.end)}`;
+  if(_rp.end) return `${fmtMD(_rp.start)} ~ ${fmtMD(_rp.end)}`;
+  const ae=rpAutoEnd();
+  return ae? `${fmtMD(_rp.start)} ~ ${fmtMD(ae)} (자동 계산)` : `${fmtMD(_rp.start)} ~ 자동 계산`;
 }
 function rpRender(){
   const box=document.getElementById('rpBox'); if(!box) return;
@@ -1996,6 +2008,7 @@ function rpRender(){
   const y=_rp.y, m=_rp.m;
   const first=new Date(y,m,1).getDay(), dim=new Date(y,m+1,0).getDate();
   const todayK=dayKey(now.getTime());
+  const autoEnd = (_rp.start && !_rp.end) ? rpAutoEnd() : null;   // 자동 계산된 예상 종료일 표시
   let grid='';
   ['일','월','화','수','목','금','토'].forEach(w=>grid+=`<div class="cal-wd">${w}</div>`);
   for(let i=0;i<first;i++) grid+='<div></div>';
@@ -2005,6 +2018,7 @@ function rpRender(){
     let style='cursor:pointer;border-radius:7px;';
     if(_rp.start && _rp.end && t>_rp.start && t<_rp.end) style+='background:#FAEEDA;color:#854F0B;';
     if(t===_rp.start || t===_rp.end) style+='background:var(--amber);color:#fff;font-weight:700;';
+    else if(autoEnd && t===autoEnd) style+='box-shadow:inset 0 0 0 2px var(--amber);font-weight:700;';
     else if(isClass) style+='box-shadow:inset 0 0 0 1.5px #C9E4D3;';
     if(t===todayK) style+='outline:2px solid #E03131;outline-offset:-2px;';
     grid+=`<div class="cal-d" style="${style}" onclick="rpPick(${t})">${dd}</div>`;
@@ -2015,7 +2029,7 @@ function rpRender(){
       <button type="button" onclick="rpNav(1)">›</button></div>
     <div class="cal-grid">${grid}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-      <span style="font-size:11.5px;color:var(--muted)">초록 테두리 = 이 학생 수업일 · 처음 클릭=시작일, 두 번째=종료일</span>
+      <span style="font-size:11.5px;color:var(--muted)">첫 클릭=시작일 · 종료일은 자동 계산(주황 테두리) · 직접 정하려면 그 날짜 클릭</span>
       <button type="button" class="btn ghost small" style="width:auto;padding:4px 9px;font-size:11.5px;margin:0" onclick="rpClear()">지우기</button>
     </div>
   </div>`;
@@ -2030,7 +2044,7 @@ function openStudentSheet(id){
   const curCycle = id ? (doneCountOf(s)+1) : 1;  // 진행 중인 회차 번호 = 완료+1 (표시와 동일 계산)
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const preset = pkgList.includes(s.plan);
-  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();autoDurByDays()">${w}</button>`).join('');
+  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();autoDurByDays();rpRender()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
   const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
   const dayTimeRows=WD.map((w,i)=>`<div class="daytime-row" data-dt="${i}" style="display:none">
@@ -2054,9 +2068,9 @@ function openStudentSheet(id){
       <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
     <div class="fld"><label>현재 회차 <span class="hint">이 클래스에서 지금 몇 회차 진행 중인지 (1 = 첫 수업)</span></label>
       <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="1"></div>
-    <div class="fld"><label>이번 회차 기간 <span class="hint">달력에서 시작일·종료일을 누르세요 (비워두면 자동)</span></label>
+    <div class="fld"><label>이번 회차 기간 <span class="hint">시작일만 골라도 돼요 — 종료일은 회차·요일로 자동 계산</span></label>
       <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
-        📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ (종료일 선택)`):'날짜를 고르세요 (자동 계산)'}</span>
+        📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ 자동 계산`):'날짜를 고르세요 (자동 계산)'}</span>
       </button>
       <div id="rpBox"></div></div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
@@ -2094,10 +2108,11 @@ function stylePlBtn(b,on){ b.style.background=on?'var(--ink)':'#F7F6F1'; b.style
 function pickPlan(p){
   const sheet=document.getElementById('sheet');
   const btns=[...document.querySelectorAll('#planBtns .pl-btn')];
-  if(p===null){ const v=+document.getElementById('stPlanCustom').value||0; sheet.dataset.plan=v;
-    btns.forEach(b=>stylePlBtn(b,false)); return; }
+  if(p===null){ const v=parseInt(String(document.getElementById('stPlanCustom').value).replace(/[^0-9]/g,''),10)||0; sheet.dataset.plan=v;
+    btns.forEach(b=>stylePlBtn(b,false)); rpRender(); return; }
   sheet.dataset.plan=p; const ci=document.getElementById('stPlanCustom'); if(ci)ci.value='';
   btns.forEach(b=>stylePlBtn(b, +b.dataset.p===p));
+  rpRender();
 }
 function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset['g'+n+'kakao']=v?'1':'0';
   document.getElementById('g'+n+'kkO').classList.toggle('on',v);
@@ -2129,7 +2144,9 @@ function saveStudent(id){
   if(!name){showToast('학생 이름을 입력해주세요');return;}
   const sheet=document.getElementById('sheet');
   const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
-  let plan=+sheet.dataset.plan||0; if(plan<1){showToast('클래스 회차를 정해주세요');return;}
+  let plan=+sheet.dataset.plan||0;
+  if(plan<1){ const _pc=document.getElementById('stPlanCustom'); plan=parseInt(String(_pc&&_pc.value||'').replace(/[^0-9]/g,''),10)||0; sheet.dataset.plan=plan; }  // 입력칸 값 복구(숫자만)
+  if(plan<1){showToast('클래스 회차(총 수업 횟수)를 정해주세요 — 예: 20회면 20');return;}
   const commonTime=document.getElementById('stTime').value||'16:00';
   const dur = +sheet.dataset.dur || defaultDur(days);      // 수업 시간(길이)
   // 요일별 시간

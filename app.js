@@ -1233,7 +1233,8 @@ function histCalendar(s, h, list){
   const grids=ms.map(x=>monthGrid(s.id, x.y, x.m, sets, {readonly:true})).join('<div style="height:10px"></div>');
   return `<div class="cal" style="margin-top:8px">${grids}
     <div class="cal-legend"><span><i class="lg att"></i>수업</span><span><i class="lg" style="background:#EAE3F7"></i>보강</span>
-      <span><i class="lg ab"></i>결석</span></div></div>`;
+      <span><i class="lg ab"></i>결석</span></div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.</div></div>`;
 }
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
@@ -1280,6 +1281,53 @@ function unconfirmHist(sid, no){
   if(!h) return;
   h.confirmed=false; saveData(); refreshCurrentView();
   showToast('확정을 해제했어요 (다시 계산됨)');
+}
+
+/* 지난 클래스 날짜 수정 — 회차별 날짜를 직접 고쳐서 저장 */
+function editHistDates(sid, no){
+  const s=st(sid);
+  const h=(packHistory[sid]||[]).find(x=>x.no===no);
+  if(!h){ showToast('기록을 찾을 수 없어요'); return; }
+  const cnt=h.done||h.plan||0;
+  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
+  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions.slice(0,cnt):(en?sessionDaysBack(s,en,cnt):[]);
+  const toV=(ms)=>{ if(!ms) return ''; const d=new Date(ms); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const rows=Array.from({length:cnt},(_,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 0">
+      <span style="font-size:13px;color:var(--muted);white-space:nowrap">${i+1}회차</span>
+      <input type="date" class="note-select he-inp" data-i="${i}" value="${toV(list[i])}" style="flex:1;margin:0"></div>`).join('');
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} ${no}차 날짜 수정</h3>
+    <div class="cap">회차별 날짜를 고친 뒤 저장하세요. 기간·수업 기록·정산 기간이 함께 바뀝니다.</div>
+    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;max-height:260px;overflow-y:auto">${rows}</div>
+    <div class="sheet-btns" style="margin-top:12px">
+      <button class="btn settle" onclick="saveHistDates(${sid},${no})">저장</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
+  document.getElementById('scrim').classList.add('show');
+}
+function saveHistDates(sid, no){
+  const s=st(sid);
+  const h=(packHistory[sid]||[]).find(x=>x.no===no);
+  if(!h) return;
+  const vals=[...document.querySelectorAll('.he-inp')].map(el=>el.value);
+  if(vals.some(v=>!v)){ showToast('비어 있는 날짜가 있어요'); return; }
+  const newList=vals.map(v=>dayKey(new Date(v+'T00:00:00').getTime())).sort((a,b)=>a-b);
+  if(new Set(newList).size!==newList.length){ showToast('같은 날짜가 두 번 들어갔어요'); return; }
+  const oldList=(Array.isArray(h.sessions)?h.sessions.slice():[]).sort((a,b)=>a-b);
+  // 이 클래스의 실제 수업 기록도 같은 순서로 날짜 이동 (시각은 유지)
+  if(oldList.length===newList.length){
+    for(let i=0;i<oldList.length;i++){
+      const delta=newList[i]-oldList[i]; if(!delta) continue;
+      sessions.forEach(r=>{ if(r.sid===sid && dayKey(r.date)===oldList[i]){
+        r.date+=delta; if(r.start) r.start+=delta; if(r.end) r.end+=delta; } });
+    }
+  }
+  // 이 클래스의 정산건 기간도 함께 이동 (종료일이 같은 건만)
+  const oldEnd=h.end;
+  h.sessions=newList.slice(); h.start=newList[0]; h.end=newList[newList.length-1]; h.confirmed=true;
+  bills.forEach(b=>{ if(b.sid===sid && oldEnd && b.endDate && dayKey(b.endDate)===dayKey(oldEnd)){
+    b.startDate=h.start; b.endDate=h.end; if(Array.isArray(b.sessions)) b.sessions=newList.slice(); } });
+  saveData(); closeSheet(); refreshCurrentView();
+  showToast(`${s.name} ${no}차 날짜 수정됨 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})`);
 }
 
 /* 이번 클래스: 계산된 지난 수업일을 실제 기록으로 확정 */
@@ -1366,7 +1414,7 @@ function pastClassesHtml(s){
         <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
         <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
         ${(h.confirmed || (en && en < dayKey(now.getTime())))
-          ? `<button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="askConfirmHist(${s.id},${h.no})">날짜 수정</button>`
+          ? `<button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="editHistDates(${s.id},${h.no})">날짜 수정</button>`
           : `<button class="btn settle small" style="width:auto;padding:5px 10px;font-size:12px" onclick="askConfirmHist(${s.id},${h.no})">이 기간 확정</button>`}
       </div>
       ${detail}${calHtml}</div>`;
@@ -1525,6 +1573,8 @@ function doRollover(id){
   let sessList = byCalendar ? info.sessions.slice(0, s.plan) : null;
   if(!sessList || sessList.length < s.plan){
     sessList = sessionDaysBack(s, endMs, s.plan);   // 종료일부터 거꾸로 plan회
+    // 학원 수업 시작일 이전으로는 역산하지 않음 (불가능한 지난 클래스 방지)
+    if(s.startDate){ const s0=dayKey(s.startDate); sessList=sessList.filter(k=>k>=s0); }
   }
   if(endMs > dayKey(now.getTime())) endMs = dayKey(now.getTime());   // 종료일은 오늘을 넘지 않음
   createBill(s, endMs, {startDate: sessList[0] || info.start || null, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)

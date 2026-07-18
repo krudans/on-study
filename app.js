@@ -1326,8 +1326,16 @@ function saveHistDates(sid, no){
   h.sessions=newList.slice(); h.start=newList[0]; h.end=newList[newList.length-1]; h.confirmed=true;
   bills.forEach(b=>{ if(b.sid===sid && oldEnd && b.endDate && dayKey(b.endDate)===dayKey(oldEnd)){
     b.startDate=h.start; b.endDate=h.end; if(Array.isArray(b.sessions)) b.sessions=newList.slice(); } });
+  // 마지막(최신) 클래스의 종료일이 바뀌면, 이번 회차 시작일이 겹치지 않게 그 다음 수업일로 자동 이동
+  let cycleMoved=false;
+  const isLatest = !(packHistory[sid]||[]).some(x=>x.no>no);
+  if(isLatest && s.cycleStart && dayKey(s.cycleStart) <= h.end){
+    s.cycleStart = nextSessionAfter(s, h.end);
+    s.cycleEnd = null;                      // 종료일은 회차·요일로 다시 자동 계산
+    cycleMoved = true;
+  }
   saveData(); closeSheet(); refreshCurrentView();
-  showToast(`${s.name} ${no}차 날짜 수정됨 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})`);
+  showToast(`${s.name} ${no}차 날짜 수정됨 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})${cycleMoved?` · 이번 회차는 ${fmtMD(s.cycleStart)}부터`:''}`);
 }
 
 /* 이번 클래스: 계산된 지난 수업일을 실제 기록으로 확정 */

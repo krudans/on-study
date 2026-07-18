@@ -1337,6 +1337,9 @@ function saveHistDates(sid, no){
   if(isLatest && s.cycleStart && dayKey(s.cycleStart) <= h.end){
     s.cycleStart = nextSessionAfter(s, h.end);
     s.cycleEnd = null;                      // 종료일은 회차·요일로 다시 자동 계산
+    // 회차 카운터도 새 시작일 기준 실제 출결 기록 수로 재계산 (남은 카운트 이월 방지)
+    const cs2=dayKey(s.cycleStart);
+    cycleDone[sid]=sessions.filter(r=>r.sid===sid && dayKey(r.date)>=cs2).length;
     cycleMoved = true;
   }
   saveData(); closeSheet(); refreshCurrentView();

@@ -474,7 +474,8 @@ function renderToday(){
     let statusText, statusColor;
     const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
     if(done){ statusText = done.start ? `하원 완료 · ${tBtn(hm(done.start)+'~'+hm(done.end))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
-    else if(isLive){ statusText = `수업 중 · 등원 ${tBtn(hm(live[s.id]))}`; statusColor='var(--amber)'; }
+    else if(isLive){ const outT=endTimeOf(hm(live[s.id]), todayDurOf(s,aMs));   // 하원 예정 = 등원 + 수업시간
+      statusText = `수업 중 · 등원 ${tBtn(hm(live[s.id]))} · 하원 예정 ${outT}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const tt=todayTimeOf(s,aMs);           // 임시 추가 > 보강 > 요일표 (그룹 헤더와 동일)
       const dd=todayDurOf(s,aMs);
@@ -2589,7 +2590,7 @@ function renderSchedule(){
           timeLine=(inTime||outTime) ? `등원 ${inTime||'—'} · 하원 ${outTime||'—'}` : '수업 완료 (시각 기록 없음)';
         } else if(isLiveNow){
           statusHtml=`<span class="contract" style="color:var(--amber);font-weight:700">수업 중</span>`;
-          timeLine=`등원 ${inTime||'—'} · 수업 중`;
+          timeLine=`등원 ${inTime||'—'} · 하원 예정 ${inTime?endTimeOf(inTime, todayDurOf(s, dayKey(schedSel))):'—'}`;
         } else {
           statusHtml=`<span class="contract">예정 ${t}</span>`;
           timeLine=`예정 시간 ${t}`;

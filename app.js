@@ -1632,6 +1632,7 @@ function doRollover(id){
    오늘부터는 등원(등하원·완료)을 눌러야 회차로 확정됨. */
 function confirmPastOnce(){
   if(seedUntil) return false;                       // 이미 처리했으면 통과
+  if(!students.length) return false;                // ★ 빈 상태에선 절대 실행·저장 금지 (2026-07-21 사고 방지)
   const todayK=dayKey(now.getTime());
   seedUntil = todayK;                               // 오늘 이전 = 확정 인정
   students.forEach(s=>{

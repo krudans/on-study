@@ -2532,7 +2532,7 @@ function askDeleteStudent(id){
   document.getElementById('scrim').classList.add('show');
 }
 function deleteStudent(id){
-  const i=students.findIndex(s=>s.id===id); if(i>=0)students.splice(i,1);
+  const i=students.findIndex(s=>s.id===id); if(i>=0){ students.splice(i,1); if(typeof noteStudentDeleted==='function') noteStudentDeleted(); }  // 급감 가드 기준치 동기화
   delete cycleDone[id];
   bills = bills.filter(b=>b.sid!==id);            // 정산 건 정리
   delete packHistory[id]; delete absentLog[id]; delete makeupLog[id]; delete skipLog[id];

@@ -29,13 +29,21 @@ function _backupTodayOnce(){  // 하루 1회, 그날 첫 접속 시점의 상태
   }catch(e){}
 }
 
+function noteStudentDeleted(){ if(_loadedStudentCount>0) _loadedStudentCount--; }  // 정상 삭제 시 기준치 동기화(급감 가드 오탐 방지)
 function writeNow(){
   if(typeof _sessionDead!=='undefined' && _sessionDead) return;
   if(_loadFailed){ console.warn('로드 실패 상태 — 저장 차단'); return; }
+  const _scnt=(typeof students!=='undefined' && students)?students.length:0;
   // ★ 학생이 있던 데이터를 빈 상태로 덮어쓰는 저장은 무조건 차단 (전체 삭제 사고 방지)
-  if(_loadedStudentCount>0 && (typeof students==='undefined' || !students || !students.length)){
+  if(_loadedStudentCount>0 && !_scnt){
     console.warn('빈 상태 저장 차단');
     if(typeof showToast==='function') showToast('⚠ 데이터가 비어 있어 저장을 차단했습니다. 새로고침 해주세요.');
+    return;
+  }
+  // ★ 학생 수가 정상 삭제 없이 절반 미만으로 급감한 저장도 차단 (부분 소실 방지)
+  if(_loadedStudentCount>=4 && _scnt>0 && _scnt<Math.ceil(_loadedStudentCount/2)){
+    console.warn('학생 수 급감 저장 차단 ('+_loadedStudentCount+'→'+_scnt+')');
+    if(typeof showToast==='function') showToast('⚠ 학생 수가 갑자기 줄어 저장을 차단했습니다. 새로고침 해주세요.');
     return;
   }
   const j=currentJSON(); if(!j) return;
@@ -92,9 +100,18 @@ function removeAdminDoc(email){
 let _subscribed=false;
 let _pendingRemote=null, _pendingTimer=null;
 function _applyRemote(data){
+  // ★ 서버에서 온 스냅샷이 '빈 상태'면 반영 거부 (다른 기기 사고가 이 기기로 번지는 것 방지)
+  const _localCnt=(typeof students!=='undefined' && students)?students.length:0;
+  const _remoteCnt=(data && Array.isArray(data.students))?data.students.length:0;
+  if(_localCnt>0 && _remoteCnt===0){
+    console.warn('빈 원격 스냅샷 반영 거부');
+    if(typeof showToast==='function') showToast('⚠ 서버 데이터가 비어 있어 반영하지 않았습니다. 개발자에게 알려주세요.');
+    return;
+  }
   _applyingRemote=true;
   applyState(data);
   _applyingRemote=false;
+  if(_remoteCnt>0) _loadedStudentCount=_remoteCnt;    // 서버 기준으로 가드 기준치 갱신(다른 기기의 정상 삭제 반영)
   _lastJSON=currentJSON();                            // 원격 반영 후 기준 갱신
   // 원격 데이터에도 옛 오류가 있을 수 있으니 정리·자동 롤오버를 다시 확인(바뀐 게 있으면 저장됨)
   try{ if(typeof autoRolloverAll==='function') autoRolloverAll(); }catch(e){}
@@ -130,9 +147,9 @@ setInterval(()=>{
   if(j && j!==_lastJSON) writeNow();
 }, 2500);
 
-/* 종료 직전 저장 */
+/* 종료 직전 저장 — 반드시 writeNow 경유(보호 가드를 우회하는 직접 저장 금지. 2026-07-21 가드 우회 구멍 수정) */
 window.addEventListener('beforeunload', ()=>{
-  try{ if(currentUser){ const j=currentJSON(); if(j && j!==_lastJSON) stateDoc().set(JSON.parse(j)); } }catch(e){}
+  try{ if(currentUser){ const j=currentJSON(); if(j && j!==_lastJSON) writeNow(); } }catch(e){}
 });
 
 /* ===== 단일 세션 락 (관리자/앱 각각 별도) =====

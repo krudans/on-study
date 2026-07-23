@@ -454,7 +454,8 @@ function renderToday(){
       else if(isPast){ stx = `미확정 · 예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
-      else { stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)'; }
+      else { stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)';
+        btns=`<button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top"><div class="who">
           <div class="name">${s.name}</div>
@@ -856,7 +857,7 @@ function clearAbsentFrom(sid, dayMs){
   const k=dayKey(dayMs);
   if(absentLog[sid]) absentLog[sid]=absentLog[sid].filter(x=>dayKey(x)!==k);
   if(dayKey(now.getTime())===k) absentToday.delete(sid);
-  saveData(); renderSchedule();
+  saveData(); refreshCurrentView();   // 출석부·전체 일정 어디서 취소해도 그 화면 그대로 갱신
   showToast(`${st(sid).name} 결석 취소`);
 }
 /* 오늘만 추가 — 시작 시각·수업 시간을 정해서 넣기 */
@@ -2246,7 +2247,8 @@ function saveStudent(id){
     phone:document.getElementById('g1phone').value.trim(), kakao:sheet.dataset.g1kakao==='1'}];
   if(document.getElementById('g2wrap').style.display!=='none'){
     const n2=document.getElementById('g2name').value.trim();
-    if(n2) guardians.push({name:n2, phone:document.getElementById('g2phone').value.trim(), kakao:sheet.dataset.g2kakao==='1'});
+    const p2=document.getElementById('g2phone').value.trim();
+    if(n2||p2) guardians.push({name:n2||name+' 보호자2', phone:p2, kakao:sheet.dataset.g2kakao==='1'});   // 이름 없이 번호만 있어도 저장 (2보호자 유실 버그 수정)
   }
   const startRaw=document.getElementById('stStart').value;
   const startDate=startRaw?new Date(startRaw+'T00:00:00').getTime():null;
@@ -2903,9 +2905,7 @@ function renderGuide(){
         <div style="font-size:12.5px;color:var(--muted);margin-bottom:5px">카카오에 심사 신청할 때 아래 문구를 그대로 제출하세요.</div>
         <div id="kk_${k}" style="background:#FAF7EE;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-line;color:#6B5A32">${toKakaoTemplate(sms).replace(/</g,'&lt;')}</div>
         <button class="btn ghost small" style="width:auto;margin-top:7px;padding:7px 12px;font-size:12px" onclick="copyKakaoTpl('${k}')">문구 복사</button>
-        <div style="margin-top:9px"><label style="font-size:12.5px;color:var(--muted)">심사 통과 후 받은 템플릿 코드</label>
-          <input id="code_${k}" value="${code}" placeholder="예: ONSTUDY_${k.toUpperCase()}" onchange="setMsgTemplate('${k}')"
-            style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:inherit;font-size:13px;margin-top:4px;background:#fff"></div>
+        <div style="margin-top:9px;background:#EFF6EE;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.6;color:#3F6B45">✓ 템플릿 코드는 입력할 필요 없습니다. 발송 서버가 심사 <b>승인된 템플릿(onstudy_${k})</b>을 자동으로 찾아 그 문구 그대로 발송합니다. (위 보낼 내용은 문자·대체발송용)</div>
       </div>`:''}
     </div>` : '';
     return `<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;overflow:hidden">${head}${body}</div>`;

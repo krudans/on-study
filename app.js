@@ -454,13 +454,16 @@ function renderToday(){
       else if(isPast){ stx = `미확정 · 예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
-      else { stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)';
-        btns=`<button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 (회차·종료일·전체 일정 자동 반영)
+      let inlineBtn='';
+      if(!abs && !done && !isPast){ stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)';
+        inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
-        <div class="card-top"><div class="who">
-          <div class="name">${s.name}</div>
-          <div class="plan" style="color:${sc}">${stx}</div>
-        </div></div>
+        <div class="card-top" style="align-items:center">
+          <div class="who" style="${inlineBtn?'display:flex;align-items:baseline;gap:9px;min-width:0':''}">
+            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${s.name}</div>
+            <div class="plan" style="color:${sc};${inlineBtn?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis':''}">${stx}</div>
+          </div>${inlineBtn}
+        </div>
         ${btns?`<div class="row-btns" style="margin-top:8px">${btns}</div>`:''}
       </div>`;
     }

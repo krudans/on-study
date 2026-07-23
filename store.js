@@ -18,6 +18,7 @@ function sheetOpen(){ const s=document.getElementById('scrim'); return !!(s && s
 /* ===== 데이터 보호 가드 (2026-07-21 데이터 소실 사고 후 추가) =====
    사고 원인: 로드 실패 → 빈 상태로 진행 → 자동 저장이 서버 데이터를 빈 값으로 덮어씀 */
 let _loadFailed=false;        // 로드 실패 시 true → 모든 저장 차단
+let _loadDone=false;          // ★ 최초 로드가 '끝나기 전'에는 어떤 저장도 금지 (2026-07-23 사고 원인: 로그인 직후 로드가 느린 사이 2.5초 자동저장이 빈 상태를 저장)
 let _loadedStudentCount=0;    // 로드 시점 학생 수 (빈 상태 덮어쓰기 차단 기준)
 function _backupTodayOnce(){  // 하루 1회, 그날 첫 접속 시점의 상태를 서버에 백업 보관 (stateBackups/YYYYMMDD)
   try{
@@ -32,6 +33,7 @@ function _backupTodayOnce(){  // 하루 1회, 그날 첫 접속 시점의 상태
 function noteStudentDeleted(){ if(_loadedStudentCount>0) _loadedStudentCount--; }  // 정상 삭제 시 기준치 동기화(급감 가드 오탐 방지)
 function writeNow(){
   if(typeof _sessionDead!=='undefined' && _sessionDead) return;
+  if(!_loadDone){ console.warn('최초 로드 완료 전 — 저장 차단'); return; }   // ★ 로드가 끝나기 전 저장 절대 금지
   if(_loadFailed){ console.warn('로드 실패 상태 — 저장 차단'); return; }
   const _scnt=(typeof students!=='undefined' && students)?students.length:0;
   // ★ 학생이 있던 데이터를 빈 상태로 덮어쓰는 저장은 무조건 차단 (전체 삭제 사고 방지)
@@ -77,6 +79,7 @@ async function loadData(){
   }
   _loadedStudentCount = (typeof students!=='undefined' && students) ? students.length : 0;
   _lastJSON=currentJSON();
+  _loadDone=true;                        // ★ 이 시점부터만 저장 허용
   if(!_loadFailed) _backupTodayOnce();   // 그날 첫 접속 상태를 자동 백업
   await loadAdmins();
 }
@@ -139,13 +142,8 @@ function subscribeState(){
   }, e=>console.warn('실시간 동기화 실패', e));
 }
 
-/* 자동 저장 안전망: 실제로 내용이 바뀐 경우에만 저장 (출결 등 saveData 미호출 변경 대비).
-   시트가 열려 있을 땐 건드리지 않음. */
-setInterval(()=>{
-  if(!currentUser || _applyingRemote || sheetOpen()) return;
-  const j=currentJSON();
-  if(j && j!==_lastJSON) writeNow();
-}, 2500);
+/* ★ 주기적 자동저장 제거 (2026-07-23 원장님 지시 · 사고 방아쇠였음)
+   저장은 사용자가 실제로 변경했을 때(saveData 호출)와 창을 닫기 직전(_flushSave/beforeunload)에만 실행된다. */
 
 /* 종료 직전 저장 — 반드시 writeNow 경유(보호 가드를 우회하는 직접 저장 금지. 2026-07-21 가드 우회 구멍 수정) */
 window.addEventListener('beforeunload', ()=>{

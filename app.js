@@ -1001,6 +1001,7 @@ async function serverSend(to, kind, text, opt){
     const u=firebase.auth().currentUser;
     const idToken=u ? await u.getIdToken() : null;   // 서버가 관리자 로그인인지 검증
     const res=await fetch(NOTIFY_URL, {method:'POST', body:JSON.stringify({to, kind, text,
+      tplCode: (msgTemplates[kind]&&String(msgTemplates[kind].code||'').trim())||null,   // 알림 문구 화면에 입력한 승인 템플릿 코드 — 있으면 최우선 사용
       useAlimtalk: !!o.alimtalk,          // 알림톡 발송 여부 (채널 승인 후 지원)
       useSms: !!o.sms,                    // 문자 발송 여부
       fallbackSms: !!(o.alimtalk && o.sms), // 알림톡 실패 시 문자 대체
@@ -2908,7 +2909,10 @@ function renderGuide(){
         <div style="font-size:12.5px;color:var(--muted);margin-bottom:5px">카카오에 심사 신청할 때 아래 문구를 그대로 제출하세요.</div>
         <div id="kk_${k}" style="background:#FAF7EE;border-radius:10px;padding:10px 12px;font-size:12.5px;white-space:pre-line;color:#6B5A32">${toKakaoTemplate(sms).replace(/</g,'&lt;')}</div>
         <button class="btn ghost small" style="width:auto;margin-top:7px;padding:7px 12px;font-size:12px" onclick="copyKakaoTpl('${k}')">문구 복사</button>
-        <div style="margin-top:9px;background:#EFF6EE;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.6;color:#3F6B45">✓ 템플릿 코드는 입력할 필요 없습니다. 발송 서버가 심사 <b>승인된 템플릿(onstudy_${k})</b>을 자동으로 찾아 그 문구 그대로 발송합니다. (위 보낼 내용은 문자·대체발송용)</div>
+        <div style="margin-top:9px"><label style="font-size:12.5px;color:var(--muted)">심사 통과 후 받은 템플릿 코드(ID)</label>
+          <input id="code_${k}" value="${code}" placeholder="예: KA01TP... (솔라피 → 템플릿 ⋮ → 템플릿 ID 복사)" onchange="setMsgTemplate('${k}')"
+            style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:inherit;font-size:13px;margin-top:4px;background:#fff">
+          <div style="font-size:12px;color:var(--muted);margin-top:5px">여기 코드를 넣으면 <b>그 템플릿으로</b> 알림톡이 나갑니다. 비워두면 발송 서버가 승인된 onstudy_${k} 템플릿을 자동으로 사용합니다.</div></div>
       </div>`:''}
     </div>` : '';
     return `<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:9px;overflow:hidden">${head}${body}</div>`;

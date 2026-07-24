@@ -563,7 +563,7 @@ function renderToday(){
     const hour=hourOf(s);
     if(hour!==_lastHour){
       _lastHour=hour;
-      if(!_first) cards+=`<div style="border-top:1px solid var(--line);opacity:.55;margin:13px 6px"></div>`;
+      if(!_first) cards+=`<div style="border-top:2px solid #C9C2B2;border-radius:2px;margin:15px 4px"></div>`;   // 시간대 구분선 (연하되 보이게)
     }
     _first=false;
     cards+=cardOf(s);

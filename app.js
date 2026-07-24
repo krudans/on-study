@@ -100,6 +100,8 @@ const DUR_OPTS=[[60,'1시간'],[90,'1시간 30분']];
 function defaultDur(days){ return (days&&days.length>=3) ? 60 : 90; }
 function durOf(s){ return (s&&+s.dur) ? +s.dur : defaultDur(s?s.days:[]); }
 function durLabel(m){ const f=DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분'); }
+/* 이름 옆 회차 뱃지 — 모든 화면 공통 표기 (2/12 형식, 7/27 지시) */
+function cycBadge(s){ return `<span style="font-size:12.5px;font-weight:600;color:var(--muted);margin-left:7px;vertical-align:1px">${doneCountOf(s)}/${s.plan}</span>`; }
 function endTimeOf(t, dur){ if(!t) return ''; const [h,mi]=String(t).split(':').map(Number);
   const d=new Date(2000,0,1,h,mi+(+dur||60));
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
@@ -463,12 +465,12 @@ function renderToday(){
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
       let inlineBtn='';
-      if(!abs && !done && !isPast){ stx = `${doneCountOf(s)}/${s.plan} · 예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';   // 이름 옆 회차(2/12 형식) — 7/27 지시
+      if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';   // 회차는 cycBadge로 이름 옆 표기
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">
           <div class="who" style="${inlineBtn?'display:flex;align-items:baseline;gap:9px;min-width:0':''}">
-            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${s.name}</div>
+            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${s.name}${cycBadge(s)}</div>
             <div class="plan" style="color:${sc};${inlineBtn?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis':''}">${stx}</div>
           </div>${inlineBtn}
         </div>
@@ -487,12 +489,12 @@ function renderToday(){
     const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
     if(done){ statusText = done.start ? `하원 완료 · ${tBtn(rng12(hm(done.start),hm(done.end)))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
     else if(isLive){ const outT=endTimeOf(hm(live[s.id]), todayDurOf(s,aMs));   // 뒤 시각 = 하원 예정(등원+수업시간)
-      statusText = `수업 중 · ${tBtn(rng12(hm(live[s.id]),outT))} · ${shownDay}/${s.plan}회`; statusColor='var(--amber)'; }
+      statusText = `수업 중 · ${tBtn(rng12(hm(live[s.id]),outT))}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const tt=todayTimeOf(s,aMs);           // 임시 추가 > 보강 > 요일표 (그룹 헤더와 동일)
       const dd=todayDurOf(s,aMs);
       const rng=tt?rng12(tt, endTimeOf(tt,dd)):'';
-      statusText = `${isMk?'보강 '+rng:'예정 '+rng} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
+      statusText = `${isMk?'보강 '+rng:'예정 '+rng}`; statusColor='var(--muted)'; }
 
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
     let action;
@@ -544,7 +546,7 @@ function renderToday(){
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
         <div class="who">
-          <div class="name">${s.name}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
+          <div class="name">${s.name}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
           <div class="plan" style="color:${statusColor}">${statusText}</div>
         </div>
         ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
@@ -2609,9 +2611,9 @@ function renderSchedule(){
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
         return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
-          <div class="row-top"><span class="name">${s.name}${isMakeupDay(s,dayKey(schedSel))?' <span style="font-size:11px;font-weight:600;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</span>${statusHtml}</div>
+          <div class="row-top"><span class="name">${s.name}${cycBadge(s)}${isMakeupDay(s,dayKey(schedSel))?' <span style="font-size:11px;font-weight:600;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</span>${statusHtml}</div>
           <div class="mg-line">🕐 ${timeLine}</div>
-          <div class="mg-line">👤 ${gLine} · ${s.plan}회 중 ${doneCountOf(s)}회</div>
+          <div class="mg-line">👤 ${gLine}</div>
           <div class="row-btns" style="margin-top:9px">
             <button class="btn ghost small" onclick="toggleSchedCal(${s.id})">${schedCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
             ${abs?`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${schedSel})">결석 취소</button>`:''}

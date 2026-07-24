@@ -103,6 +103,13 @@ function durLabel(m){ const f=DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분
 function endTimeOf(t, dur){ if(!t) return ''; const [h,mi]=String(t).split(':').map(Number);
   const d=new Date(2000,0,1,h,mi+(+dur||60));
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+/* 12시간제 표기 — "15:00" → "오후 3:00" (출석부 표시용 단일 함수) */
+function hm12(t){ if(!t) return ''; const p=String(t).split(':'); const h=+p[0], mi=+(p[1]||0);
+  if(isNaN(h)) return t; const ap=h<12?'오전':'오후'; let hh=h%12; if(hh===0) hh=12;
+  return `${ap} ${hh}:${String(mi).padStart(2,'0')}`; }
+function rng12(a,b){ if(!a) return ''; if(!b) return hm12(a);
+  const sameAp=(+String(a).split(':')[0]<12)===(+String(b).split(':')[0]<12);
+  return hm12(a)+'~'+(sameAp? hm12(b).replace(/^오[전후] /,'') : hm12(b)); }
 
 // 요일별 시간 (per-day 있으면 그 값, 없으면 공통 time)
 function timeFor(s,dayIdx){
@@ -288,7 +295,8 @@ function todayDurOf(s, k){
 let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 // 오늘 결석 여부 = 영구 기록(absentLog) 기준. 새로고침·다른 기기에서도 일치
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
-const isTodayStudent=(x)=> isClassDay(x, dayKey(now.getTime())) && !beforeStart(x, dayKey(now.getTime()));
+const isTodayStudent=(x)=>{ const k=dayKey(now.getTime());
+  return (isClassDay(x,k) && !beforeStart(x,k)) || hasRecordOn(x.id,k); };   // ★ 마지막 회차 하원 직후에도(다음 클래스가 미래로 잡혀도) 오늘 기록 있으면 명단 유지
 const todayRoster=()=>students.filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));
 
 // 학생의 지난 출석일(요일표 기준, 오늘 이전) — 달력 표시용
@@ -449,13 +457,13 @@ function renderToday(){
       let stx, sc, btns='';
       if(abs){ stx='결석'; sc='var(--clay)';
         btns=`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button>`; }
-      else if(done){ stx = done.start ? `하원 완료 · ${hm(done.start)}~${hm(done.end)}` : '수업 완료'; sc='var(--green)';
+      else if(done){ stx = done.start ? `하원 완료 · ${rng12(hm(done.start),hm(done.end))}` : '수업 완료'; sc='var(--green)';
         btns=`<button class="btn ghost small" onclick="undoOn(${s.id},${aMs})">완료 취소</button>`; }
-      else if(isPast){ stx = `미확정 · 예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--amber)';
+      else if(isPast){ stx = `미확정 · 예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
       let inlineBtn='';
-      if(!abs && !done && !isPast){ stx = `예정 ${timeFor(s,dowA)||s.time||''}`; sc='var(--muted)';
+      if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">
@@ -477,13 +485,13 @@ function renderToday(){
     // 헤더 상태 텍스트/색
     let statusText, statusColor;
     const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
-    if(done){ statusText = done.start ? `하원 완료 · ${tBtn(hm(done.start)+'~'+hm(done.end))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
+    if(done){ statusText = done.start ? `하원 완료 · ${tBtn(rng12(hm(done.start),hm(done.end)))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
     else if(isLive){ const outT=endTimeOf(hm(live[s.id]), todayDurOf(s,aMs));   // 뒤 시각 = 하원 예정(등원+수업시간)
-      statusText = `수업 중 · ${tBtn(hm(live[s.id])+'~'+outT)} · ${shownDay}/${s.plan}회`; statusColor='var(--amber)'; }
+      statusText = `수업 중 · ${tBtn(rng12(hm(live[s.id]),outT))} · ${shownDay}/${s.plan}회`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const tt=todayTimeOf(s,aMs);           // 임시 추가 > 보강 > 요일표 (그룹 헤더와 동일)
       const dd=todayDurOf(s,aMs);
-      const rng=tt?`${tt}~${endTimeOf(tt,dd)}`:'';
+      const rng=tt?rng12(tt, endTimeOf(tt,dd)):'';
       statusText = `${isMk?'보강 '+rng:'예정 '+rng} · ${shownDay}/${s.plan}회`; statusColor='var(--muted)'; }
 
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
@@ -546,18 +554,16 @@ function renderToday(){
       ${action}
     </div>`;
   };
-  // 1시간 단위로 묶어 시간대 헤더(주황 알약) + 학생 카드
+  // 시간대가 바뀌는 지점에 연한 구분선만 (주황 알약 탭 제거 — 2026-07-27 원장님 지시)
   const hourOf=(s)=>{ const t=(isToday? todayTimeOf(s,aMs) : (timeFor(s,dowA)||s.time||'')); return t?t.slice(0,2)+':00':'시간 미정'; };
-  let cards='', _lastHour=null;
+  let cards='', _lastHour=null, _first=true;
   list.forEach(s=>{
     const hour=hourOf(s);
     if(hour!==_lastHour){
       _lastHour=hour;
-      const cnt=list.filter(x=>hourOf(x)===hour).length;
-      cards+=`<div style="margin:14px 2px 10px"><span style="display:inline-flex;align-items:center;gap:6px;background:var(--amber);border-radius:20px;padding:6px 14px">
-        <span style="font-size:15px;font-weight:600;color:#fff">🕐 ${hour} ~</span>
-        <span style="font-size:12px;color:#FAEEDA">${cnt}명</span></span></div>`;
+      if(!_first) cards+=`<div style="border-top:1px solid var(--line);opacity:.55;margin:13px 6px"></div>`;
     }
+    _first=false;
     cards+=cardOf(s);
   });
   const empty=list.length?'':`<div class="empty">이 날은 예정된 학생이 없어요. 아래에서 보강을 넣을 수 있어요.</div>`;
@@ -2552,7 +2558,7 @@ let schedCur=null, schedSel=null;
 function isTempOn(s, ms){ return isMakeupDay(s, dayKey(ms)); }   // 호환용 별칭
 function studentsOnDate(ms){
   const d=new Date(ms), dow=d.getDay(), k=dayKey(ms);
-  return students.filter(s=> isClassDay(s,k) && !beforeStart(s,ms))
+  return students.filter(s=> (isClassDay(s,k) && !beforeStart(s,ms)) || hasRecordOn(s.id,k))   // 기록 있는 날은 클래스 경계와 무관하게 표시
     .sort((a,b)=> (todayTimeOf(a,k)||'').localeCompare(todayTimeOf(b,k)||''));
 }
 function schedNav(delta){ schedCur.setMonth(schedCur.getMonth()+delta); schedSel=null; renderSchedule(); }

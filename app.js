@@ -463,7 +463,7 @@ function renderToday(){
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
       let inlineBtn='';
-      if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';
+      if(!abs && !done && !isPast){ stx = `${doneCountOf(s)}/${s.plan} · 예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';   // 이름 옆 회차(2/12 형식) — 7/27 지시
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">

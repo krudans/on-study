@@ -335,6 +335,8 @@ let attnDate=null;
 function attnBaseMs(){ return attnDate ? attnDate.getTime() : dayKey(now.getTime()); }
 function attnNav(d){ const b=new Date(attnBaseMs()); b.setDate(b.getDate()+d); attnDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderToday(); }
 function attnToday(){ attnDate=null; renderToday(); }
+/* 홈에서 보고 있던 날짜를 그대로 출석부로 인계 (2026-07-24 원장님 지시) */
+function goAttnFromHome(){ attnDate = homeDate ? new Date(homeDate.getTime()) : null; goTab('today', true); }
 
 /* ===== 홈 ===== */
 function renderHome(){
@@ -388,7 +390,7 @@ function renderHome(){
     </div>
     <div class="actions">
       <button class="act" onclick="goTab('settle')"><div class="t">정산</div><div class="d">회차·수업료 정리</div></button>
-      <button class="act primary" onclick="goTab('today')"><div class="t">출석체크</div><div class="d">오늘 ${todayRemain}명 남음</div></button>
+      <button class="act primary" onclick="goAttnFromHome()"><div class="t">출석체크</div><div class="d">${isToday?`오늘 ${todayRemain}명 남음`:`${hDate.getMonth()+1}/${hDate.getDate()} ${remain}명 예정`}</div></button>
     </div>
     <div class="actions" style="margin-top:-12px">
       <button class="act" onclick="goTab('counsel')"><div class="t">학부모 상담</div><div class="d">상담 메모·카톡</div></button>
@@ -3105,9 +3107,9 @@ function renderReport(){
 }
 
 
-function goTab(v){
+function goTab(v,keepDate){
   saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
-  if(v==='today') attnDate=null;   // 출석부는 항상 오늘부터
+  if(v==='today' && !keepDate) attnDate=null;   // 아래 탭으로 들어올 때만 오늘로 초기화
   if(v==='settle') settleYM=null;  // 정산은 항상 이번 달부터
   document.querySelectorAll('.bt').forEach(t=>t.classList.toggle('active',t.dataset.v===v));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));

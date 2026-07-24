@@ -408,7 +408,7 @@ function renderHome(){
       ${logbook.length?`<div class="log">`+logbook.map(l=>{
         const lb={start:'등원',end:'하원',absent:'결석',pay:'납입'}[l.kind]||'알림';
         return `<div class="log-item"><span class="badge ${l.kind}">${lb}</span>
-          <span class="tx">${l.text}</span><span class="tm">${l.time}</span></div>`;}).join('')+`</div>`
+          <span class="tx">${l.text}</span><span class="tm">${hm12(l.time)}</span></div>`;}).join('')+`</div>`
        :`<div class="muted-card">아직 오늘 보낸 알림이 없어요.</div>`}
     </div>`;
 }
@@ -529,7 +529,7 @@ function renderToday(){
       ${progBar(s)}
       <div class="clock ${isLive?'show':''}"><span class="dot"></span>
         <span class="time num" data-clock="${s.id}">00:00:00</span>
-        <span class="since">${isLive?'등원 '+new Date(live[s.id]).toTimeString().slice(0,5):''}</span></div>
+        <span class="since">${isLive?'등원 '+hm12(hm(live[s.id])):''}</span></div>
       <div class="row-btns" style="margin-top:8px">
         <button class="btn ghost small" onclick="toggleCal(${s.id})">달력 보기</button>
         ${(isMk&&isToday)?`<button class="btn ghost small" onclick="askRemoveMakeup(${s.id},${aMs})">보강 빼기</button>`:''}
@@ -578,7 +578,7 @@ function renderToday(){
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">${isToday?'오늘':fmtMD(aMs)} 보강</div>
       ${added.map(x=>{ const ti=makeupOn(x.id, aMs)||{};
         return `<div style="display:flex;justify-content:space-between;align-items:center;background:#FAEEDA;border-radius:9px;padding:8px 10px;margin-bottom:6px">
-          <span style="font-size:13px;color:#633806"><b>${x.name}</b> · ${ti.time||'-'}${ti.time?'~'+endTimeOf(ti.time, ti.dur||durOf(x)):''} · ${durLabel(ti.dur||durOf(x))}</span>
+          <span style="font-size:13px;color:#633806"><b>${x.name}</b> · ${ti.time?rng12(ti.time, endTimeOf(ti.time, ti.dur||durOf(x))):'-'} · ${durLabel(ti.dur||durOf(x))}</span>
           <button onclick="askRemoveMakeup(${x.id},${aMs})" style="border:none;background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
         </div>`; }).join('')}
     </div>` : '';
@@ -678,7 +678,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
       const d=new Date(mk.t);
       return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:8px;padding:6px 9px;margin-top:5px">
         <span style="font-size:12.5px;color:#4A3690"><b>${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})</b>
-          ${mk.time?` ${mk.time}~${endTimeOf(mk.time, mk.dur||durOf(s))}`:''} · ${durLabel(mk.dur||durOf(s))}${mk.done?' ✓ 완료':''}</span>
+          ${mk.time?` ${rng12(mk.time, endTimeOf(mk.time, mk.dur||durOf(s)))}`:''} · ${durLabel(mk.dur||durOf(s))}${mk.done?' ✓ 완료':''}</span>
         <button onclick="askRemoveMakeup(${s.id},${mk.t})" style="border:none;background:#fff;border-radius:6px;padding:3px 8px;font-size:11.5px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
       </div>`; }).join('')
     : `<div style="font-size:12.5px;color:var(--muted);margin-top:4px">없음</div>`;
@@ -910,7 +910,7 @@ function saveTemp(id){
   const ex=mks.find(x=>dayKey(x.t)===k);
   if(ex){ ex.time=t; ex.dur=dur; } else mks.push({t:k, time:t, dur, done:false});
   saveData(); closeSheet(); refreshCurrentView();     // 출석부·전체 일정 등 현재 화면 갱신
-  showToast(`${st(id).name} ${fmtMD(k)} 보강 ${t}~${endTimeOf(t,dur)} 추가됨`);
+  showToast(`${st(id).name} ${fmtMD(k)} 보강 ${rng12(t,endTimeOf(t,dur))} 추가됨`);
 }
 function addTemp(id, dateMs){ openTempSheet(id, dateMs); }
 /* 보강 빼기 — 출결 기록이 있으면 함께 지울지 확인 */
@@ -1027,7 +1027,7 @@ function notifyVarsFor(id, kind){
   const s=st(id); if(!s) return {};
   const g=guardiansOf(s)[0]||{};
   const base={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
-    보호자명:g.name||'보호자', 시각:new Date().toTimeString().slice(0,5),
+    보호자명:g.name||'보호자', 시각:hm12(nowHM()),
     회차:String(doneCountOf(s)), 금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
   if(kind==='settle'){
     const ci=currentClassInfo(s);
@@ -1058,7 +1058,7 @@ async function autoSendAll(sid, kind, text, gs, vars){
   _notifyCtx={gs, text}; openMsgTo(0);
 }
 function buildNotifyText(s,kind){
-  const t=new Date().toTimeString().slice(0,5);
+  const t=hm12(nowHM());
   const vars={학원명:academy.name||'', 학생명:s.name, 시각:t,
     회차:String(s.plan), 금액:won(priceOf(s)).replace(/원$/,''), 내용:''};
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
@@ -1137,8 +1137,8 @@ function mngCalNav(id,delta){ mngCal.m+=delta; if(mngCal.m<0){mngCal.m=11;mngCal
 function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
   return (s.dayTimes&&Object.keys(s.dayTimes).length)
-    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
-    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${s.time||'-'}`;
+    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
+    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'-'}`;
 }
 let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
@@ -1149,7 +1149,7 @@ function studentCard(s, forDay){
   const doneN=doneCountOf(s);
   const need=needSettle(s);
   const eduTxt=[s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
-  const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${timeFor(s,forDay)}`:'';
+  const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${hm12(timeFor(s,forDay))}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)
@@ -1201,7 +1201,7 @@ function studentListHtml(){
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
       let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
-      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=studentCard(s,d); });
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=studentCard(s,d); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
@@ -1795,7 +1795,7 @@ function buildSettleText(id, billId){
     학생명: s.name, 보호자명: g.name||s.guardian||'보호자',
     회차: String(cnt), 금액: won(amt).replace(/원$/,''),
     시작일: fD(startMs), 종료일: fD(endMs), 기간: `${fD(startMs)} ~ ${fD(endMs)}`,
-    시각: new Date().toTimeString().slice(0,5), 내용:'',
+    시각: hm12(nowHM()), 내용:'',
     완료안내: finished ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
                       : `${s.name} 학생의 이번 회차 수업이 ${fD(endMs)} 완료 예정입니다.`
   };
@@ -1977,13 +1977,13 @@ let nextId=100;
 function manageCard(s, forDay){
   const days=s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
   const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
-    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${timeFor(s,d)}`).join(' / ')
-    : (s.time||'-');
+    ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
+    : (hm12(s.time)||'-');
   const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
   const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
-  const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${timeFor(s,forDay)}~${endTimeOf(timeFor(s,forDay),durOf(s))}</div>` : '';
+  const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${rng12(timeFor(s,forDay), endTimeOf(timeFor(s,forDay),durOf(s)))}</div>` : '';
   return `<div class="row" id="mng-${s.id}">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
@@ -2035,7 +2035,7 @@ function manageListHtml(){
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
       let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
-      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(t); } html+=manageCard(s,d); });
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=manageCard(s,d); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
@@ -2319,10 +2319,12 @@ function _wheel(which){
   const ms=_sc[which]||Date.now(); const d=new Date(ms);
   const hIdx=Math.max(0, SC_H.indexOf(d.getHours()));
   const mIdx=Math.max(0, SC_M.indexOf(d.getMinutes()));
+  /* 휠 표시도 12시간제 (값은 24시로 유지 — data-v) */
+  const wLabel=(v,type)=> type==='h' ? `${v<12?'오전':'오후'} ${(v%12)||12}시` : `${String(v).padStart(2,'0')}분`;
   const col=(items,label,idx,type)=>`<div class="sc-wheel" id="w_${which}_${type}" data-which="${which}" data-type="${type}"
       style="height:${SC_ITEM*3}px;overflow-y:auto;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-width:none;flex:1;text-align:center">
       <div style="height:${SC_ITEM}px"></div>
-      ${items.map((v,i)=>`<div class="sc-op" data-v="${v}" style="height:${SC_ITEM}px;line-height:${SC_ITEM}px;scroll-snap-align:center;font-size:${i===idx?'20px':'15px'};font-weight:${i===idx?'600':'400'};color:${i===idx?'#633806':'#888780'}">${String(v).padStart(2,'0')}${label}</div>`).join('')}
+      ${items.map((v,i)=>`<div class="sc-op" data-v="${v}" style="height:${SC_ITEM}px;line-height:${SC_ITEM}px;scroll-snap-align:center;font-size:${i===idx?'20px':'15px'};font-weight:${i===idx?'600':'400'};color:${i===idx?'#633806':'#888780'}">${wLabel(v,type)}</div>`).join('')}
       <div style="height:${SC_ITEM}px"></div>
     </div>`;
   return `<div style="position:relative;background:#F8F7F2;border:1px solid var(--line);border-radius:12px;overflow:hidden">
@@ -2336,7 +2338,7 @@ function buildSendConfirm(){
   const which = _sc.tab;
   let tabs='';
   if(kind==='both' || kind==='end'){
-    const tb=(k,label,ms)=>`<button type="button" onclick="scTab('${k}')" style="flex:1;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;${_sc.tab===k?'background:var(--ink);color:#fff;border:none':'background:var(--card);color:var(--muted);border:1px solid var(--line)'}">${label} ${_hm(ms)}</button>`;
+    const tb=(k,label,ms)=>`<button type="button" onclick="scTab('${k}')" style="flex:1;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;${_sc.tab===k?'background:var(--ink);color:#fff;border:none':'background:var(--card);color:var(--muted);border:1px solid var(--line)'}">${label} ${hm12(_hm(ms))}</button>`;
     tabs=`<div style="display:flex;gap:6px;margin-bottom:12px">${tb('start','등원',_sc.start)}${tb('end','하원',_sc.end)}</div>`;
   }
   const sheet=document.getElementById('sheet');
@@ -2402,7 +2404,7 @@ function scRefresh(){
   document.querySelectorAll('.sc-wheel').forEach(()=>{});
   // 탭 라벨 시각 갱신
   const tabBtns=document.querySelectorAll('.sheet button[onclick^="scTab"]');
-  if(tabBtns.length===2){ tabBtns[0].innerHTML=`등원 ${_hm(_sc.start)}`; tabBtns[1].innerHTML=`하원 ${_hm(_sc.end)}`; }
+  if(tabBtns.length===2){ tabBtns[0].innerHTML=`등원 ${hm12(_hm(_sc.start))}`; tabBtns[1].innerHTML=`하원 ${hm12(_hm(_sc.end))}`; }
 }
 function scRecordOnly(){ const s=st(_sc.id), k=_sc.kind; _scApply(); closeSheet();
   showToast(`${s.name} ${k==='start'?'등원':'하원'} 기록 완료 (알림 없음)`); }
@@ -2435,10 +2437,10 @@ function buildNotifyTextAt(s, kind, ms){
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
   const g=guardiansOf(s)[0]||{};
   const vars={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
-    보호자명:g.name||'보호자', 시각:_hm(ms), 회차:String(doneCountOf(s)),
+    보호자명:g.name||'보호자', 시각:hm12(_hm(ms)), 회차:String(doneCountOf(s)),
     금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
   const out=applyVars(tpl, vars).trim();
-  return out || `[${academy.name||'On-study'}] ${s.name} 학생이 ${_hm(ms)}에 ${kind==='start'?'등원':'하원'}했습니다.`;
+  return out || `[${academy.name||'On-study'}] ${s.name} 학생이 ${hm12(_hm(ms))}에 ${kind==='start'?'등원':'하원'}했습니다.`;
 }
 
 /* ===== 등원·하원 시간 수정 ===== */
@@ -2603,13 +2605,13 @@ function renderSchedule(){
           timeLine='결석 처리됨';
         } else if(rec){
           statusHtml=`<span class="contract" style="color:var(--green);font-weight:700">하원 완료</span>`;
-          timeLine=(inTime||outTime) ? `등원 ${inTime||'—'} · 하원 ${outTime||'—'}` : '수업 완료 (시각 기록 없음)';
+          timeLine=(inTime||outTime) ? `등원 ${hm12(inTime)||'—'} · 하원 ${hm12(outTime)||'—'}` : '수업 완료 (시각 기록 없음)';
         } else if(isLiveNow){
           statusHtml=`<span class="contract" style="color:var(--amber);font-weight:700">수업 중</span>`;
-          timeLine=`등원 ${inTime||'—'} · 하원 예정 ${inTime?endTimeOf(inTime, todayDurOf(s, dayKey(schedSel))):'—'}`;
+          timeLine=`등원 ${hm12(inTime)||'—'} · 하원 예정 ${inTime?hm12(endTimeOf(inTime, todayDurOf(s, dayKey(schedSel)))):'—'}`;
         } else {
-          statusHtml=`<span class="contract">예정 ${t}</span>`;
-          timeLine=`예정 시간 ${t}`;
+          statusHtml=`<span class="contract">예정 ${hm12(t)}</span>`;
+          timeLine=`예정 시간 ${rng12(t, endTimeOf(t, todayDurOf(s, dayKey(schedSel))))}`;
         }
         const gLine = guardiansOf(s).map(g=>`${g.name}${g.phone?' '+g.phone:''}`).join(', ');
         return `<div class="row" style="padding:12px 14px${abs?';border:1.6px solid #D9342B':''}">
@@ -2645,7 +2647,7 @@ function schedMakeupBox(selMs){
     .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순
   const mkHtml = mkList.length ? mkList.map(x=>{ const mk=makeupOn(x.id,k)||{};
       return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:9px;padding:8px 10px;margin-bottom:6px">
-        <span style="font-size:13px;color:#4A3690"><b>${x.name}</b> · ${mk.time||'-'}${mk.time?'~'+endTimeOf(mk.time, mk.dur||durOf(x)):''} · ${durLabel(mk.dur||durOf(x))}</span>
+        <span style="font-size:13px;color:#4A3690"><b>${x.name}</b> · ${mk.time?rng12(mk.time, endTimeOf(mk.time, mk.dur||durOf(x))):'-'} · ${durLabel(mk.dur||durOf(x))}</span>
         <button onclick="askRemoveMakeup(${x.id},${k})" style="border:none;background:#fff;border-radius:7px;padding:4px 9px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;font-weight:600">✕ 빼기</button>
       </div>`; }).join('') : '';
   return `<div class="add-wrap" style="margin-top:14px"><div class="add-title">${fmtMD(k)} 보강 추가</div>
@@ -2973,7 +2975,7 @@ function composeGuide(sid,mode){
   if(ls.length){ body+=`\n\n○ 학습 내용`;
     ls.forEach(l=>{ body+=`\n· ${l.date.getMonth()+1}.${l.date.getDate()}${l.mood?` [${l.mood}]`:''} ${l.text}`; }); }
   const mks=(makeupLog[sid]||[]).filter(m=>!m.done);
-  if(mks.length){ body+=`\n\n○ 보강 예정 ${mks.map(m=>{const d=new Date(m.t);return `${d.getMonth()+1}.${d.getDate()}${m.time?' '+m.time:''}`;}).join(', ')}`; }
+  if(mks.length){ body+=`\n\n○ 보강 예정 ${mks.map(m=>{const d=new Date(m.t);return `${d.getMonth()+1}.${d.getDate()}${m.time?' '+hm12(m.time):''}`;}).join(', ')}`; }
   if(mode==='pack' && needSettle(s)){ body+=`\n\n○ ${s.plan}회 수업이 마무리되어 다음 회차(${won(priceOf(s))}) 안내드립니다.`; }
   body+=`\n\n늘 관심 가져주셔서 감사합니다.`;
   return body;

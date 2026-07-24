@@ -3109,6 +3109,7 @@ function renderReport(){
 
 function goTab(v,keepDate){
   saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
+  if(v==='home') homeDate=null;    // 홈은 항상 오늘 (다른 화면 갔다 돌아오면 오늘로) — 2026-07-24 원장님 지시
   if(v==='today' && !keepDate) attnDate=null;   // 아래 탭으로 들어올 때만 오늘로 초기화
   if(v==='settle') settleYM=null;  // 정산은 항상 이번 달부터
   document.querySelectorAll('.bt').forEach(t=>t.classList.toggle('active',t.dataset.v===v));

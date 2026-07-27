@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27i-cycle-single-source */
+/* ONSTUDY-BUILD: 2026-07-27j-input-simplify */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -178,26 +178,6 @@ function pastSessionsOf(s, info){
 }
 // 이번 클래스의 '현재 회차'(오늘까지 완료된 수업 수) — 모든 화면이 이 함수 하나만 사용
 function doneCountOf(s){ return pastSessionsOf(s).length; }
-/* 원장님이 '현재 회차'를 직접 고쳤을 때 — 그 회차가 나오는 시작일을 거꾸로 찾는다.
-   회차 숫자를 따로 저장하지 않고 시작일 하나만 저장하기 위한 함수(단일 소스 유지). */
-function startForDone(s, done){
-  if(!s || !s.plan || !s.days || !s.days.length) return null;
-  const todayK=dayKey(now.getTime());
-  if(done<=0){
-    for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i);
-      const k=dayKey(dd.getTime());
-      if(isSessionDay(s,k) && !(k===todayK && hasRecordOn(s.id,k))) return k; }
-    return null;
-  }
-  for(let i=0;i<900;i++){                       // 오늘부터 거꾸로 — 가장 최근 시작일을 고른다
-    const dd=new Date(todayK); dd.setDate(dd.getDate()-i);
-    const k=dayKey(dd.getTime());
-    if(!s.days.includes(new Date(k).getDay())) continue;
-    const c=classOf(s, k, s.plan, {cutoff: seedUntil||0});
-    if(c.sessions.filter(x=> x<todayK || (x===todayK && hasRecordOn(s.id,x))).length===done) return k;
-  }
-  return null;
-}
 /* 오늘 이 학생이 등원 기록이 있는지 (세션 기록 기준) */
 function hasRecordOn(sid, k){ return sessions.some(x=>x.sid===sid && dayKey(x.date)===k); }
 
@@ -1673,7 +1653,7 @@ function askConfirmCurrent(sid){
     <div class="sheet-btns" style="margin-top:12px">
       <button class="btn settle" ${past.length?'':'disabled'} onclick="confirmCurrent(${sid})">맞아요 · 확정</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>
-    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="closeSheet();openStudentSheet(${sid})">회차가 달라요 · 현재 회차 고치기</button>`;
+    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="closeSheet();openStudentSheet(${sid})">회차가 달라요 · 수업 시작일 고치기</button>`;
   document.getElementById('scrim').classList.add('show');
 }
 function confirmCurrent(sid){
@@ -2301,7 +2281,9 @@ function manageCard(s, forDay){
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
     : (hm12(s.time)||'시각 미설정');
   const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'연락처 미설정'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
-  const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
+  /* ★ 2026-07-27j: 입력칸을 없앴으므로 등록일도 단일 함수(enrollStartMs)가 정한 값을 보여 준다 */
+  const _ems = enrollStartMs(s);
+  const startTxt = _ems ? new Date(_ems).toLocaleDateString('ko-KR') : '미설정';
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
   const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${rng12(timeFor(s,forDay), endTimeOf(timeFor(s,forDay),durOf(s)))}</div>` : '';
@@ -2310,8 +2292,8 @@ function manageCard(s, forDay){
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt} · <b>${durLabel(durOf(s))}</b></div>
-    <div class="mg-line">🏫 학원 수업 시작일 : ${startTxt}</div>
-    <div class="mg-line">🔄 이번 회차 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · 현재 ${doneCountOf(s)}/${s.plan}회차
+    <div class="mg-line">🏫 학원 등록일(첫 수업일) : ${startTxt}</div>
+    <div class="mg-line">🔄 이번 계약 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · ${doneCountOf(s)}/${s.plan}회 끝남
       <button class="btn ghost small" style="width:auto;padding:3px 8px;font-size:11px;margin-left:6px;display:inline-block" onclick="askConfirmCurrent(${s.id})">회차 확정</button></div>
     <div class="mg-line">${gLines}</div>
     ${pastClassesHtml(s)}
@@ -2469,12 +2451,10 @@ function openStudentSheet(id){
   /* ★ 2026-07-27h: 새 보호자는 카톡/문자를 코드가 골라 주지 않는다(kakao:null = 미선택). */
   const g1=gs[0]||{name:'',phone:'',kakao:null};
   const g2=gs[1]||null;
-  const startVal = s.startDate ? new Date(s.startDate).toISOString().slice(0,10) : '';
-  /* ★ 2026-07-27h: 신규 등록은 빈칸으로 둔다. 코드가 1을 골라 주지 않는다.
-     수정일 때만 '완료+1'로 지금 회차를 보여 준다(표시와 같은 계산). */
-  const curCycle = id ? (doneCountOf(s)+1) : '';
+  /* ★ 2026-07-27j: '현재 회차'는 더 이상 입력값이 아니다 — 시작일에서 달력이 세는 계산 결과다.
+     입력칸을 없애고, 지금 몇 회차인지는 아래 '진행 상황' 줄에 결과로만 보여 준다. */
+  const doneNow = id ? doneCountOf(s) : 0;
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
-  const preset = pkgList.includes(s.plan);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();rpRender()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
   const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
@@ -2490,27 +2470,23 @@ function openStudentSheet(id){
       </select></div>
     <div class="fld"><label>학교</label><input id="stSchool" class="note-select" value="${s.school||''}" placeholder="○○초등학교 (선택)"></div>
     <div class="fld"><label>학생 전화번호</label><input id="stPhone" class="note-select" value="${s.phone||''}" placeholder="010-0000-0000 (선택)"></div>
-    <div class="fld"><label>학원 수업 시작일 <span class="hint">첫 수업일 · 모르면 비워두세요</span></label>
-      <input type="date" id="stStart" class="note-select" value="${startVal}"></div>
-    <div class="fld"><label>클래스 회차 <span class="hint">이 회차를 다 채우면 정산</span></label>
+    <div class="fld"><label>계약 회차 <span class="hint">이 횟수를 다 채우면 정산 · 설정 &gt; 수업 기본 설정에서 추가</span></label>
       <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
         ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
-      </div>
-      <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${(preset||!(s.plan>0))?'':s.plan}" oninput="pickPlan(null)"></div>
-    <div class="fld"><label>현재 회차 <span class="hint">지금 몇 회차 진행 중인지 (1 = 첫 수업) · 비우면 저장되지 않아요</span></label>
-      <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="직접 입력"></div>
-    <div class="fld"><label>이번 회차 기간 <span class="hint">시작일만 골라도 돼요 — 종료일은 회차·요일로 자동 계산</span></label>
+      </div></div>
+    <div class="fld"><label>수업 시작일 <span class="hint">이 날부터 계약 회차만큼 세요 · 종료일은 요일·회차로 자동 계산</span></label>
       <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
         📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ 자동 계산`):'날짜를 고르세요 (자동 계산)'}</span>
       </button>
-      <div id="rpBox"></div></div>
+      <div id="rpBox"></div>
+      ${id?`<div class="cap" style="margin-top:7px">진행 상황 : <b>${doneNow}회 끝남</b> · 다음은 ${doneNow+1}번째 수업${s.plan>0?` (계약 ${s.plan}회 중 ${Math.max(0,s.plan-doneNow)}회 남음)`:''}<br>회차가 실제와 다르면 위 시작일을 고치세요 — 회차는 달력이 셉니다.</div>`:''}</div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
     <div class="fld"><label>수업 시간 <span class="hint">직접 골라주세요 · 비우면 저장되지 않아요</span></label>
       <div class="seg2" id="durRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${durOf(s)===m?'on':''}" data-dur="${m}" onclick="pickDur(${m})">${label}</button>`).join('')}
       </div></div>
-    <div class="fld"><label>수업 시작 시각 <span class="hint">비우면 저장되지 않아요</span></label><input type="time" id="stTime" class="note-select" value="${s.time||''}" oninput="syncDayTimes()">
-      <label class="chk"><input type="checkbox" id="perDayChk" ${perOn?'checked':''} onchange="togglePerDay()"> 요일마다 시간 다르게</label>
+    <div class="fld"><label>수업 시작 시각 <span class="hint" id="stTimeHint">비우면 저장되지 않아요</span></label><input type="time" id="stTime" class="note-select" value="${s.time||''}" oninput="syncDayTimes()">
+      <label class="chk"><input type="checkbox" id="perDayChk" ${perOn?'checked':''} onchange="togglePerDay();syncTimeLock()"> 요일마다 시간 다르게</label>
       <div id="dayTimes" style="${perOn?'':'display:none'}">${dayTimeRows}</div></div>
     <div class="fld"><label>보호자 1</label>
       <input id="g1name" class="note-select" value="${g1.name||''}" placeholder="보호자 이름">
@@ -2533,17 +2509,16 @@ function openStudentSheet(id){
   sheet.dataset.g2kakao=g2?((g2.kakao===true)?'1':(g2.kakao===false?'0':'')):'';
   rpInit(s.cycleStart||null, s.cycleEnd||null);   // 달력 기간 선택기 초기화
   sheet.dataset.dur=String(durOf(s));
-  syncDayTimes();
+  syncDayTimes(); syncTimeLock();
   document.getElementById('scrim').classList.add('show');
 }
 function stylePlBtn(b,on){ b.style.background=on?'var(--ink)':'#F7F6F1'; b.style.color=on?'#fff':'var(--ink)'; b.style.borderColor=on?'var(--ink)':'var(--line)'; }
 function pickPlan(p){
+  /* ★ 2026-07-27j: '직접 입력' 칸을 없앴다. 계약 회차는 설정 > 수업 기본 설정의 목록에서만 고른다
+       (그 목록에 수업료가 함께 있어서, 목록 밖 숫자를 넣으면 수업료가 비어 버렸다). */
   const sheet=document.getElementById('sheet');
-  const btns=[...document.querySelectorAll('#planBtns .pl-btn')];
-  if(p===null){ const v=parseInt(String(document.getElementById('stPlanCustom').value).replace(/[^0-9]/g,''),10)||0; sheet.dataset.plan=v;
-    btns.forEach(b=>stylePlBtn(b,false)); rpRender(); return; }
-  sheet.dataset.plan=p; const ci=document.getElementById('stPlanCustom'); if(ci)ci.value='';
-  btns.forEach(b=>stylePlBtn(b, +b.dataset.p===p));
+  sheet.dataset.plan=p;
+  [...document.querySelectorAll('#planBtns .pl-btn')].forEach(b=>stylePlBtn(b, +b.dataset.p===p));
   rpRender();
 }
 function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset['g'+n+'kakao']=v?'1':'0';
@@ -2551,6 +2526,17 @@ function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset[
   document.getElementById('g'+n+'kkX').classList.toggle('on',!v);}
 function togglePerDay(){const on=document.getElementById('perDayChk').checked;
   document.getElementById('dayTimes').style.display=on?'':'none'; syncDayTimes();}
+/* ★ 2026-07-27j: '요일마다 시간 다르게'를 켜면 위의 공통 '수업 시작 시각'은 쓰이지 않는다 →
+     쓰이지 않는 칸을 잠가서 어느 쪽이 진짜 값인지 헷갈리지 않게 한다. */
+function syncTimeLock(){
+  const chk=document.getElementById('perDayChk'), t=document.getElementById('stTime');
+  if(!chk||!t) return;
+  t.disabled=chk.checked;
+  t.style.opacity=chk.checked?'0.45':'';
+  t.style.background=chk.checked?'#EFEDE6':'';
+  const h=document.getElementById('stTimeHint');
+  if(h) h.textContent = chk.checked ? '요일마다 다르게 켜짐 — 아래 요일별 시각을 쓰세요' : '비우면 저장되지 않아요';
+}
 function pickDur(m){
   const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m);
   document.querySelectorAll('#durRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
@@ -2571,9 +2557,8 @@ function saveStudent(id){
   if(!name){showToast('학생 이름을 입력해주세요');return;}
   const sheet=document.getElementById('sheet');
   const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
-  let plan=+sheet.dataset.plan||0;
-  if(plan<1){ const _pc=document.getElementById('stPlanCustom'); plan=parseInt(String(_pc&&_pc.value||'').replace(/[^0-9]/g,''),10)||0; sheet.dataset.plan=plan; }  // 입력칸 값 복구(숫자만)
-  if(plan<1){showToast('클래스 회차(총 수업 횟수)를 정해주세요 — 예: 20회면 20');return;}
+  const plan=+sheet.dataset.plan||0;
+  if(plan<1){showToast('계약 회차를 골라주세요 (설정 > 수업 기본 설정에 있는 횟수)');return;}
   const commonTime=document.getElementById('stTime').value||'';   // ★ 코드 기본값 없음. 비어 있으면 아래 필수값 검사에서 저장이 막힌다
   const dur = +sheet.dataset.dur||0;      // 수업 시간(길이) — 고르지 않으면 0 → 아래 필수값 검사에서 막힌다
   // 요일별 시간
@@ -2595,13 +2580,12 @@ function saveStudent(id){
   /* ===== 저장 필수값 검사 (2026-07-27g) =====
      원칙: 코드가 값을 만들어 넣지 않는다. 비어 있으면 저장을 막고, 무엇이 비었는지 알려준다.
      여기서 막는 항목 = 홈 '챙길 일'의 missingSettings() 가 비었다고 알려 주는 항목과 같다(같은 규칙 하나). */
-  /* ★ 2026-07-27h: 현재 회차도 코드 기본값(1) 없이 그대로 읽는다. 비면 아래에서 막힌다. */
-  const _cycRaw=String((document.getElementById('stCycle')||{}).value||'').trim();
-  const curCycleInput=parseInt(_cycRaw.replace(/[^0-9]/g,''),10);
+  /* ★ 2026-07-27j: '현재 회차'는 입력받지 않는다(달력이 세는 계산 결과).
+       대신 그 계산의 출발점인 '수업 시작일'을 반드시 받는다 — 없으면 회차를 셀 기준이 없다. */
   const _miss=[];
   if(!days.length) _miss.push('요일');
   if(!(dur>0))     _miss.push('수업 시간');
-  if(!(curCycleInput>=1)) _miss.push('현재 회차');
+  if(!_rp.start)   _miss.push('수업 시작일');
   if(dayTimes){ const _bl=days.filter(d=>!dayTimes[d]); if(_bl.length) _miss.push(`${_bl.map(d=>WD[d]).join('·')}요일 수업 시작 시각`); }
   else if(!commonTime) _miss.push('수업 시작 시각');
   if(!guardians[0].name)  _miss.push('보호자 이름');
@@ -2612,43 +2596,29 @@ function saveStudent(id){
   if(guardians[1] && guardians[1].kakao===null) _miss.push('보호자 2 발송 방법(카톡/문자만)');
   if(_miss.length){ showToast(`${_miss.join(', ')} — 비어 있어요. 채워야 저장됩니다`); return; }
 
-  const startRaw=document.getElementById('stStart').value;
-  const startDate=startRaw?new Date(startRaw+'T00:00:00').getTime():null;
-  const cycleStart=_rp.start||null;      // 달력에서 고른 시작일
-  const cycleEnd=_rp.end||null;          // 달력에서 고른 종료일
-  const curDone=Math.max(0, curCycleInput-1);  // N회차 진행 중 = N-1회 완료
+  /* ★ 2026-07-27j: '학원 수업 시작일'(startDate) 입력칸을 없앴다.
+       같은 뜻의 날짜를 두 칸에서 받아 서로 달라지던 항목이라 '수업 시작일' 하나로 합쳤다.
+       예전 학생에게 저장돼 있던 startDate 값은 지우지 않는다(아래 data 에 넣지 않음 = 그대로 보존).
+       startDate 가 없으면 enrollStartMs() 가 cycleStart 를 쓴다. */
+  const cycleStart=_rp.start||null;      // 달력에서 고른 수업 시작일 (필수)
+  const cycleEnd=_rp.end||null;          // 직접 고른 종료일 (비우면 자동 계산)
   const data={name, phone:document.getElementById('stPhone').value.trim(),
     grade:document.getElementById('stGrade').value, school:document.getElementById('stSchool').value.trim(),
-    plan, days, time:commonTime, dayTimes, startDate, cycleStart, cycleEnd, guardians,
+    plan, days, time:commonTime, dayTimes, cycleStart, cycleEnd, guardians,
     // 호환용 대표(보호자1) 미러
     guardian:guardians[0].name, kakao:guardians[0].kakao, dur};
   data.phone_guardian=guardians[0].phone; // 참고용
-  /* ★ 2026-07-27i 회차 단일 소스 ★
-     '현재 회차'는 이제 따로 저장하는 숫자가 아니라 시작일에서 계산되는 값이다.
-     - 시작일을 새로 고르셨으면 → 그 시작일이 기준(회차는 달력이 센다)
-     - 시작일은 그대로인데 회차만 고치셨으면 → 그 회차가 나오는 시작일을 거꾸로 찾아 시작일에 저장
-     - 찾을 수 없으면 임의로 정하지 않고 저장을 막고 알려 준다
-     예전에는 회차 숫자를 cycleDone 에 따로 저장해서 달력과 갈라졌다(17명 중 11명 어긋남). */
-  const _prevStartK = (id && st(id).cycleStart!=null) ? dayKey(st(id).cycleStart) : null;
-  const _newStartK  = (cycleStart!=null) ? dayKey(cycleStart) : null;
-  if(_newStartK === _prevStartK){
-    const _tmp = Object.assign({}, id?st(id):{}, data, {id: id||-1});
-    if(doneCountOf(_tmp) !== curDone){
-      const _k = startForDone(_tmp, curDone);
-      if(_k==null){
-        showToast(`${name} ${curCycleInput}회차가 되는 시작일을 찾을 수 없어요 — '이번 회차 기간'에서 시작일을 직접 골라주세요`);
-        return;
-      }
-      data.cycleStart=_k;
-      if(data.cycleEnd!=null && dayKey(data.cycleEnd)<_k) data.cycleEnd=null;
-    }
-  }
+  /* ★ 2026-07-27j 회차 단일 소스 ★
+     회차 숫자는 어디에도 저장하지 않는다. 저장하는 것은 '수업 시작일' 하나뿐이고,
+     현재 회차는 언제나 달력(currentClassInfo().sessions)이 센다.
+     빌드 i 까지 있던 '회차 → 시작일 역산'도 입력칸이 사라져 더 필요 없어 삭제했다. */
+  if(data.cycleEnd!=null && data.cycleStart!=null && dayKey(data.cycleEnd)<dayKey(data.cycleStart)) data.cycleEnd=null;
   let _sid=id;
-  if(id){ Object.assign(st(id),data); cycleDone[id]=curDone; }
-  else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; _sid=nid; }
+  if(id){ Object.assign(st(id),data); }
+  else { const nid=++nextId; students.push({id:nid,...data}); _sid=nid; }
   recalcStudentDates(_sid);   // ★ 학생정보를 고치면 지난 클래스·정산 건 날짜도 즉시 같이 바뀐다
   saveData(); closeSheet(); renderManage();
-  showToast(`${name} ${id?'수정됨':'추가됨'} · 현재 ${doneCountOf(st(_sid))+1}회차`);
+  showToast(`${name} ${id?'수정됨':'추가됨'} · ${doneCountOf(st(_sid))}회 끝남 · 다음 ${doneCountOf(st(_sid))+1}번째`);
 }
 /* ===== 등원 / 하원 / 완료 확인 시트 — 시·분 드래그 휠 ===== */
 let _sc={id:null, kind:'start', tab:'start', start:null, end:null};
@@ -3218,9 +3188,9 @@ function renderDataCheck(){
       </div></div>`).join('')}
     <div class="set-sec" style="margin-top:20px">
       <h3>회차가 실제와 다르면</h3>
-      <div class="cap">학생 관리 → 해당 학생 <b>수정</b> → <b>현재 회차</b>에 오늘 기준 실제 회차를 넣으세요.
-        그 값이 기준이 되고, 이후에는 등원을 누른 만큼만 올라갑니다.
-        <b>이번 회차 시작일</b>도 함께 넣으면 기간이 정확해져요.</div>
+      <div class="cap">학생 관리 → 해당 학생 <b>수정</b> → <b>수업 시작일</b>을 실제 첫 수업일로 고치세요.
+        회차는 그 날부터 달력이 세기 때문에, 시작일만 맞으면 회차도 맞습니다.
+        (회차 숫자를 직접 넣는 칸은 없앴습니다 — 두 군데서 세다가 숫자가 갈라졌던 원인이었어요.)</div>
       <button class="btn ghost" onclick="goTab('manage')">학생 관리로 가기</button>
     </div>`;
 }

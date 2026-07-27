@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27j-input-simplify */
+/* ONSTUDY-BUILD: 2026-07-27k-save-confirm */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -144,8 +144,14 @@ function timeFor(s,dayIdx){
 function enrollStartMs(s){
   if(!s) return null;
   if(s.startDate) return dayKey(s.startDate);
-  if(s.cycleStart) return dayKey(s.cycleStart);
-  return null;
+  /* ★ 2026-07-27k: 지난 계약 이력(packHistory)까지 훑어서 '가장 이른 시작일'을 학원 등록일로 본다.
+     예전에는 이번 계약 시작일만 봐서, 2차 계약으로 넘어간 학생은 등록일이 뒤로 밀려 보였다.
+     2026-07-28 확인: 정도연·한지우·홍성재 3명 — 실제 첫 수업일 6.25 / 6.21 / 6.21 인데
+     화면에는 이번 계약 시작일 7.27 / 7.22 / 7.21 이 뜨고 있었다. */
+  const cands=[];
+  (packHistory[s.id]||[]).forEach(h=>{ if(h && h.start!=null) cands.push(dayKey(h.start)); });
+  if(s.cycleStart!=null) cands.push(dayKey(s.cycleStart));
+  return cands.length ? Math.min.apply(null, cands) : null;
 }
 function beforeStart(s,ms){
   const k=dayKey(ms);
@@ -178,6 +184,28 @@ function pastSessionsOf(s, info){
 }
 // 이번 클래스의 '현재 회차'(오늘까지 완료된 수업 수) — 모든 화면이 이 함수 하나만 사용
 function doneCountOf(s){ return pastSessionsOf(s).length; }
+/* ★ 2026-07-27k 복원 — '회차로 맞추기' 전용 도우미.
+   사람은 회차로 기억하지 날짜로 기억하지 않는다("이 아이 5회차쯤 됐어").
+   그 회차가 나오는 시작일을 거꾸로 찾아서 '수업 시작일' 칸에 넣어 주기만 한다.
+   저장되는 값은 여전히 시작일 하나 — 회차 숫자는 어디에도 저장하지 않는다(단일 소스 유지). */
+function startForDone(s, done){
+  if(!s || !s.plan || !s.days || !s.days.length) return null;
+  const todayK=dayKey(now.getTime());
+  if(done<=0){
+    for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i);
+      const k=dayKey(dd.getTime());
+      if(isSessionDay(s,k) && !(k===todayK && hasRecordOn(s.id,k))) return k; }
+    return null;
+  }
+  for(let i=0;i<900;i++){                       // 오늘부터 거꾸로 — 가장 최근 시작일을 고른다
+    const dd=new Date(todayK); dd.setDate(dd.getDate()-i);
+    const k=dayKey(dd.getTime());
+    if(!s.days.includes(new Date(k).getDay())) continue;
+    const c=classOf(s, k, s.plan, {cutoff: seedUntil||0});
+    if(c.sessions.filter(x=> x<todayK || (x===todayK && hasRecordOn(s.id,x))).length===done) return k;
+  }
+  return null;
+}
 /* 오늘 이 학생이 등원 기록이 있는지 (세션 기록 기준) */
 function hasRecordOn(sid, k){ return sessions.some(x=>x.sid===sid && dayKey(x.date)===k); }
 
@@ -2140,7 +2168,9 @@ function sendVia(ch,id){
   if((autoSend||autoSms) && fbFunctions && sendOn('settle')){ closeSheet(); autoSendAll(id, 'settle', text, guardiansOf(s)); return; }
   openMsgWith(id, text, ch==='카카오톡');
 }
-function closeSheet(){document.getElementById('scrim').classList.remove('show');}
+function closeSheet(){document.getElementById('scrim').classList.remove('show');
+  /* ★ 2026-07-27k: 입력 시트를 닫을 때 그 위의 저장 확인창도 같이 치운다 */
+  if(typeof cancelSaveStudent==='function') cancelSaveStudent();}
 document.getElementById('scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeSheet();});
 
 /* ===== 설정 (관리자) ===== */
@@ -2388,6 +2418,28 @@ function rpPick(ms){
   rpRender();
 }
 function rpClear(){ _rp.start=null; _rp.end=null; rpRender(); }
+/* ★ 2026-07-27k: 회차 숫자 → 시작일 역산. 찾은 날짜를 '수업 시작일'에 넣어 주기만 하고 저장은 하지 않는다.
+     (원장님이 눈으로 확인한 뒤 [저장]을 누르셔야 저장된다.) */
+function fixByCycle(){
+  const el=document.getElementById('stFindByN'); if(!el) return;
+  const n=parseInt(String(el.value).replace(/[^0-9]/g,''),10);
+  if(!(n>=1)){ showToast('지금 몇 회차인지 숫자를 넣어주세요 (1 = 첫 수업)'); return; }
+  const sheet=document.getElementById('sheet');
+  const plan=+sheet.dataset.plan||0;
+  const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
+  if(!plan){ showToast('계약 회차를 먼저 골라주세요'); return; }
+  if(!days.length){ showToast('요일을 먼저 골라주세요'); return; }
+  if(n>plan){ showToast(`계약이 ${plan}회인데 ${n}회차는 넘습니다 — 회차를 다시 확인해주세요`); return; }
+  const sid=+(sheet.dataset.rpSid||0);
+  const base=sid?st(sid):null;
+  const tmp=Object.assign({}, base||{}, {id: base?base.id:-1, days, plan, cycleStart:null, cycleEnd:null});
+  const k=startForDone(tmp, n-1);
+  if(k==null){ showToast(`${n}회차가 되는 시작일을 찾지 못했어요 — 달력에서 직접 골라주세요`); return; }
+  _rp.start=k; _rp.end=null;
+  const d=new Date(k); _rp.y=d.getFullYear(); _rp.m=d.getMonth();
+  rpRender();
+  showToast(`${n}회차가 되는 시작일 : ${fmtMD(k)} — 맞는지 확인하고 저장하세요`);
+}
 /* 시작일 + 폼의 회차·요일로 예상 종료일 자동 계산 (미리보기용) */
 function rpAutoEnd(){
   const sheet=document.getElementById('sheet'); if(!sheet||!_rp.start) return null;
@@ -2479,7 +2531,12 @@ function openStudentSheet(id){
         📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ 자동 계산`):'날짜를 고르세요 (자동 계산)'}</span>
       </button>
       <div id="rpBox"></div>
-      ${id?`<div class="cap" style="margin-top:7px">진행 상황 : <b>${doneNow}회 끝남</b> · 다음은 ${doneNow+1}번째 수업${s.plan>0?` (계약 ${s.plan}회 중 ${Math.max(0,s.plan-doneNow)}회 남음)`:''}<br>회차가 실제와 다르면 위 시작일을 고치세요 — 회차는 달력이 셉니다.</div>`:''}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:9px">
+        <input type="number" id="stFindByN" class="note-select" min="1" style="flex:1;margin:0" placeholder="지금 몇 회차인가요? (예: 5)">
+        <button type="button" class="btn ghost small" style="width:auto;margin:0;padding:10px 12px;white-space:nowrap" onclick="fixByCycle()">시작일 찾기</button>
+      </div>
+      <div class="cap" style="margin-top:5px">날짜가 잘 기억 안 나시면 회차 숫자를 넣고 [시작일 찾기] — 그 회차가 되는 시작일을 찾아 위에 넣어 드려요. 저장되는 값은 <b>시작일 하나</b>입니다.</div>
+      ${id?`<div class="cap" style="margin-top:7px">진행 상황 : <b>${doneNow}회 끝남</b> · 다음은 ${doneNow+1}번째 수업${s.plan>0?` (계약 ${s.plan}회 중 ${Math.max(0,s.plan-doneNow)}회 남음)`:''}</div>`:''}</div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
     <div class="fld"><label>수업 시간 <span class="hint">직접 골라주세요 · 비우면 저장되지 않아요</span></label>
       <div class="seg2" id="durRow">
@@ -2507,6 +2564,7 @@ function openStudentSheet(id){
   /* ★ 2026-07-27h: 미선택은 빈 문자열. '1'=카톡 · '0'=문자만 · ''=아직 안 고름(저장 막힘) */
   sheet.dataset.g1kakao=(g1.kakao===true)?'1':(g1.kakao===false?'0':'');
   sheet.dataset.g2kakao=g2?((g2.kakao===true)?'1':(g2.kakao===false?'0':'')):'';
+  cancelSaveStudent();                            // ★ 2026-07-27k: 남아 있던 저장 확인창 정리
   rpInit(s.cycleStart||null, s.cycleEnd||null);   // 달력 기간 선택기 초기화
   sheet.dataset.dur=String(durOf(s));
   syncDayTimes(); syncTimeLock();
@@ -2613,12 +2671,62 @@ function saveStudent(id){
      현재 회차는 언제나 달력(currentClassInfo().sessions)이 센다.
      빌드 i 까지 있던 '회차 → 시작일 역산'도 입력칸이 사라져 더 필요 없어 삭제했다. */
   if(data.cycleEnd!=null && data.cycleStart!=null && dayKey(data.cycleEnd)<dayKey(data.cycleStart)) data.cycleEnd=null;
+  /* ★ 2026-07-27k: 바로 저장하지 않는다 — 입력값으로 계산된 결과(종료 예정일 · 진행 상황)를
+       먼저 보여 드리고, 원장님이 [맞아요]를 누르셨을 때에만 저장한다.
+       원장님 지시: "이게 맞는지 확인 과정을 거치면 되잖아" */
+  askSaveStudent(id, data);
+}
+/* ===== 저장 확인 시트 (2026-07-27k) =====
+   붙는 위치: document.body 에 따로 얹는 층(z-index 60) — 입력 시트(#sheet)를 지우지 않는다.
+   그래서 [고칠래요]를 누르면 적어 넣은 값이 그대로 남아 있는 입력 화면으로 돌아간다.
+   여기 표시되는 값은 전부 계산 함수(currentClassInfo · pastSessionsOf · priceOfPlan)의 결과이고,
+   화면에 값을 직접 박아 넣지 않는다. */
+let _pendStu=null;   // 저장 확인을 기다리는 입력값 {id, data} — 여기 있는 동안은 아직 저장 전이다
+function askSaveStudent(id, data){
+  _pendStu={id, data};
+  const prev = id? st(id) : null;
+  const tmp = Object.assign({}, prev||{}, data, {id: id||-1});
+  const info = currentClassInfo(tmp);                 // 다른 화면과 같은 함수 하나로 계산
+  const done = pastSessionsOf(tmp, info).length;
+  const ds = data.days.slice().sort((a,b)=>a-b);
+  const dayTxt = ds.map(d=>WD[d]).join('·')+'요일';
+  const timeTxt = data.dayTimes ? ds.map(d=>`${WD[d]} ${hm12(data.dayTimes[d])}`).join(' / ') : hm12(data.time);
+  const price = priceOfPlan(data.plan);
+  const row=(k,v,warn)=>`<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
+      <span style="width:88px;flex:none;font-size:12.5px;color:var(--muted)">${k}</span>
+      <span style="font-size:13.5px;color:${warn?'var(--amber)':'var(--ink)'};font-weight:${warn?'700':'600'}">${v}</span></div>`;
+  const box=document.createElement('div');
+  box.id='saveConfirm';
+  box.style.cssText='position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
+  box.innerHTML=`<div style="background:var(--card);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:20px 20px 24px;max-height:92%;overflow:auto">
+    <h3 style="margin:0 0 3px">이대로 저장할까요?</h3>
+    <div class="cap" style="margin-bottom:12px">${data.name} · ${id?'수정':'새로 추가'}</div>
+    ${row('수업 시작일', data.cycleStart?fmtMD(data.cycleStart):'—')}
+    ${row('요일', dayTxt)}
+    ${row('수업 시각', timeTxt||'미설정', !timeTxt)}
+    ${row('수업 시간', durLabel(data.dur))}
+    ${row('계약 회차', `${data.plan}회 · ${price!=null?won(price):'수업료 미설정'}`, price==null)}
+    ${row('종료 예정일', info.end?fmtMD(info.end):'계산 안 됨', !info.end)}
+    ${row('진행 상황', `오늘까지 ${done}회 끝남 · 다음은 ${done+1}번째`)}
+    ${row('보호자', data.guardians.map(g=>`${g.name} · ${g.phone||'연락처 없음'} · ${g.kakao?'카톡':'문자만'}`).join('<br>'))}
+    <div class="cap" style="margin-top:10px">종료 예정일은 결석·휴강이 생기면 그만큼 뒤로 밀립니다. 회차는 이 시작일부터 달력이 셉니다.</div>
+    <div class="sheet-btns" style="margin-top:14px">
+      <button class="btn start" onclick="commitStudent()">맞아요 · 저장</button>
+      <button class="btn sms" onclick="cancelSaveStudent()">고칠래요</button></div>
+  </div>`;
+  document.body.appendChild(box);
+}
+function cancelSaveStudent(){ _pendStu=null; const b=document.getElementById('saveConfirm'); if(b) b.remove(); }
+function commitStudent(){
+  if(!_pendStu){ cancelSaveStudent(); return; }
+  const id=_pendStu.id, data=_pendStu.data;
   let _sid=id;
   if(id){ Object.assign(st(id),data); }
   else { const nid=++nextId; students.push({id:nid,...data}); _sid=nid; }
+  cancelSaveStudent();
   recalcStudentDates(_sid);   // ★ 학생정보를 고치면 지난 클래스·정산 건 날짜도 즉시 같이 바뀐다
   saveData(); closeSheet(); renderManage();
-  showToast(`${name} ${id?'수정됨':'추가됨'} · ${doneCountOf(st(_sid))}회 끝남 · 다음 ${doneCountOf(st(_sid))+1}번째`);
+  showToast(`${data.name} ${id?'수정됨':'추가됨'} · ${doneCountOf(st(_sid))}회 끝남 · 다음 ${doneCountOf(st(_sid))+1}번째`);
 }
 /* ===== 등원 / 하원 / 완료 확인 시트 — 시·분 드래그 휠 ===== */
 let _sc={id:null, kind:'start', tab:'start', start:null, end:null};

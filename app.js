@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27g-no-empty-save */
+/* ONSTUDY-BUILD: 2026-07-27h-no-code-defaults */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -51,14 +51,15 @@ let autoSms=false;                     // 문자 자동 발송(알림톡 실패 
 let sendKinds={start:true,end:true,absent:true,settle:true,guide:true};  // 항목별 발송 on/off
 const sendOn=(kind)=> sendKinds[kind]!==false;
 // 발송 문구: 종류별 문자 문구(sms) + 알림톡 템플릿 코드(code). 문자문구를 #{} 형태로 변환해 카카오 심사 신청에 사용.
-const OLD_SETTLE_TPL='[{학원명}] {학생명} 학생 {회차}회 수업이 마무리되었습니다. 수업료 {금액}원 안내드립니다.';
-const DEFAULT_SETTLE_TPL='안녕하세요. {보호자명}님.\n{완료안내}\n\n· 이번 회차 : {기간} ({회차}회)\n· 수업료 : {금액}원\n\n결제 안내 드립니다.\n감사합니다.\n{학원명} {원장명} 드림';
+/* ★ 2026-07-27h: 알림 문구를 코드에 박아 두지 않는다.
+     문구는 '설정 > 알림 문구'에서 원장님이 적은 값(msgTemplates)만 쓴다.
+     비어 있으면 코드가 문장을 만들어 내지 않고 발송을 막는다(홈 '챙길 일'에도 뜬다). */
 let msgTemplates={
-  start:  { sms:'[{학원명}] {학생명} 학생이 {시각}에 등원했습니다.', code:'' },
-  end:    { sms:'[{학원명}] {학생명} 학생이 {시각}에 하원했습니다. 오늘도 수고하셨습니다.', code:'' },
-  absent: { sms:'[{학원명}] {학생명} 학생이 오늘 수업에 결석 처리되었습니다.', code:'' },
-  settle: { sms:DEFAULT_SETTLE_TPL, code:'' },
-  guide:  { sms:'[{학원명}] {학생명} 학생 학습 안내입니다.\n{내용}', code:'' }
+  start:  { sms:'', code:'' },
+  end:    { sms:'', code:'' },
+  absent: { sms:'', code:'' },
+  settle: { sms:'', code:'' },
+  guide:  { sms:'', code:'' }
 };
 const MSG_KINDS=[['start','등원'],['end','하원'],['absent','결석'],['settle','정산 요청'],['guide','학습 안내']];
 const VAR_EXAMPLE={학원명:'온스터디', 원장명:'김원장', 학생명:'김철수', 보호자명:'김보호', 시각:'16:00',
@@ -433,6 +434,9 @@ function missingSettings(){
   if(!closeTime)     out.push({tx:'마감 시각이 비어 있어요 (설정 > 수업 기본 설정)', v:'admin'});
   [...new Set(students.map(s=>s.plan).filter(p=>+p>0))].sort((a,b)=>a-b)
     .forEach(p=>{ if(priceOfPlan(p)==null) out.push({tx:`${p}회 수업료가 비어 있어요 (설정 > 수업 기본 설정)`, v:'admin'}); });
+  /* ★ 2026-07-27h: 켜 둔 알림의 문구가 비면 알린다 — 발송도 같은 규칙으로 막힌다 */
+  MSG_KINDS.forEach(([k,label])=>{ if(sendOn(k) && !String((msgTemplates[k]&&msgTemplates[k].sms)||'').trim())
+    out.push({tx:`${label} 문구가 비어 있어요 (설정 > 알림 문구)`, v:'send'}); });
   students.forEach(s=>{
     if(!timeFor(s, todayIdx) && !s.time) out.push({tx:`${s.name} 수업 시각이 비어 있어요`, v:'manage'});
     if(!durOf(s))                        out.push({tx:`${s.name} 수업 시간이 비어 있어요`, v:'manage'});
@@ -1101,6 +1105,8 @@ function saveTemp(id){
   const t=(document.getElementById('tpTime')||{}).value||'';
   if(!t){ showToast('시작 시각을 정해주세요'); return; }
   const dur=+sheet.dataset.tpDur || durOf(st(id));
+  /* ★ 2026-07-27h: 수업 시간이 비면 저장하지 않는다(학생 설정도 비어 있는 경우). */
+  if(!(dur>0)){ showToast('수업 시간을 골라주세요 — 비우면 저장되지 않아요'); return; }
   const k=+sheet.dataset.tpDate || dayKey(now.getTime());     // 보고 있던 날짜
   const mks=(makeupLog[id]=makeupLog[id]||[]);                // 보강 = 단일 소스
   const ex=mks.find(x=>dayKey(x.t)===k);
@@ -1278,11 +1284,9 @@ function buildNotifyText(s,kind){
     회차:String(doneCountOf(s)), 총회차:String(s.plan||0),   // ★ notifyVarsFor 와 같은 뜻
     금액:won(priceOf(s)).replace(/원$/,''), 내용:''};
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
-  const out=applyVars(tpl, vars).trim();
-  if(out) return out;
-  // 문구 미설정 시 기본 문구
-  const word=kind==='start'?'등원했습니다':kind==='absent'?'결석 처리되었습니다':'하원했습니다';
-  return `[On-study] ${s.name} 학생이 ${t}에 ${word}.`;
+  /* ★ 2026-07-27h: 문구가 비면 빈값을 돌려준다. 코드가 문장을 지어내지 않는다.
+     부르는 쪽(openNotify)이 빈값이면 발송을 막는다. */
+  return applyVars(tpl, vars).trim();
 }
 // 외부 앱(sms/카톡) 열기: 페이지를 벗어나지 않도록 링크 클릭 방식
 function _openExternal(url){
@@ -1309,6 +1313,8 @@ function openNotify(id,kind){
   const gs=guardiansOf(s);
   const text=buildNotifyText(s,kind);
   if(!sendOn(kind)){ logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} 기록 (알림 꺼짐)`); return; }
+  /* ★ 2026-07-27h: 문구가 비어 있으면 보내지 않는다. 기록은 이미 남았고 데이터는 건드리지 않는다. */
+  if(!text){ showToast(`${word} 문구가 비어 있어요 — 설정 > 알림 문구에서 먼저 채워주세요`); return; }
   gs.forEach(g=>logAdd(id,kind==='absent'?'absent':kind,`${s.name} ${word} → ${g.name}(${g.kakao?'카톡':'문자'})`));
   if((autoSend||autoSms) && fbFunctions){ autoSendAll(id, kind, text, gs); return; }
   _notifyCtx={gs,text};
@@ -2069,10 +2075,8 @@ function buildSettleText(id, billId){
                       : `${s.name} 학생의 이번 회차 수업이 ${fD(endMs)} 완료 예정입니다.`
   };
   const tpl=(msgTemplates.settle&&msgTemplates.settle.sms)||'';
-  const out=applyVars(tpl, vars).trim();
-  if(out) return out;
-  // 문구 미설정 시 기본
-  return `안녕하세요. ${vars.보호자명}님.\n${vars.완료안내}\n\n· 이번 회차 : ${vars.기간} (${cnt}회)\n· 수업료 : ${won(amt)}\n\n결제 안내 드립니다.\n감사합니다.`;
+  /* ★ 2026-07-27h: 문구가 비면 빈값. 부르는 쪽(openSettleMsg)이 발송을 막는다. */
+  return applyVars(tpl, vars).trim();
 }
 function openSettleMsg(id, billId){
   const s=st(id);
@@ -2082,6 +2086,8 @@ function openSettleMsg(id, billId){
   const _amt=_b?billAmount(_b):priceOf(s);
   if(_amt==null){ showToast(`${(_b?_b.plan:s.plan)}회 금액이 요금표에 없어요 — 설정 > 수업 기본 설정에서 먼저 넣어주세요`); return; }
   const text=buildSettleText(id, billId);
+  /* ★ 2026-07-27h: 정산 문구가 비어 있으면 보내지 않는다 */
+  if(!text){ showToast('정산 요청 문구가 비어 있어요 — 설정 > 알림 문구에서 먼저 채워주세요'); return; }
   _msgCtx={id, text};
   const kakao = g.kakao!==false;
   const sheet=document.getElementById('sheet');
@@ -2419,10 +2425,13 @@ function rpRender(){
 function openStudentSheet(id){
   const s=id?st(id):{name:'',phone:'',plan:0,time:'',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};   // ★ 신규 등록은 빈칸으로 시작
   const gs=guardiansOf(s);
-  const g1=gs[0]||{name:'',phone:'',kakao:true};
+  /* ★ 2026-07-27h: 새 보호자는 카톡/문자를 코드가 골라 주지 않는다(kakao:null = 미선택). */
+  const g1=gs[0]||{name:'',phone:'',kakao:null};
   const g2=gs[1]||null;
   const startVal = s.startDate ? new Date(s.startDate).toISOString().slice(0,10) : '';
-  const curCycle = id ? (doneCountOf(s)+1) : 1;  // 진행 중인 회차 번호 = 완료+1 (표시와 동일 계산)
+  /* ★ 2026-07-27h: 신규 등록은 빈칸으로 둔다. 코드가 1을 골라 주지 않는다.
+     수정일 때만 '완료+1'로 지금 회차를 보여 준다(표시와 같은 계산). */
+  const curCycle = id ? (doneCountOf(s)+1) : '';
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const preset = pkgList.includes(s.plan);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();rpRender()">${w}</button>`).join('');
@@ -2447,8 +2456,8 @@ function openStudentSheet(id){
         ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
       </div>
       <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
-    <div class="fld"><label>현재 회차 <span class="hint">이 클래스에서 지금 몇 회차 진행 중인지 (1 = 첫 수업)</span></label>
-      <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="1"></div>
+    <div class="fld"><label>현재 회차 <span class="hint">지금 몇 회차 진행 중인지 (1 = 첫 수업) · 비우면 저장되지 않아요</span></label>
+      <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="직접 입력"></div>
     <div class="fld"><label>이번 회차 기간 <span class="hint">시작일만 골라도 돼요 — 종료일은 회차·요일로 자동 계산</span></label>
       <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
         📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ 자동 계산`):'날짜를 고르세요 (자동 계산)'}</span>
@@ -2465,12 +2474,12 @@ function openStudentSheet(id){
     <div class="fld"><label>보호자 1</label>
       <input id="g1name" class="note-select" value="${g1.name||''}" placeholder="보호자 이름">
       <input id="g1phone" class="note-select" style="margin-top:8px" value="${g1.phone||''}" placeholder="010-0000-0000">
-      <div class="seg2" style="margin-top:8px"><button type="button" id="g1kkO" class="${g1.kakao!==false?'on':''}" onclick="pickGK(1,true)">카톡 (없으면 문자 자동)</button>
+      <div class="seg2" style="margin-top:8px"><button type="button" id="g1kkO" class="${g1.kakao===true?'on':''}" onclick="pickGK(1,true)">카톡 (없으면 문자 자동)</button>
         <button type="button" id="g1kkX" class="${g1.kakao===false?'on':''}" onclick="pickGK(1,false)">문자만</button></div></div>
     <div class="fld" id="g2wrap" style="${g2?'':'display:none'}"><label>보호자 2 <button type="button" class="mini-x" onclick="removeG2()">제거</button></label>
       <input id="g2name" class="note-select" value="${g2?g2.name||'':''}" placeholder="보호자 이름">
       <input id="g2phone" class="note-select" style="margin-top:8px" value="${g2?g2.phone||'':''}" placeholder="010-0000-0000">
-      <div class="seg2" style="margin-top:8px"><button type="button" id="g2kkO" class="${g2&&g2.kakao!==false?'on':''}" onclick="pickGK(2,true)">카톡 (없으면 문자 자동)</button>
+      <div class="seg2" style="margin-top:8px"><button type="button" id="g2kkO" class="${g2&&g2.kakao===true?'on':''}" onclick="pickGK(2,true)">카톡 (없으면 문자 자동)</button>
         <button type="button" id="g2kkX" class="${g2&&g2.kakao===false?'on':''}" onclick="pickGK(2,false)">문자만</button></div></div>
     <button type="button" id="addG2" class="btn ghost small" style="${g2?'display:none':''};margin-bottom:14px" onclick="addG2()">＋ 보호자 2 추가</button>
     <div class="sheet-btns" style="margin-top:6px">
@@ -2478,8 +2487,9 @@ function openStudentSheet(id){
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   sheet.dataset.plan=s.plan;
   sheet.dataset.rpSid=id||'';
-  sheet.dataset.g1kakao=(g1.kakao!==false)?'1':'0';
-  sheet.dataset.g2kakao=(g2&&g2.kakao===false)?'0':'1';
+  /* ★ 2026-07-27h: 미선택은 빈 문자열. '1'=카톡 · '0'=문자만 · ''=아직 안 고름(저장 막힘) */
+  sheet.dataset.g1kakao=(g1.kakao===true)?'1':(g1.kakao===false?'0':'');
+  sheet.dataset.g2kakao=g2?((g2.kakao===true)?'1':(g2.kakao===false?'0':'')):'';
   rpInit(s.cycleStart||null, s.cycleEnd||null);   // 달력 기간 선택기 초기화
   sheet.dataset.dur=String(durOf(s));
   syncDayTimes();
@@ -2532,32 +2542,39 @@ function saveStudent(id){
   }
   // 보호자
   /* ★ 2026-07-27g: 이름을 비우면 '○○ 보호자'로 자동 생성하던 것을 삭제. 비면 저장이 막힌다. */
+  /* ★ 2026-07-27h: '1'=카톡 · '0'=문자만 · 그 밖(미선택)=null → 필수값 검사에서 막힌다 */
+  const _gk=(n)=>{ const v=sheet.dataset['g'+n+'kakao']; return v==='1'?true:(v==='0'?false:null); };
   const guardians=[{name:document.getElementById('g1name').value.trim(),
-    phone:document.getElementById('g1phone').value.trim(), kakao:sheet.dataset.g1kakao==='1'}];
+    phone:document.getElementById('g1phone').value.trim(), kakao:_gk(1)}];
   if(document.getElementById('g2wrap').style.display!=='none'){
     const n2=document.getElementById('g2name').value.trim();
     const p2=document.getElementById('g2phone').value.trim();
-    if(n2||p2) guardians.push({name:n2, phone:p2, kakao:sheet.dataset.g2kakao==='1'});   // 넣었으면 이름은 필요(연락처는 비워도 저장됨 — 발송만 막힌다)
+    if(n2||p2) guardians.push({name:n2, phone:p2, kakao:_gk(2)});   // 넣었으면 이름은 필요(연락처는 비워도 저장됨 — 발송만 막힌다)
   }
   /* ===== 저장 필수값 검사 (2026-07-27g) =====
      원칙: 코드가 값을 만들어 넣지 않는다. 비어 있으면 저장을 막고, 무엇이 비었는지 알려준다.
      여기서 막는 항목 = 홈 '챙길 일'의 missingSettings() 가 비었다고 알려 주는 항목과 같다(같은 규칙 하나). */
+  /* ★ 2026-07-27h: 현재 회차도 코드 기본값(1) 없이 그대로 읽는다. 비면 아래에서 막힌다. */
+  const _cycRaw=String((document.getElementById('stCycle')||{}).value||'').trim();
+  const curCycleInput=parseInt(_cycRaw.replace(/[^0-9]/g,''),10);
   const _miss=[];
   if(!days.length) _miss.push('요일');
   if(!(dur>0))     _miss.push('수업 시간');
+  if(!(curCycleInput>=1)) _miss.push('현재 회차');
   if(dayTimes){ const _bl=days.filter(d=>!dayTimes[d]); if(_bl.length) _miss.push(`${_bl.map(d=>WD[d]).join('·')}요일 수업 시작 시각`); }
   else if(!commonTime) _miss.push('수업 시작 시각');
   if(!guardians[0].name)  _miss.push('보호자 이름');
+  if(guardians[0].kakao===null) _miss.push('보호자 발송 방법(카톡/문자만)');
   /* ★ 보호자 연락처는 저장을 막지 않는다 — 시험 중 오발송을 막기 위해 일부러 비워 두는 값(원장님 지시).
        대신 실제 발송(autoSendAll)에서 막는다. */
   if(guardians[1] && !guardians[1].name) _miss.push('보호자 2 이름');
+  if(guardians[1] && guardians[1].kakao===null) _miss.push('보호자 2 발송 방법(카톡/문자만)');
   if(_miss.length){ showToast(`${_miss.join(', ')} — 비어 있어요. 채워야 저장됩니다`); return; }
 
   const startRaw=document.getElementById('stStart').value;
   const startDate=startRaw?new Date(startRaw+'T00:00:00').getTime():null;
   const cycleStart=_rp.start||null;      // 달력에서 고른 시작일
   const cycleEnd=_rp.end||null;          // 달력에서 고른 종료일
-  const curCycleInput=+document.getElementById('stCycle').value||1;
   const curDone=Math.max(0, curCycleInput-1);  // N회차 진행 중 = N-1회 완료
   const data={name, phone:document.getElementById('stPhone').value.trim(),
     grade:document.getElementById('stGrade').value, school:document.getElementById('stSchool').value.trim(),
@@ -2687,7 +2704,8 @@ function scRefresh(){
     (bad?'<b style="color:var(--clay)">⚠ 하원이 등원보다 빨라요</b>':`수업 ${durMin}분 · 예정 ${durLabel(durOf(s))}`);
   const pv=document.getElementById('scPrev');
   if(pv){
-    const one=(k,ms)=>`<div class="msg" style="white-space:pre-line">${buildNotifyTextAt(s,k,ms).replace(/</g,'&lt;')}</div>`;
+    const one=(k,ms)=>{ const _t=buildNotifyTextAt(s,k,ms);
+      return `<div class="msg" style="white-space:pre-line">${_t?_t.replace(/</g,'&lt;'):'문구 미설정 — 설정 > 알림 문구에서 채워주세요'}</div>`; };
     pv.innerHTML = kind==='start' ? one('start',_sc.start)
       : kind==='end' ? one('end',_sc.end)
       : one('start',_sc.start)+'<div style="height:6px"></div>'+one('end',_sc.end);
@@ -2709,7 +2727,9 @@ function scSend(){
   const kinds = kind==='start' ? ['start'] : kind==='end' ? ['end'] : ['start','end'];
   const on = kinds.filter(k=>sendOn(k));
   if(!on.length){ closeSheet(); showToast(`${s.name} 기록 완료 (알림 꺼짐)`); return; }
-  const text = on.map(k=>buildNotifyTextAt(s,k, k==='start'?_sc.start:_sc.end)).join('\n');
+  const text = on.map(k=>buildNotifyTextAt(s,k, k==='start'?_sc.start:_sc.end)).filter(Boolean).join('\n');
+  /* ★ 2026-07-27h: 문구가 비어 있으면 보내지 않는다(시각 기록은 위에서 이미 저장됐다) */
+  if(!text){ closeSheet(); showToast('알림 문구가 비어 있어요 — 설정 > 알림 문구에서 먼저 채워주세요'); return; }
   guardiansOf(s).forEach(gg=>logAdd(id, on[on.length-1], `${s.name} ${on.map(k=>k==='start'?'등원':'하원').join('+')} → ${gg.name}(${kakao?'카톡':'문자'})`));
   if((autoSend||autoSms) && fbFunctions){ closeSheet(); autoSendAll(id, on[on.length-1], text, guardiansOf(s)); return; }
   openMsgWith(id, text, kakao);
@@ -2731,11 +2751,8 @@ function buildNotifyTextAt(s, kind, ms){
   const vars={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
     보호자명:g.name||'', 시각:hm12(_hm(ms)), 회차:String(doneCountOf(s)),
     금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
-  const out=applyVars(tpl, vars).trim();
-  if(out) return out;
-  /* 문구가 비었을 때의 기본 문장 — 학원명이 비어 있으면 대괄호째 빼고, 임의 이름을 넣지 않는다 */
-  const _hd = academy.name ? `[${academy.name}] ` : '';
-  return `${_hd}${s.name} 학생이 ${hm12(_hm(ms))}에 ${kind==='start'?'등원':'하원'}했습니다.`;
+  /* ★ 2026-07-27h: 문구가 비면 빈값. 부르는 쪽(scSend)이 발송을 막는다. */
+  return applyVars(tpl, vars).trim();
 }
 
 /* ===== 등원·하원 시간 수정 ===== */
@@ -3355,7 +3372,9 @@ function saveNote(){
   showToast('상담 메모를 저장했어요');
 }
 function openKakao(id){const s=st(id); const gs=guardiansOf(s);
-  _notifyCtx={gs, text:`[On-study] ${s.name} 학생 관련 안내드립니다.`};
+  /* ★ 2026-07-27h: 학원명을 코드에 박아 두지 않는다(예전엔 'On-study'가 나갔다).
+     저장된 학원명(academy.name)만 쓰고, 없으면 머리말 없이 연다. */
+  _notifyCtx={gs, text:`${academy.name?`[${academy.name}] `:''}${s.name} 학생 관련 안내드립니다.`};
   if(gs.length===1){ openMsgTo(0); return; }
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 보호자에게 열기</h3>
@@ -3471,7 +3490,7 @@ function applyState(d){
   if(d.sendKinds && typeof d.sendKinds==='object') sendKinds=Object.assign({start:true,end:true,absent:true,settle:true,guide:true}, d.sendKinds);
   if(d.msgTemplates) for(const k in d.msgTemplates){ if(msgTemplates[k]) msgTemplates[k]=Object.assign({sms:'',code:''}, d.msgTemplates[k]); }
   // 정산 문구가 옛 기본값이거나 비어 있으면 새 기본 문구로 자동 갱신(원장님이 고친 문구는 그대로 둠)
-  if(msgTemplates.settle && (!msgTemplates.settle.sms || msgTemplates.settle.sms===OLD_SETTLE_TPL)) msgTemplates.settle.sms=DEFAULT_SETTLE_TPL;
+  /* ★ 2026-07-27h: 정산 문구를 코드 문구로 덮어쓰던 것을 삭제. 저장된 값만 쓴다. */
   // 등원 중 상태: 오늘 것만 복원(어제 것이 남아 '수업 중'으로 보이지 않게)
   if(d.live && typeof d.live==='object'){
     const t=dayKey(now.getTime()); const nl={};

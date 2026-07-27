@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27e-price-single-source */
+/* ONSTUDY-BUILD: 2026-07-27g-no-empty-save */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -107,15 +107,18 @@ function guardiansOf(s){
   }catch(e){}
 })();
 
-/* 수업 시간(길이): 주3회 이상=60분, 주2회 이하=90분 (학생별 변경 가능) */
+/* 수업 시간(길이) — 화면에서 '고를 수 있는 목록'이다. 기본값이 아니다.
+   ★ 2026-07-27g: defaultDur() 삭제. 코드가 60분/90분을 미리 골라 주지 않는다.
+     원장님이 직접 고르지 않으면 saveStudent 의 필수값 검사에서 저장이 막힌다. */
 const DUR_OPTS=[[60,'1시간'],[90,'1시간 30분']];
-function defaultDur(days){ return (days&&days.length>=3) ? 60 : 90; }
-function durOf(s){ return (s&&+s.dur) ? +s.dur : defaultDur(s?s.days:[]); }
+/* ★ 학생에게 저장된 수업 시간이 없으면 0(미설정)을 돌려준다. 코드 값으로 채우지 않는다. */
+function durOf(s){ return (s&&+s.dur>0) ? +s.dur : 0; }
 function durLabel(m){ const f=DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분'); }
 /* 이름 옆 회차 뱃지 — 모든 화면 공통 표기 (2/12 형식, 7/27 지시) */
 function cycBadge(s){ return `<span style="font-size:12.5px;font-weight:600;color:var(--muted);margin-left:7px;vertical-align:1px">${doneCountOf(s)}/${s.plan}</span>`; }
-function endTimeOf(t, dur){ if(!t) return ''; const [h,mi]=String(t).split(':').map(Number);
-  const d=new Date(2000,0,1,h,mi+(+dur||60));
+function endTimeOf(t, dur){ if(!t || !(+dur>0)) return '';   // ★ 시각·수업시간이 없으면 빈값(60분으로 가정하지 않는다)
+  const [h,mi]=String(t).split(':').map(Number);
+  const d=new Date(2000,0,1,h,mi+(+dur));
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 /* 12시간제 표기 — "15:00" → "오후 3:00" (출석부 표시용 단일 함수) */
 function hm12(t){ if(!t) return ''; const p=String(t).split(':'); const h=+p[0], mi=+(p[1]||0);
@@ -128,7 +131,7 @@ function rng12(a,b){ if(!a) return ''; if(!b) return hm12(a);
 // 요일별 시간 (per-day 있으면 그 값, 없으면 공통 time)
 function timeFor(s,dayIdx){
   if(s.dayTimes && s.dayTimes[dayIdx]) return s.dayTimes[dayIdx];
-  return s.time||'16:00';
+  return s.time||'';        // ★ 없으면 빈값 — '16:00' 같은 임의 시각을 넣지 않는다
 }
 // 시작일 이전 날짜인지 (시작일 null이면 항상 false=제한 없음)
 /* 학생의 '학원 등록일' — 출석부 명단 경계 전용.
@@ -420,6 +423,25 @@ const nowHM=()=>new Date().toTimeString().slice(0,5);
 function logAdd(sid,kind,text){logbook.unshift({sid,kind,text,time:nowHM(),d:dayKey(Date.now())}); saveData();
   if(document.getElementById('v-home').classList.contains('active'))renderHome();}
 
+/* ===== 비어 있는 값 알림 (2026-07-27f) =====
+   원칙: 값이 비어 있으면 코드 값으로 채우지 않고 비워 두고, 무엇이 비었는지 홈 '챙길 일'에 알린다.
+   각 항목은 '읽는 함수 / 저장 키'가 하나뿐이며, 그 저장 키가 비었을 때만 나타난다. */
+function missingSettings(){
+  const out=[];
+  if(!academy.name)  out.push({tx:'학원 이름이 비어 있어요', v:'academy'});
+  if(!academy.owner) out.push({tx:'원장님 이름이 비어 있어요', v:'academy'});
+  if(!closeTime)     out.push({tx:'마감 시각이 비어 있어요 (설정 > 수업 기본 설정)', v:'admin'});
+  [...new Set(students.map(s=>s.plan).filter(p=>+p>0))].sort((a,b)=>a-b)
+    .forEach(p=>{ if(priceOfPlan(p)==null) out.push({tx:`${p}회 수업료가 비어 있어요 (설정 > 수업 기본 설정)`, v:'admin'}); });
+  students.forEach(s=>{
+    if(!timeFor(s, todayIdx) && !s.time) out.push({tx:`${s.name} 수업 시각이 비어 있어요`, v:'manage'});
+    if(!durOf(s))                        out.push({tx:`${s.name} 수업 시간이 비어 있어요`, v:'manage'});
+    const g=guardiansOf(s)[0]||{};
+    if(!g.name)  out.push({tx:`${s.name} 보호자 이름이 비어 있어요`, v:'manage'});
+    /* 보호자 연락처는 알리지 않는다 — 일부러 비워 두는 값(오발송 방지). 발송 시점에만 막는다. */
+  });
+  return out;
+}
 /* ===== 유틸 ===== */
 const won=(n)=>(typeof n==='number'&&isFinite(n))?n.toLocaleString('ko-KR')+'원':'미설정';
 const hm=(d)=>new Date(d).toTimeString().slice(0,5);
@@ -541,6 +563,7 @@ function renderHome(){
   let todos=[];
   openList.forEach(x=>todos.push({ic:'amber',tx:`${x.name} 수업 진행 중 — 끝나면 종료를 눌러주세요`,v:'today'}));
   unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(billAmount(b))})`,v:'settle'}); });
+  missingSettings().forEach(m=>todos.push({ic:'clay',tx:`⚠ ${m.tx} — 채워주세요`, v:m.v}));
 
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   el.innerHTML=`
@@ -944,7 +967,7 @@ function calDayClick(sid, ms){
   } else {
     sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
       <div class="cap">${dstr}을 보강일로 설정할까요?<br>보강은 회차에 포함돼 종료일이 다시 계산돼요.</div>
-      <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||'16:00'}"></div>
+      <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||''}"></div>
       <div class="sheet-btns"><button class="btn start" onclick="confirmMakeup(${sid},${ms})">예, 보강 지정</button>
         <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   }
@@ -987,7 +1010,7 @@ function openMakeupSheet(id){
   sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
     <div class="cap">보강 날짜·시작 시각과 수업 시간을 정하세요. <b>회차·예상 종료일에 자동 반영</b>되고 달력에 보라색으로 표시돼요.</div>
     <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select" value="${new Date(dayKey(now.getTime())).toISOString().slice(0,10)}"></div>
-    <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||'16:00'}"></div>
+    <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||''}"></div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="mkDurRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${dcur===m?'on':''}" data-dur="${m}" onclick="pickMkDur(${m})">${label}</button>`).join('')}
@@ -1051,7 +1074,7 @@ function openTempSheet(id, dateMs){
   const s=st(id);
   const k=dayKey(dateMs||now.getTime());
   const dow=new Date(k).getDay();
-  const defT = timeFor(s,dow) || s.time || '16:00';     // 그 날 요일 기준 기본 시각
+  const defT = timeFor(s,dow) || s.time || '';     // ★ 없으면 빈칸 — 원장님이 직접 넣으신다
   const defD = durOf(s);
   const sheet=document.getElementById('sheet');
   sheet.dataset.tpDate=String(k);
@@ -1213,7 +1236,7 @@ function notifyVarsFor(id, kind){
        #{총회차} = 계약 총 회차 (s.plan)
      예전엔 발송 경로마다 #{회차}에 다른 숫자가 들어가 보호자에게 다르게 나갔다. */
   const base={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
-    보호자명:g.name||'보호자', 시각:hm12(nowHM()),
+    보호자명:g.name||'', 시각:hm12(nowHM()),
     회차:String(doneCountOf(s)), 총회차:String(s.plan||0),
     금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
   if(kind==='settle'){
@@ -1233,15 +1256,21 @@ async function autoSendAll(sid, kind, text, gs, vars){
   showToast(`${s.name} ${chan} 발송 중…`);
   const _v = vars || notifyVarsFor(sid, kind);
   if(kind==='guide' && !_v.내용) _v.내용 = text;
+  /* ★ 2026-07-27g: 연락처가 비어 있으면 발송하지 않는다.
+       (원장님이 시험 중 오발송을 막으려고 일부러 비워 두신 값 — 저장은 막지 않고 발송만 막는다) */
+  const _dg=(g)=>String(g.phone||'').replace(/[^0-9]/g,'');
+  const _tgt=gs.filter(g=>_dg(g)), _skip=gs.filter(g=>!_dg(g));
+  if(!_tgt.length){ showToast(`${s.name} 보호자 연락처가 비어 있어 발송하지 않았어요`); return; }
   let fail=0;
-  for(const g of gs){
-    const gv = Object.assign({}, _v, {보호자명: g.name||_v.보호자명||'보호자'});
+  for(const g of _tgt){
+    const gv = Object.assign({}, _v, {보호자명: g.name||_v.보호자명||''});
     const r=await serverSend(g.phone, kind, text, {alimtalk:autoSend, sms:autoSms, vars: gv});
     if(!r||!r.ok) fail++;
   }
-  if(fail===0){ showToast(`${s.name} 보호자에게 ${chan} 발송 완료${(autoSend&&autoSms)?' (실패 시 문자 대체)':''}`); return; }
+  const _sx=_skip.length?` · 연락처 없는 보호자 ${_skip.length}명은 건너뜀`:'';
+  if(fail===0){ showToast(`${s.name} 보호자에게 ${chan} 발송 완료${(autoSend&&autoSms)?' (실패 시 문자 대체)':''}${_sx}`); return; }
   showToast('자동 발송이 안 돼 메시지 열기로 전환합니다');
-  _notifyCtx={gs, text}; openMsgTo(0);
+  _notifyCtx={gs, text}; openMsgTo(0);   // ★ 수동 폴백은 전원 그대로 — 카톡 붙여넣기는 번호가 필요 없다
 }
 function buildNotifyText(s,kind){
   const t=hm12(nowHM());
@@ -1325,7 +1354,7 @@ function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
   return (s.dayTimes&&Object.keys(s.dayTimes).length)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
-    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'-'}`;
+    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'시각 미설정'}`;
 }
 let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
@@ -1616,10 +1645,13 @@ function confirmCurrent(sid){
     if(hasRecordOn(sid,k)) return;
     const dow=new Date(k).getDay();
     const mk=(makeupLog[sid]||[]).find(x=>dayKey(x.t)===k);
-    const t=(mk&&mk.time)?mk.time:(timeFor(s,dow)||s.time||'16:00');
+    const t=(mk&&mk.time)?mk.time:timeFor(s,dow);
+    if(!t) return;                       // ★ 시각이 비어 있으면 기록을 만들지 않는다
+    const _dm=(mk&&mk.dur?+mk.dur:durOf(s));
+    if(!(_dm>0)) return;                 // ★ 수업 시간이 비어 있으면 기록을 만들지 않는다
     const [h,m]=t.split(':').map(Number);
     const d=new Date(k); d.setHours(h,m,0,0);
-    const start=d.getTime(), end=start+((mk&&mk.dur?+mk.dur:durOf(s))*60000);
+    const start=d.getTime(), end=start+(_dm*60000);
     const rec={sid, date:new Date(start)};
     setSessionTimes(rec, start, end);
     sessions.push(rec); added++;
@@ -1892,8 +1924,10 @@ function normalizeHistory(){
       const mks=(makeupLog[id]=makeupLog[id]||[]);
       if(!mks.some(x=>dayKey(x.t)===tempDay)){
         const ti=(tempTimes&&tempTimes[id])||{};
-        mks.push({t:tempDay, time:ti.time||timeFor(s0, new Date(tempDay).getDay())||s0.time||'16:00',
-          dur:ti.dur||durOf(s0), done:false});
+        const _t=ti.time||timeFor(s0, new Date(tempDay).getDay())||s0.time;
+        const _d=+ti.dur||durOf(s0);
+        if(!_t || !(_d>0)) return;      // ★ 시각·수업시간이 비어 있으면 만들지 않는다
+        mks.push({t:tempDay, time:_t, dur:_d, done:false});
       }
     });
     tempToday=new Set(); tempTimes={}; tempDay=null; ch=true;
@@ -2025,7 +2059,7 @@ function buildSettleText(id, billId){
   const amt = b ? billAmount(b) : priceOf(s);
   const vars={
     학원명: academy.name||'', 원장명: academy.owner||'',
-    학생명: s.name, 보호자명: g.name||s.guardian||'보호자',
+    학생명: s.name, 보호자명: g.name||s.guardian||'',
     /* ★ #{회차} = '그 클래스에서 진행한 회차 수' 하나로 통일 (등하원·정산 모두 같은 뜻).
          완주한 정산 건은 done===plan 이라 값이 같고, 진행 중 미리 안내는 진행 회차가 나간다. */
     회차: String(done), 총회차: String(cnt), 금액: won(amt).replace(/원$/,''),
@@ -2153,7 +2187,7 @@ function adminPeople(){
       <div class="row-top"><span class="name">${a.name}${a.owner?' <span class="owner-tag">기본</span>':''}</span>
         ${a.owner?'':`<button class="btn ghost small" style="width:auto;padding:6px 12px;margin:0" onclick="delAdmin(${i})">삭제</button>`}</div>
       <div class="mg-line">✉ ${a.email}</div>
-      <div class="mg-line">📞 ${a.phone||'-'}</div>
+      <div class="mg-line">📞 ${a.phone||'미설정'}</div>
     </div>`).join('')}`;
 }
 function openAdminSheet(){
@@ -2185,8 +2219,8 @@ function delAdmin(i){ if(admins[i]&&admins[i].owner)return;
 }
 function comingSoon(name){ showToast(`${name}은 다음 단계에서 만들어요`); }
 function logout(){ adminSection=null; if(typeof signOutNow==='function') signOutNow(); else doLogout(); }  // 저장 후 실제 로그아웃
-let closeTime='20:00';
-function setCloseTime(v){ closeTime=v; saveData(); }
+let closeTime='';      // ★ 코드 기본값 없음. 설정 > 수업 기본 설정에서만 정한다
+function setCloseTime(v){ if(!v){ showToast('마감 시각이 비어 있어요. 채워야 저장됩니다'); openAdmin('basic'); return; } closeTime=v; saveData(); }
 function resetData(){ location.reload(); }
 function setPrice(plan,val){
   const v=parseInt(val,10);
@@ -2220,8 +2254,8 @@ function manageCard(s, forDay){
   const days=s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
   const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
-    : (hm12(s.time)||'-');
-  const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'-'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
+    : (hm12(s.time)||'시각 미설정');
+  const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'연락처 미설정'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
   const startTxt = s.startDate ? new Date(s.startDate).toLocaleDateString('ko-KR') : '미입력';
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
@@ -2383,7 +2417,7 @@ function rpRender(){
 }
 
 function openStudentSheet(id){
-  const s=id?st(id):{name:'',phone:'',plan:8,time:'16:00',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};
+  const s=id?st(id):{name:'',phone:'',plan:0,time:'',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};   // ★ 신규 등록은 빈칸으로 시작
   const gs=guardiansOf(s);
   const g1=gs[0]||{name:'',phone:'',kakao:true};
   const g2=gs[1]||null;
@@ -2391,11 +2425,11 @@ function openStudentSheet(id){
   const curCycle = id ? (doneCountOf(s)+1) : 1;  // 진행 중인 회차 번호 = 완료+1 (표시와 동일 계산)
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const preset = pkgList.includes(s.plan);
-  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();autoDurByDays();rpRender()">${w}</button>`).join('');
+  const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();rpRender()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
   const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
   const dayTimeRows=WD.map((w,i)=>`<div class="daytime-row" data-dt="${i}" style="display:none">
-      <span>${w}요일</span><input type="time" class="note-select dt-inp" data-d="${i}" value="${s.dayTimes&&s.dayTimes[i]?s.dayTimes[i]:(s.time||'16:00')}"></div>`).join('');
+      <span>${w}요일</span><input type="time" class="note-select dt-inp" data-d="${i}" value="${s.dayTimes&&s.dayTimes[i]?s.dayTimes[i]:(s.time||'')}"></div>`).join('');
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${id?'학생 수정':'학생 추가'}</h3>
     <div class="fld"><label>학생 이름</label><input id="stName" class="note-select" value="${s.name}" placeholder="학생 이름"></div>
@@ -2421,11 +2455,11 @@ function openStudentSheet(id){
       </button>
       <div id="rpBox"></div></div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
-    <div class="fld"><label>수업 시간 <span class="hint">주3회는 1시간 · 주2회는 1시간 30분</span></label>
+    <div class="fld"><label>수업 시간 <span class="hint">직접 골라주세요 · 비우면 저장되지 않아요</span></label>
       <div class="seg2" id="durRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${durOf(s)===m?'on':''}" data-dur="${m}" onclick="pickDur(${m})">${label}</button>`).join('')}
       </div></div>
-    <div class="fld"><label>시간 <span class="hint">시작 시각</span></label><input type="time" id="stTime" class="note-select" value="${s.time||'16:00'}" oninput="syncDayTimes()">
+    <div class="fld"><label>수업 시작 시각 <span class="hint">비우면 저장되지 않아요</span></label><input type="time" id="stTime" class="note-select" value="${s.time||''}" oninput="syncDayTimes()">
       <label class="chk"><input type="checkbox" id="perDayChk" ${perOn?'checked':''} onchange="togglePerDay()"> 요일마다 시간 다르게</label>
       <div id="dayTimes" style="${perOn?'':'display:none'}">${dayTimeRows}</div></div>
     <div class="fld"><label>보호자 1</label>
@@ -2467,16 +2501,11 @@ function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset[
 function togglePerDay(){const on=document.getElementById('perDayChk').checked;
   document.getElementById('dayTimes').style.display=on?'':'none'; syncDayTimes();}
 function pickDur(m){
-  const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m); sheet.dataset.durTouched='1';
+  const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m);
   document.querySelectorAll('#durRow button').forEach(b=>b.classList.toggle('on', +b.dataset.dur===+m));
 }
-/* 요일을 바꾸면 아직 직접 고르지 않은 경우 기본값(3회=1시간/2회=1시간30분) 자동 반영 */
-function autoDurByDays(){
-  const sheet=document.getElementById('sheet');
-  if(sheet.dataset.durTouched==='1') return;
-  const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
-  pickDur(defaultDur(days));
-}
+/* ★ 2026-07-27g: 요일을 바꿀 때 수업 시간을 자동으로 골라 주던 동작(autoDurByDays)을 삭제했다.
+     원장님 지시 — 기본 설정값을 빼고, 비어 있으면 저장이 막히게. */
 function syncDayTimes(){ // per-day 행을 선택된 요일만 노출, 공통시간을 기본값으로
   const on=document.getElementById('perDayChk')&&document.getElementById('perDayChk').checked;
   const sel=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
@@ -2494,21 +2523,36 @@ function saveStudent(id){
   let plan=+sheet.dataset.plan||0;
   if(plan<1){ const _pc=document.getElementById('stPlanCustom'); plan=parseInt(String(_pc&&_pc.value||'').replace(/[^0-9]/g,''),10)||0; sheet.dataset.plan=plan; }  // 입력칸 값 복구(숫자만)
   if(plan<1){showToast('클래스 회차(총 수업 횟수)를 정해주세요 — 예: 20회면 20');return;}
-  const commonTime=document.getElementById('stTime').value||'16:00';
-  const dur = +sheet.dataset.dur || defaultDur(days);      // 수업 시간(길이)
+  const commonTime=document.getElementById('stTime').value||'';   // ★ 코드 기본값 없음. 비어 있으면 아래 필수값 검사에서 저장이 막힌다
+  const dur = +sheet.dataset.dur||0;      // 수업 시간(길이) — 고르지 않으면 0 → 아래 필수값 검사에서 막힌다
   // 요일별 시간
   let dayTimes=null;
   if(document.getElementById('perDayChk').checked){
     dayTimes={}; days.forEach(d=>{ const inp=document.querySelector(`.dt-inp[data-d="${d}"]`); dayTimes[d]=inp?inp.value||commonTime:commonTime; });
   }
   // 보호자
-  const guardians=[{name:document.getElementById('g1name').value.trim()||name+' 보호자',
+  /* ★ 2026-07-27g: 이름을 비우면 '○○ 보호자'로 자동 생성하던 것을 삭제. 비면 저장이 막힌다. */
+  const guardians=[{name:document.getElementById('g1name').value.trim(),
     phone:document.getElementById('g1phone').value.trim(), kakao:sheet.dataset.g1kakao==='1'}];
   if(document.getElementById('g2wrap').style.display!=='none'){
     const n2=document.getElementById('g2name').value.trim();
     const p2=document.getElementById('g2phone').value.trim();
-    if(n2||p2) guardians.push({name:n2||name+' 보호자2', phone:p2, kakao:sheet.dataset.g2kakao==='1'});   // 이름 없이 번호만 있어도 저장 (2보호자 유실 버그 수정)
+    if(n2||p2) guardians.push({name:n2, phone:p2, kakao:sheet.dataset.g2kakao==='1'});   // 넣었으면 이름은 필요(연락처는 비워도 저장됨 — 발송만 막힌다)
   }
+  /* ===== 저장 필수값 검사 (2026-07-27g) =====
+     원칙: 코드가 값을 만들어 넣지 않는다. 비어 있으면 저장을 막고, 무엇이 비었는지 알려준다.
+     여기서 막는 항목 = 홈 '챙길 일'의 missingSettings() 가 비었다고 알려 주는 항목과 같다(같은 규칙 하나). */
+  const _miss=[];
+  if(!days.length) _miss.push('요일');
+  if(!(dur>0))     _miss.push('수업 시간');
+  if(dayTimes){ const _bl=days.filter(d=>!dayTimes[d]); if(_bl.length) _miss.push(`${_bl.map(d=>WD[d]).join('·')}요일 수업 시작 시각`); }
+  else if(!commonTime) _miss.push('수업 시작 시각');
+  if(!guardians[0].name)  _miss.push('보호자 이름');
+  /* ★ 보호자 연락처는 저장을 막지 않는다 — 시험 중 오발송을 막기 위해 일부러 비워 두는 값(원장님 지시).
+       대신 실제 발송(autoSendAll)에서 막는다. */
+  if(guardians[1] && !guardians[1].name) _miss.push('보호자 2 이름');
+  if(_miss.length){ showToast(`${_miss.join(', ')} — 비어 있어요. 채워야 저장됩니다`); return; }
+
   const startRaw=document.getElementById('stStart').value;
   const startDate=startRaw?new Date(startRaw+'T00:00:00').getTime():null;
   const cycleStart=_rp.start||null;      // 달력에서 고른 시작일
@@ -2558,7 +2602,8 @@ function openSendConfirm(id, kind, dateMs){
 }
 function _defaultStart(id){
   const s=st(id); const k=_sc.date||dayKey(now.getTime());
-  const t=todayTimeOf(s,k)||'16:00';     // 임시 추가 > 보강 > 요일표 (단일 소스)
+  const t=todayTimeOf(s,k);              // 임시 추가 > 보강 > 요일표 (단일 소스)
+  if(!t) return _mkT(now.getHours(), now.getMinutes());   // ★ 시각 미설정이면 임의 시각 대신 '지금'을 띄운다
   const [h,m]=t.split(':').map(Number); return _mkT(h, m);
 }
 /* 드래그 휠 한 줄 */
@@ -2684,10 +2729,13 @@ function buildNotifyTextAt(s, kind, ms){
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
   const g=guardiansOf(s)[0]||{};
   const vars={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
-    보호자명:g.name||'보호자', 시각:hm12(_hm(ms)), 회차:String(doneCountOf(s)),
+    보호자명:g.name||'', 시각:hm12(_hm(ms)), 회차:String(doneCountOf(s)),
     금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
   const out=applyVars(tpl, vars).trim();
-  return out || `[${academy.name||'On-study'}] ${s.name} 학생이 ${hm12(_hm(ms))}에 ${kind==='start'?'등원':'하원'}했습니다.`;
+  if(out) return out;
+  /* 문구가 비었을 때의 기본 문장 — 학원명이 비어 있으면 대괄호째 빼고, 임의 이름을 넣지 않는다 */
+  const _hd = academy.name ? `[${academy.name}] ` : '';
+  return `${_hd}${s.name} 학생이 ${hm12(_hm(ms))}에 ${kind==='start'?'등원':'하원'}했습니다.`;
 }
 
 /* ===== 등원·하원 시간 수정 ===== */
@@ -2750,7 +2798,7 @@ function openNoticeSheet(id){
   const kakaoDefault = g.kakao!==false;
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 안내문 보내기</h3>
-    <div class="cap">보호자에게 보낼 내용을 직접 작성하세요. ${gs.length>1?`보호자 ${gs.length}명 모두에게 보냅니다.`:`받는 사람: <b>${g.name||'보호자'}</b> ${g.phone||''}`}</div>
+    <div class="cap">보호자에게 보낼 내용을 직접 작성하세요. ${gs.length>1?`보호자 ${gs.length}명 모두에게 보냅니다.`:`받는 사람: <b>${g.name||'(이름 미설정)'}</b> ${g.phone||''}`}</div>
     <div class="fld"><label>보내는 방법</label>
       <div class="seg2">
         <button type="button" id="ntKakao" class="${kakaoDefault?'on':''}" onclick="pickNoticeCh(true)">카카오톡</button>
@@ -2775,9 +2823,9 @@ function sendNotice(id){
   if(!raw.trim()){ showToast('보낼 내용을 적어주세요'); return; }
   const kakao = sheet.dataset.ntKakao==='1';
   const g=guardiansOf(s)[0]||{};
-  const text=applyVars(raw.trim(), {학생명:s.name, 보호자명:g.name||'보호자',
+  const text=applyVars(raw.trim(), {학생명:s.name, 보호자명:g.name||'',
     학원명:academy.name||'', 원장명:academy.owner||''});
-  logAdd(id,'pay',`${s.name} 안내문 (${kakao?'카톡':'문자'}) → ${g.name||'보호자'}`);
+  logAdd(id,'pay',`${s.name} 안내문 (${kakao?'카톡':'문자'}) → ${g.name||'(보호자 이름 미설정)'}`);
   // 자동 발송이 켜져 있으면 서버로, 아니면 메시지 앱 열기
   if((autoSend||autoSms) && fbFunctions){
     closeSheet();

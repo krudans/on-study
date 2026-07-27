@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27h-no-code-defaults */
+/* ONSTUDY-BUILD: 2026-07-27i-cycle-single-source */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -84,7 +84,10 @@ function todayLesson(sid){return lessons.find(l=>l.sid===sid && l.date.toDateStr
 // 보호자 목록 (신규 모델 guardians[] 우선, 없으면 구 필드에서 구성)
 function guardiansOf(s){
   if(Array.isArray(s.guardians)&&s.guardians.length) return s.guardians;
-  return [{name:s.guardian||'', phone:s.phone||'', kakao:s.kakao!==false}];
+  /* ★ 2026-07-27h2: 보호자 배열이 없는 옛 형태를 옮겨 담을 때도 코드가 '카톡'을 골라 주지 않는다.
+       예전엔 kakao 값이 아예 없어도 s.kakao!==false 라서 무조건 카톡으로 잡혔다.
+       값이 없으면 null(미설정) — 발송하는 쪽에서 막고 어디서 고치는지 알려 준다. */
+  return [{name:s.guardian||'', phone:s.phone||'', kakao:(s.kakao===true?true:(s.kakao===false?false:null))}];
 }
 /* CSS 캐시로 스타일이 옛 버전이어도 반드시 적용돼야 하는 필수 수정 (JS는 항상 최신 로드) */
 (function injectCriticalCSS(){
@@ -161,10 +164,40 @@ function nextClassDay(s, fromMs){
 // 이번 회차 시작일: 수동값 → 직전 정산 다음 수업일 → 학생 시작일
 // 날짜를 그날 00:00 ms로
 function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
-// 이번 클래스의 '현재 회차'(오늘까지 진행된 수업 수) — 모든 화면이 이 함수 하나만 사용
-/* 회차 = 실제 등원(등하원·완료를 누른 것) 기준. 등원을 안 눌렀으면 회차로 치지 않음.
-   cycleDone = 이번 클래스에서 등원한 횟수(학생 등록 시 입력한 '현재 회차'가 시작값). */
-function doneCountOf(s){ if(!s) return 0; return Math.max(0, cycleDone[s.id]||0); }
+/* ★ 2026-07-27i 회차 단일 소스 ★
+   완료 회차는 '달력이 초록으로 칠하는 그 날짜 목록'(currentClassInfo().sessions) 하나에서만 나온다.
+   예전에는 저장된 카운터(cycleDone)와 달력이 각자 세서 두 숫자가 갈라졌다.
+   2026-07-28 전수조사: 17명 중 11명이 어긋남 (이로엘 출석부 1/8회 · 달력 초록 3칸).
+   이제 화면에 뜨는 숫자 = 달력 초록칸 수 — 구조적으로 다를 수가 없다.
+   오늘 날짜는 [등원]을 눌렀을 때만 회차로 센다(안 눌렀으면 아직 안 한 수업). */
+function pastSessionsOf(s, info){
+  if(!s || !s.plan || !s.days || !s.days.length) return [];
+  const todayK=dayKey(now.getTime());
+  const list=(info||currentClassInfo(s)).sessions;
+  return list.filter(k=> k<todayK || (k===todayK && hasRecordOn(s.id,k)));
+}
+// 이번 클래스의 '현재 회차'(오늘까지 완료된 수업 수) — 모든 화면이 이 함수 하나만 사용
+function doneCountOf(s){ return pastSessionsOf(s).length; }
+/* 원장님이 '현재 회차'를 직접 고쳤을 때 — 그 회차가 나오는 시작일을 거꾸로 찾는다.
+   회차 숫자를 따로 저장하지 않고 시작일 하나만 저장하기 위한 함수(단일 소스 유지). */
+function startForDone(s, done){
+  if(!s || !s.plan || !s.days || !s.days.length) return null;
+  const todayK=dayKey(now.getTime());
+  if(done<=0){
+    for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i);
+      const k=dayKey(dd.getTime());
+      if(isSessionDay(s,k) && !(k===todayK && hasRecordOn(s.id,k))) return k; }
+    return null;
+  }
+  for(let i=0;i<900;i++){                       // 오늘부터 거꾸로 — 가장 최근 시작일을 고른다
+    const dd=new Date(todayK); dd.setDate(dd.getDate()-i);
+    const k=dayKey(dd.getTime());
+    if(!s.days.includes(new Date(k).getDay())) continue;
+    const c=classOf(s, k, s.plan, {cutoff: seedUntil||0});
+    if(c.sessions.filter(x=> x<todayK || (x===todayK && hasRecordOn(s.id,x))).length===done) return k;
+  }
+  return null;
+}
 /* 오늘 이 학생이 등원 기록이 있는지 (세션 기록 기준) */
 function hasRecordOn(sid, k){ return sessions.some(x=>x.sid===sid && dayKey(x.date)===k); }
 
@@ -442,6 +475,8 @@ function missingSettings(){
     if(!durOf(s))                        out.push({tx:`${s.name} 수업 시간이 비어 있어요`, v:'manage'});
     const g=guardiansOf(s)[0]||{};
     if(!g.name)  out.push({tx:`${s.name} 보호자 이름이 비어 있어요`, v:'manage'});
+    /* ★ 2026-07-27h2: 발송 방법(카톡/문자만)이 정해지지 않은 보호자를 알린다 — 발송도 같은 규칙으로 막힌다 */
+    if(g.kakao!==true && g.kakao!==false) out.push({tx:`${s.name} 보호자 발송 방법(카톡/문자만)이 정해지지 않았어요`, v:'manage'});
     /* 보호자 연락처는 알리지 않는다 — 일부러 비워 두는 값(오발송 방지). 발송 시점에만 막는다. */
   });
   return out;
@@ -833,7 +868,8 @@ function monthGrid(sid, y, m, sets, opts){
     if(sets.skip.has(t)){ style+='background:#EDEDED;color:#B0ADA6;text-decoration:line-through;'; }
     else if(sets.makeup.has(t)){ style+='background:#EAE3F7;color:#6B4FBB;font-weight:700;'; }
     else if(sets.absent.has(t)) c+=' absent';
-    else if(sets.session.has(t)) c+=(t<=todayT?' att':' up');
+    /* ★ 2026-07-27i: 오늘은 [등원]을 눌러야 초록(완료)이 된다 — 출석부 숫자와 달력 초록칸이 항상 같도록 */
+    else if(sets.session.has(t)) c+=((t<todayT || (t===todayT && hasRecordOn(sid,t))) ? ' att' : ' up');
     if(t===todayT) c+=' tod';       // 오늘은 어떤 상태든 빨간 테두리
     const clickable = !o.readonly && document.body.dataset.mode==='admin' && t>=todayT;
     if(clickable) style+='cursor:pointer;';
@@ -1621,8 +1657,7 @@ function saveHistDates(sid, no){
 function askConfirmCurrent(sid){
   const s=st(sid);
   const info=currentClassInfo(s);
-  const todayK=dayKey(now.getTime());
-  const past=info.sessions.filter(k=>k<=todayK);
+  const past=pastSessionsOf(s, info);          // ★ 2026-07-27i: 화면 숫자와 똑같은 목록 하나만 쓴다
   const need=past.filter(k=>!hasRecordOn(sid,k));       // 아직 기록이 없는 날
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 이번 회차 확정</h3>
@@ -1644,8 +1679,7 @@ function askConfirmCurrent(sid){
 function confirmCurrent(sid){
   const s=st(sid);
   const info=currentClassInfo(s);
-  const todayK=dayKey(now.getTime());
-  const past=info.sessions.filter(k=>k<=todayK);
+  const past=pastSessionsOf(s, info);          // ★ 2026-07-27i: 화면 숫자와 똑같은 목록 하나만 쓴다
   let added=0;
   past.forEach(k=>{
     if(hasRecordOn(sid,k)) return;
@@ -1662,7 +1696,9 @@ function confirmCurrent(sid){
     setSessionTimes(rec, start, end);
     sessions.push(rec); added++;
   });
-  cycleDone[sid]=past.length;                 // 확정 = 계산된 회차 그대로
+  /* ★ 2026-07-27i: 회차 숫자를 따로 저장하지 않는다(달력이 단일 소스).
+       cycleDone 은 시작일이 없는 옛 학생의 시작일 역산용으로만 남는다. */
+  cycleDone[sid]=past.length;
   if(!s.cycleStart && info.start) s.cycleStart=info.start;   // 시작일도 고정
   saveData(); closeSheet(); refreshCurrentView();
   showToast(`${s.name} 이번 회차 확정 · ${past.length}회 (${added}일 기록 추가)`);
@@ -1849,9 +1885,9 @@ function nextSessionAfter(s, ms){
 function doRollover(id){
   const s=st(id); if(!s||!s.plan) return false;
   const info=currentClassInfo(s);
-  const byCalendar = doneCountOf(s) >= s.plan;              // 달력 기준 완주
-  const byCounter  = (cycleDone[id]||0) >= s.plan;          // 등하원 카운터 기준 완주
-  if(!byCalendar && !byCounter) return false;               // 아직 계약 회차 안 참
+  /* ★ 2026-07-27i 단일 소스: 완주 판정도 달력 하나로만 한다.
+       예전엔 저장된 카운터로도 완주 처리돼서, 달력엔 회차가 남았는데 정산 건이 먼저 생길 수 있었다. */
+  if(doneCountOf(s) < s.plan) return false;                 // 아직 계약 회차 안 참
   /* ★ 2026-07-27 무결성 통일:
        회차 목록·시작일·종료일을 여기서 따로 만들지 않는다. classOf 결과를 그대로 쓴다.
        예전에는 종료일만 '오늘'로 깎고 회차 목록은 안 깎아서, 저장되는 순간부터
@@ -2088,8 +2124,11 @@ function openSettleMsg(id, billId){
   const text=buildSettleText(id, billId);
   /* ★ 2026-07-27h: 정산 문구가 비어 있으면 보내지 않는다 */
   if(!text){ showToast('정산 요청 문구가 비어 있어요 — 설정 > 알림 문구에서 먼저 채워주세요'); return; }
+  /* ★ 2026-07-27h2: 발송 방법이 정해져 있지 않으면 코드가 카톡으로 정하지 않는다. */
+  if(g.kakao!==true && g.kakao!==false){
+    showToast(`${s.name} 보호자의 발송 방법(카톡/문자만)이 정해지지 않았어요 — 설정 > 학생 관리에서 먼저 골라주세요`); return; }
   _msgCtx={id, text};
-  const kakao = g.kakao!==false;
+  const kakao = g.kakao===true;
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} 납입 요청</h3>
     <div class="cap">${kakao?'카카오톡 또는 문자로 보낼 수 있어요.':'이 학부모는 카톡이 없어 문자로 보냅니다.'} 문구는 <b>알림 문구</b> 메뉴에서 바꿀 수 있어요.</div>
@@ -2423,7 +2462,9 @@ function rpRender(){
 }
 
 function openStudentSheet(id){
-  const s=id?st(id):{name:'',phone:'',plan:0,time:'',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};   // ★ 신규 등록은 빈칸으로 시작
+  /* ★ 2026-07-27h2: plan 도 0을 박아 두지 않는다(null = 미설정).
+       예전엔 신규 등록 화면 '클래스 회차' 직접입력칸에 0 이 찍혀 나왔다. */
+  const s=id?st(id):{name:'',phone:'',plan:null,time:'',days:[],guardians:[],startDate:null,dayTimes:null,dur:null};   // ★ 신규 등록은 빈칸으로 시작
   const gs=guardiansOf(s);
   /* ★ 2026-07-27h: 새 보호자는 카톡/문자를 코드가 골라 주지 않는다(kakao:null = 미선택). */
   const g1=gs[0]||{name:'',phone:'',kakao:null};
@@ -2455,7 +2496,7 @@ function openStudentSheet(id){
       <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
         ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
       </div>
-      <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${preset?'':s.plan}" oninput="pickPlan(null)"></div>
+      <input type="number" id="stPlanCustom" class="note-select" min="1" style="margin-top:8px" placeholder="직접 입력 (그 외 회차)" value="${(preset||!(s.plan>0))?'':s.plan}" oninput="pickPlan(null)"></div>
     <div class="fld"><label>현재 회차 <span class="hint">지금 몇 회차 진행 중인지 (1 = 첫 수업) · 비우면 저장되지 않아요</span></label>
       <input type="number" id="stCycle" class="note-select" min="1" value="${curCycle}" placeholder="직접 입력"></div>
     <div class="fld"><label>이번 회차 기간 <span class="hint">시작일만 골라도 돼요 — 종료일은 회차·요일로 자동 계산</span></label>
@@ -2582,11 +2623,32 @@ function saveStudent(id){
     // 호환용 대표(보호자1) 미러
     guardian:guardians[0].name, kakao:guardians[0].kakao, dur};
   data.phone_guardian=guardians[0].phone; // 참고용
+  /* ★ 2026-07-27i 회차 단일 소스 ★
+     '현재 회차'는 이제 따로 저장하는 숫자가 아니라 시작일에서 계산되는 값이다.
+     - 시작일을 새로 고르셨으면 → 그 시작일이 기준(회차는 달력이 센다)
+     - 시작일은 그대로인데 회차만 고치셨으면 → 그 회차가 나오는 시작일을 거꾸로 찾아 시작일에 저장
+     - 찾을 수 없으면 임의로 정하지 않고 저장을 막고 알려 준다
+     예전에는 회차 숫자를 cycleDone 에 따로 저장해서 달력과 갈라졌다(17명 중 11명 어긋남). */
+  const _prevStartK = (id && st(id).cycleStart!=null) ? dayKey(st(id).cycleStart) : null;
+  const _newStartK  = (cycleStart!=null) ? dayKey(cycleStart) : null;
+  if(_newStartK === _prevStartK){
+    const _tmp = Object.assign({}, id?st(id):{}, data, {id: id||-1});
+    if(doneCountOf(_tmp) !== curDone){
+      const _k = startForDone(_tmp, curDone);
+      if(_k==null){
+        showToast(`${name} ${curCycleInput}회차가 되는 시작일을 찾을 수 없어요 — '이번 회차 기간'에서 시작일을 직접 골라주세요`);
+        return;
+      }
+      data.cycleStart=_k;
+      if(data.cycleEnd!=null && dayKey(data.cycleEnd)<_k) data.cycleEnd=null;
+    }
+  }
   let _sid=id;
   if(id){ Object.assign(st(id),data); cycleDone[id]=curDone; }
   else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; _sid=nid; }
   recalcStudentDates(_sid);   // ★ 학생정보를 고치면 지난 클래스·정산 건 날짜도 즉시 같이 바뀐다
-  saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
+  saveData(); closeSheet(); renderManage();
+  showToast(`${name} ${id?'수정됨':'추가됨'} · 현재 ${doneCountOf(st(_sid))+1}회차`);
 }
 /* ===== 등원 / 하원 / 완료 확인 시트 — 시·분 드래그 휠 ===== */
 let _sc={id:null, kind:'start', tab:'start', start:null, end:null};
@@ -2723,7 +2785,10 @@ function scSend(){
   const id=_sc.id, kind=_sc.kind, s=st(id);
   _scApply();
   const g=guardiansOf(s)[0]||{};
-  const kakao = g.kakao!==false;
+  /* ★ 2026-07-27h2: 발송 방법 미설정이면 코드가 카톡으로 정하지 않는다(시각 기록은 이미 저장됐다). */
+  if(g.kakao!==true && g.kakao!==false){
+    closeSheet(); showToast(`${s.name} 보호자의 발송 방법(카톡/문자만)이 정해지지 않았어요 — 설정 > 학생 관리에서 먼저 골라주세요`); return; }
+  const kakao = g.kakao===true;
   const kinds = kind==='start' ? ['start'] : kind==='end' ? ['end'] : ['start','end'];
   const on = kinds.filter(k=>sendOn(k));
   if(!on.length){ closeSheet(); showToast(`${s.name} 기록 완료 (알림 꺼짐)`); return; }

@@ -1,3 +1,11 @@
+/* ONSTUDY-BUILD: 2026-07-27-cycle-single-source */
+/* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
+     시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
+       · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
+       · 지난 클래스 : histClassOf(s,h)
+       · 정산 건     : billClassOf(b)
+     여기 말고 다른 곳에서 시작일·종료일·회차 날짜를 새로 만들지 말 것.
+     '종료일을 오늘로 자르는' 보정도 넣지 말 것 (앱 연 날짜에 따라 값이 달라짐). */
 /* ===== 상태 (실제 데이터는 Firestore에서 로드) ===== */
 const WD=['일','월','화','수','목','금','토'];
 const now=new Date();
@@ -119,16 +127,19 @@ function timeFor(s,dayIdx){
   return s.time||'16:00';
 }
 // 시작일 이전 날짜인지 (시작일 null이면 항상 false=제한 없음)
-// 학생의 수업 시작 기준일 (이번 회차 시작일 우선, 없으면 학원 수업 시작일)
-function classStartMs(s){
-  if(s.cycleStart) return dayKey(s.cycleStart);
+/* 학생의 '학원 등록일' — 출석부 명단 경계 전용.
+   ★ 2026-07-27 무결성 통일: '이번 클래스 시작일'(cycleStartOf)과는 다른 항목이다.
+     예전엔 cycleStart를 먼저 봐서 두 항목이 뒤섞였고, 화면마다 시작일이 달라졌다. */
+function enrollStartMs(s){
+  if(!s) return null;
   if(s.startDate) return dayKey(s.startDate);
+  if(s.cycleStart) return dayKey(s.cycleStart);
   return null;
 }
 function beforeStart(s,ms){
   const k=dayKey(ms);
   if(isMakeupDay(s,k)) return false;   // 보강일은 클래스 시작 전이어도 수업하는 날 (명단 포함)
-  const stt=classStartMs(s); return stt!=null ? k < stt : false;
+  const stt=enrollStartMs(s); return stt!=null ? k < stt : false;
 }
 
 // 기준(ms) 이후 첫 수업일 (기본 요일 스케줄)
@@ -161,68 +172,156 @@ function toggleHoliday(ms){
   saveData();
 }
 
-// 이번 클래스(현재 회차 묶음) 정보: 시작·종료·세션/결석/보강 날짜
-// 규칙: 출석(정규수업)+보강 = 회차로 카운트, 결석은 카운트 제외(그만큼 밀림)
-function currentClassInfo(s){
-  const plan=s.plan||0;
+/* ★★★ 회차·기간 단일 계산기 (2026-07-27 무결성 통일) ★★★
+   시작일 + 학생정보(요일·휴일·휴강·결석·보강)만으로 회차 날짜를 앞으로 계산한다.
+   이번 클래스·지난 클래스·정산 건 — 셋 다 반드시 이 함수 하나를 통과한다.
+   ※ 여기 말고 다른 곳에서 회차 날짜나 종료일을 만들지 말 것. 화면마다 값이 달라진 원인이었음.
+   opts.cutoff : 이 날짜 이전의 지난 수업일은 등원 기록이 없어도 '확정'으로 인정
+                 진행 중 클래스 = seedUntil, 이미 끝난 클래스 = Infinity
+   ※ '오늘'에 의존하는 부분은 missed 규칙 하나뿐이고, cutoff:Infinity면 완전히 결정적이다. */
+function classOf(s, startMs, plan, opts){
   const info={start:null, end:null, sessions:[], absents:[], makeups:[], skips:[], missed:[], windowDates:new Set()};
-  if(!plan || !s.days || !s.days.length) return info;
-  const absentSet=new Set((absentLog[s.id]||[]).map(dayKey));
-  const makeupSet=new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)));
-  const skipSet=new Set((skipLog[s.id]||[]).map(dayKey));
-  const done=Math.min(cycleDone[s.id]||0, plan);
+  if(!s || !plan || !s.days || !s.days.length || startMs==null) return info;
+  const cutoff=(opts && opts.cutoff!=null) ? opts.cutoff : 0;
+  const start=dayKey(startMs);
   const todayK=dayKey(now.getTime());
-  const isSession=(d)=>{ const k=dayKey(d.getTime());
-    if(makeupSet.has(k)) return true;
-    if(s.days.includes(d.getDay()) && !absentSet.has(k) && !isHoliday(k) && !skipSet.has(k)) return true;
-    return false; };
-  // 1) 이번 클래스 시작일: 수동값 우선, 없으면 오늘 기준 완료 회차만큼 뒤로 세기
-  let start=null;
-  if(s.cycleStart){ start=dayKey(s.cycleStart); }
-  else if(done<=0){
-    // 첫 수업일 = 오늘 포함 이후 첫 실제 세션(결석·휴일은 건너뜀). 결석 기록은 유지되나 이번 회차엔 미포함
-    for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i); if(isSession(dd)){ start=dayKey(dd.getTime()); break; } }
-  } else {
-    const found=[];
-    for(let i=0;i<800 && found.length<done;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()-i); if(isSession(dd)) found.push(dayKey(dd.getTime())); }
-    start = found.length ? found[found.length-1] : todayK;
-  }
-  if(start==null) start=todayK;
+  const absentSet=new Set((absentLog[s.id]||[]).map(dayKey));
+  const skipSet=new Set((skipLog[s.id]||[]).map(dayKey));
   info.start=start;
-  const cutoff = seedUntil || 0;   // 이 날짜 이전 수업일은 '확정'으로 인정
-  // 2) 시작부터 앞으로 plan개 세션 수집 (결석·휴강은 표시만, 카운트 제외 → 밀림)
   let count=0;
-  for(let i=0;i<800 && count<plan;i++){
+  for(let i=0;i<900 && count<plan;i++){
     const dd=new Date(start); dd.setDate(dd.getDate()+i);
     const k=dayKey(dd.getTime());
-    if(s.days.includes(dd.getDay()) && !makeupSet.has(k)){
+    // 결석·휴강 = 수업일이었지만 회차 아님 → 달력에만 표시하고 종료일이 뒤로 밀림
+    if(s.days.includes(dd.getDay()) && !isMakeupDay(s,k)){
       if(absentSet.has(k)){ info.absents.push(k); info.windowDates.add(k); continue; }
       if(skipSet.has(k)){ info.skips.push(k); info.windowDates.add(k); continue; }
     }
-    if(isSession(dd)){
-      // 지난 수업일인데 등원 기록이 없으면(버튼 미입력) 회차로 세지 않고 종료일이 뒤로 밀림
-      if(k < todayK && !hasRecordOn(s.id,k)){
-        if(k < cutoff){ /* 확정 기준일 이전 = 이미 확정된 과거 수업 */ }
-        else { info.missed.push(k); info.windowDates.add(k); continue; }   // 등원 미입력 → 회차 아님(종료일 밀림)
-      }
-      info.sessions.push(k);
-      if(makeupSet.has(k)) info.makeups.push(k);
-      info.windowDates.add(k);
-      count++; if(count===plan) info.end=k;
+    if(!isSessionDay(s,k)) continue;               // 수업일 판정도 단일 함수
+    // 지난 수업일인데 등원 기록이 없으면(버튼 미입력) 회차로 세지 않고 종료일이 뒤로 밀림
+    if(k < todayK && k >= cutoff && !hasRecordOn(s.id,k)){
+      info.missed.push(k); info.windowDates.add(k); continue;
     }
+    info.sessions.push(k);
+    if(isMakeupDay(s,k)) info.makeups.push(k);
+    info.windowDates.add(k);
+    count++; if(count===plan) info.end=k;
   }
   return info;
 }
-// 이번 회차 시작일: 수동값 → 이번 클래스 계산
-function cycleStartOf(s){
-  if(s.cycleStart) return s.cycleStart;
-  return currentClassInfo(s).start;
+/* 이번(진행 중) 클래스 — 시작일만 정하고 계산은 classOf에 맡긴다 */
+function currentClassInfo(s){
+  if(!s || !s.plan || !s.days || !s.days.length) return classOf(null,null,0);
+  const plan=s.plan;
+  const todayK=dayKey(now.getTime());
+  let start=null;
+  if(s.cycleStart){ start=dayKey(s.cycleStart); }
+  else {
+    const done=Math.min(cycleDone[s.id]||0, plan);
+    if(done<=0){
+      // 첫 수업일 = 오늘 포함 이후 첫 수업일
+      for(let i=0;i<400;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()+i);
+        const k=dayKey(dd.getTime()); if(isSessionDay(s,k)){ start=k; break; } }
+    } else {
+      const found=[];
+      for(let i=0;i<900 && found.length<done;i++){ const dd=new Date(todayK); dd.setDate(dd.getDate()-i);
+        const k=dayKey(dd.getTime()); if(isSessionDay(s,k)) found.push(k); }
+      start = found.length ? found[found.length-1] : todayK;
+    }
+    if(start==null) start=todayK;
+  }
+  const info=classOf(s, start, plan, {cutoff: seedUntil||0});
+  // 원장님이 종료일을 직접 고정한 경우 — 이제 모든 화면에 똑같이 적용된다(예전엔 관리자에만 적용됨)
+  if(s.cycleEnd){
+    const ce=dayKey(s.cycleEnd);
+    info.sessions=info.sessions.filter(k=>k<=ce);
+    info.end=ce;
+  }
+  return info;
 }
-// 이번 회차 종료일: 수동값 → 이번 클래스 8회째 날(결석 밀림·보강 반영)
-function cycleEndOf(s){
-  if(s.cycleEnd) return s.cycleEnd;
-  return currentClassInfo(s).end;
+/* ★ 지난 클래스 한 건의 기간·회차 날짜 — 저장값이 아니라 이 함수 하나로 결정한다.
+   원장님이 확정(confirmed)한 기록만 저장된 날짜를 그대로 쓰고 절대 다시 계산하지 않는다. */
+function histClassOf(s, h){
+  const empty={start:null, end:null, sessions:[], confirmed:false};
+  if(!h) return empty;
+  const cnt=h.done||h.plan||0;
+  if(h.confirmed && Array.isArray(h.sessions) && h.sessions.length){
+    const l=h.sessions.slice().sort((a,b)=>a-b);
+    return {start:l[0], end:l[l.length-1], sessions:l, confirmed:true};
+  }
+  let start = (h.start!=null) ? dayKey(h.start)
+            : (Array.isArray(h.sessions)&&h.sessions.length ? dayKey(Math.min.apply(null,h.sessions)) : null);
+  if(s && start!=null && cnt){
+    const c=classOf(s, start, cnt, {cutoff:Infinity});          // 끝난 클래스 = 달력 그대로(결정적)
+    if(c.sessions.length) return {start:c.start, end:c.end||c.sessions[c.sessions.length-1], sessions:c.sessions, confirmed:false};
+  }
+  const en = (h.end!=null) ? dayKey(h.end) : (h.settledDate ? dayKey(new Date(h.settledDate).getTime()) : null);
+  return {start, end:en, sessions:(Array.isArray(h.sessions)?h.sessions.slice():[]), confirmed:false};
 }
+/* ★ 정산 건 한 건의 기간·회차 날짜 — 지난 클래스와 똑같은 규칙 */
+function billClassOf(b){
+  const empty={start:null, end:null, sessions:[], confirmed:false};
+  if(!b) return empty;
+  if(b.confirmed && Array.isArray(b.sessions) && b.sessions.length){
+    const l=b.sessions.slice().sort((x,y)=>x-y);
+    return {start:l[0], end:l[l.length-1], sessions:l, confirmed:true};
+  }
+  const s=st(b.sid);
+  let start = (b.startDate!=null) ? dayKey(b.startDate)
+            : (Array.isArray(b.sessions)&&b.sessions.length ? dayKey(Math.min.apply(null,b.sessions)) : null);
+  if(s && start!=null && b.plan){
+    const c=classOf(s, start, b.plan, {cutoff:Infinity});
+    if(c.sessions.length) return {start:c.start, end:c.end||c.sessions[c.sessions.length-1], sessions:c.sessions, confirmed:false};
+  }
+  const en = (b.endDate!=null) ? dayKey(b.endDate) : null;
+  return {start, end:en, sessions:(Array.isArray(b.sessions)?b.sessions.slice():[]), confirmed:false};
+}
+/* ★ 지난 클래스 한 건과 짝이 되는 정산 건을 같은 날짜로 맞춘다.
+     같은 기간이 packHistory 와 bills 두 곳에 따로 저장돼 서로 어긋나던 것을 막는다.
+     (정산 카드 헤더 6.26~7.24 / 펼친 12회차 7.27 처럼 갈라지던 문제) */
+function syncBillsOfHist(sid, h, oldEnd){
+  if(!h) return;
+  const keys=[];
+  if(oldEnd!=null) keys.push(dayKey(oldEnd));
+  if(h.end!=null) keys.push(dayKey(h.end));
+  bills.forEach(b=>{
+    if(b.sid!==sid) return;
+    const match = (b.endDate!=null && keys.indexOf(dayKey(b.endDate))>=0)
+               || (b.startDate!=null && h.start!=null && dayKey(b.startDate)===dayKey(h.start));
+    if(!match) return;
+    if(h.start!=null) b.startDate=h.start;
+    if(h.end!=null) b.endDate=h.end;
+    if(Array.isArray(h.sessions) && h.sessions.length) b.sessions=h.sessions.slice();
+    if(h.confirmed){ b.confirmed=true; if(h.confirmedBy) b.confirmedBy=h.confirmedBy; }
+  });
+}
+/* ★ 학생정보(요일·회차·시작일 등)가 바뀌면 지난 클래스·정산 건 날짜를 즉시 다시 계산한다.
+     원장님이 직접 확정/수정한 기록(confirmedBy==='owner')은 건드리지 않는다.
+     "학생정보에서 고치면 전체가 다 반영되어야 한다"는 원칙을 지키는 지점. */
+function recalcStudentDates(sid){
+  const s=st(sid); if(!s) return;
+  (packHistory[sid]||[]).forEach(h=>{
+    if(h.confirmed && h.confirmedBy==='owner') return;
+    if(h.start==null){ const bf=backfillHistStart(s,h); if(bf!=null) h.start=bf; }
+    const c=histClassOf(s,h);
+    if(c.start!=null) h.start=c.start;
+    if(c.end!=null) h.end=c.end;
+    if(c.sessions.length) h.sessions=c.sessions.slice();
+    syncBillsOfHist(sid, h);
+  });
+  bills.forEach(b=>{
+    if(b.sid!==sid) return;
+    if(b.confirmed && b.confirmedBy==='owner') return;
+    const c=billClassOf(b);
+    if(c.start!=null) b.startDate=c.start;
+    if(c.end!=null) b.endDate=c.end;
+    if(c.sessions.length) b.sessions=c.sessions.slice();
+  });
+}
+// 이번 회차 시작일 — 모든 화면 공통 (앱·관리자·달력·알림톡)
+function cycleStartOf(s){ return currentClassInfo(s).start; }
+// 이번 회차 종료일 — 모든 화면 공통 (수동 고정값도 currentClassInfo 안에서 반영됨)
+function cycleEndOf(s){ return currentClassInfo(s).end; }
 function fmtD(ms){ return ms? new Date(ms).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '—'; }
 
 // 학년 (정렬·표시용)
@@ -279,6 +378,7 @@ let tempDay=null;
 function makeupOn(sid, k){ return (makeupLog[sid]||[]).find(x=>dayKey(x.t)===dayKey(k)) || null; }
 function isMakeupDay(s, k){ return !!makeupOn(s.id, k); }
 let seedUntil=null;      // 이 날짜 이전의 지난 수업일은 '확정'으로 인정(과거 기록 일괄 확정 시점)
+let histFixV=0;          // 지난 기록 정리 버전 (1 = 2026-07-27 회차·기간 단일화 정리 완료)
 let tempTimes={};        // 오늘만 추가한 학생의 시각·수업시간 {id:{time:'15:00',dur:60}}
 /* 오늘 이 학생의 시각 (임시 추가 > 보강 > 요일표) — 단일 소스 */
 function todayTimeOf(s, k){
@@ -970,7 +1070,16 @@ function undoToday(id){
     else {
       // 방금 완주로 롤오버됐다면 되돌리기: 오늘 생긴 미납 정산건 + 마지막 이력 제거, 회차 복원
       const bi=bills.findIndex(b=>b.sid===id && !b.paid && dayKey(b.endDate)===dayKey(now.getTime()));
-      if(bi>=0){ bills.splice(bi,1); const h=packHistory[id]; if(h&&h.length)h.pop(); cycleDone[id]=Math.max(0,(s.plan||1)-1); }
+      if(bi>=0){
+        bills.splice(bi,1);
+        const h=packHistory[id]; const popped=(h&&h.length)?h.pop():null;
+        /* ★ 회차 카운터를 임의 값(plan-1)으로 되돌리지 않는다.
+             되살린 클래스의 시작일로 돌아가서 실제 출결 기록 수로 다시 센다. */
+        if(popped && popped.start!=null) s.cycleStart=dayKey(popped.start);
+        s.cycleEnd=null;
+        const cs=(s.cycleStart!=null)?dayKey(s.cycleStart):null;
+        cycleDone[id]=sessions.filter(r=>r.sid===id && (cs==null || dayKey(r.date)>=cs)).length;
+      }
     }
   }
   saveData(); renderToday();
@@ -1026,14 +1135,18 @@ async function serverSend(to, kind, text, opt){
 function notifyVarsFor(id, kind){
   const s=st(id); if(!s) return {};
   const g=guardiansOf(s)[0]||{};
+  /* ★ 변수 뜻을 하나로 고정 (2026-07-27):
+       #{회차}  = 지금까지 진행한 회차 (doneCountOf)
+       #{총회차} = 계약 총 회차 (s.plan)
+     예전엔 발송 경로마다 #{회차}에 다른 숫자가 들어가 보호자에게 다르게 나갔다. */
   const base={ 학원명:academy.name||'', 원장명:academy.owner||'', 학생명:s.name,
     보호자명:g.name||'보호자', 시각:hm12(nowHM()),
-    회차:String(doneCountOf(s)), 금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
+    회차:String(doneCountOf(s)), 총회차:String(s.plan||0),
+    금액:won(priceOf(s)).replace(/원$/,''), 내용:'' };
   if(kind==='settle'){
     const ci=currentClassInfo(s);
     const fD=(ms)=>{ if(!ms) return '-'; const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
     const cnt=s.plan, done=doneCountOf(s);
-    base.회차=String(cnt);
     base.시작일=fD(ci.start); base.종료일=fD(ci.end); base.기간=`${fD(ci.start)} ~ ${fD(ci.end)}`;
     base.완료안내 = done>=cnt ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
                              : `${s.name} 학생의 이번 회차 수업이 ${fD(ci.end)} 완료 예정입니다.`;
@@ -1060,7 +1173,8 @@ async function autoSendAll(sid, kind, text, gs, vars){
 function buildNotifyText(s,kind){
   const t=hm12(nowHM());
   const vars={학원명:academy.name||'', 학생명:s.name, 시각:t,
-    회차:String(s.plan), 금액:won(priceOf(s)).replace(/원$/,''), 내용:''};
+    회차:String(doneCountOf(s)), 총회차:String(s.plan||0),   // ★ notifyVarsFor 와 같은 뜻
+    금액:won(priceOf(s)).replace(/원$/,''), 내용:''};
   const tpl=(msgTemplates[kind]&&msgTemplates[kind].sms)||'';
   const out=applyVars(tpl, vars).trim();
   if(out) return out;
@@ -1249,7 +1363,10 @@ function isSessionDay(s, k){
   if((absentLog[s.id]||[]).some(t=>dayKey(t)===k)) return false;      // 결석 제외
   return true;
 }
-/* 종료일부터 거꾸로 count회 수업일 수집 (오름차순 반환) */
+/* [폐기] 종료일부터 거꾸로 세는 역산 — 2026-07-27 무결성 통일로 사용 중지.
+   '앞으로 계산(classOf)'과 '뒤로 역산' 두 방향이 공존해서 화면마다 값이 달라졌다.
+   지금은 시작일에서 앞으로 계산하는 classOf 한 방향만 쓴다.
+   ※ 시작일이 아예 없는 옛 기록을 되살릴 때만 남겨 둔 보조 함수. */
 function sessionDaysBack(s, endMs, count){
   const out=[], base=dayKey(endMs);
   for(let i=0;i<900 && out.length<count;i++){
@@ -1258,6 +1375,16 @@ function sessionDaysBack(s, endMs, count){
   }
   return out.reverse();
 }
+/* 옛 기록에 시작일이 없을 때만 1회 복구 — 종료일에서 역산해 시작일을 만들어 준다 */
+function backfillHistStart(s, h){
+  if(!s || !h) return null;
+  if(h.start!=null) return dayKey(h.start);
+  if(Array.isArray(h.sessions) && h.sessions.length) return dayKey(Math.min.apply(null,h.sessions));
+  const en = (h.end!=null) ? dayKey(h.end) : (h.settledDate ? dayKey(new Date(h.settledDate).getTime()) : null);
+  if(en==null) return null;
+  const l=sessionDaysBack(s, en, h.done||h.plan||0);
+  return l.length ? l[0] : null;
+}
 
 /* 지난 회차(클래스) 이력 표시 상태 */
 let histAllOpen=new Set(), histRowOpen=new Set(), histCalOpen=new Set();
@@ -1265,10 +1392,12 @@ function toggleHistCal(key){ if(histCalOpen.has(key))histCalOpen.delete(key); el
   renderStudents(); if(document.getElementById('v-manage')) renderManage(); }
 /* 지난 클래스 달력 — 그 기간이 걸친 달을 모두 표시, 그 회차 날짜를 출석으로 색칠 */
 function histCalendar(s, h, list){
-  const sets={ session:new Set(list||[]), absent:new Set((absentLog[s.id]||[]).map(dayKey).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)),
-    makeup:new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)),
-    skip:new Set((skipLog[s.id]||[]).map(dayKey).filter(k=>h.start&&h.end&&k>=h.start&&k<=h.end)) };
-  const st_=h.start||(list&&list[0]), en=h.end||(list&&list[list.length-1]);
+  const c_=histClassOf(s,h);                                                   // ★ 카드 기간과 반드시 같은 계산기를 쓴다
+  const st_=c_.start||(list&&list[0]), en=c_.end||(list&&list[list.length-1]);
+  const inRange=(k)=>st_!=null && en!=null && k>=st_ && k<=en;
+  const sets={ session:new Set(list||[]), absent:new Set((absentLog[s.id]||[]).map(dayKey).filter(inRange)),
+    makeup:new Set((makeupLog[s.id]||[]).map(mk=>dayKey(mk.t)).filter(inRange)),
+    skip:new Set((skipLog[s.id]||[]).map(dayKey).filter(inRange)) };
   const ms=monthsBetween(st_, en);
   const grids=ms.map(x=>monthGrid(s.id, x.y, x.m, sets, {readonly:true})).join('<div style="height:10px"></div>');
   return `<div class="cal" style="margin-top:8px">${grids}
@@ -1286,8 +1415,7 @@ function askConfirmHist(sid, no){
   const h=(packHistory[sid]||[]).find(x=>x.no===no);
   if(!h){ showToast('기록을 찾을 수 없어요'); return; }
   const cnt=h.done||h.plan||0;
-  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
-  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:(en?sessionDaysBack(s,en,cnt):[]);
+  const list=histClassOf(s,h).sessions;               // ★ 단일 계산기 경유
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} ${no}차 확정</h3>
     <div class="cap">프로그램이 계산한 <b>${cnt}회</b> 일정이에요. 실제와 맞으면 확정하세요.
@@ -1309,10 +1437,11 @@ function confirmHist(sid, no){
   const h=(packHistory[sid]||[]).find(x=>x.no===no);
   if(!h) return;
   const cnt=h.done||h.plan||0;
-  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
-  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:(en?sessionDaysBack(s,en,cnt):[]);
+  const list=histClassOf(s,h).sessions;               // ★ 단일 계산기 경유
   if(!list.length){ showToast('계산된 날짜가 없어 확정할 수 없어요'); return; }
-  h.sessions=list.slice(); h.start=list[0]; h.end=list[list.length-1]; h.confirmed=true;
+  h.sessions=list.slice(); h.start=list[0]; h.end=list[list.length-1];
+  h.confirmed=true; h.confirmedBy='owner';            // ★ 원장님이 직접 확정한 기록 표시
+  syncBillsOfHist(sid, h);                            // 정산 건도 같은 날짜로
   saveData(); closeSheet(); refreshCurrentView();
   showToast(`${s.name} ${no}차 확정 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})`);
 }
@@ -1329,8 +1458,7 @@ function editHistDates(sid, no){
   const h=(packHistory[sid]||[]).find(x=>x.no===no);
   if(!h){ showToast('기록을 찾을 수 없어요'); return; }
   const cnt=h.done||h.plan||0;
-  const en=h.end||(h.settledDate?dayKey(new Date(h.settledDate).getTime()):null);
-  const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions.slice(0,cnt):(en?sessionDaysBack(s,en,cnt):[]);
+  const list=histClassOf(s,h).sessions.slice(0,cnt);  // ★ 단일 계산기 경유
   const toV=(ms)=>{ if(!ms) return ''; const d=new Date(ms); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const rows=Array.from({length:cnt},(_,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 0">
       <span style="font-size:13px;color:var(--muted);white-space:nowrap">${i+1}회차</span>
@@ -1363,9 +1491,9 @@ function saveHistDates(sid, no){
   }
   // 이 클래스의 정산건 기간도 함께 이동 (종료일이 같은 건만)
   const oldEnd=h.end;
-  h.sessions=newList.slice(); h.start=newList[0]; h.end=newList[newList.length-1]; h.confirmed=true;
-  bills.forEach(b=>{ if(b.sid===sid && oldEnd && b.endDate && dayKey(b.endDate)===dayKey(oldEnd)){
-    b.startDate=h.start; b.endDate=h.end; if(Array.isArray(b.sessions)) b.sessions=newList.slice(); } });
+  h.sessions=newList.slice(); h.start=newList[0]; h.end=newList[newList.length-1];
+  h.confirmed=true; h.confirmedBy='owner';            // ★ 원장님이 직접 고친 기록 표시
+  syncBillsOfHist(sid, h, oldEnd);
   // 마지막(최신) 클래스의 종료일이 바뀌면, 이번 회차 시작일이 겹치지 않게 그 다음 수업일로 자동 이동
   let cycleMoved=false;
   const isLatest = !(packHistory[sid]||[]).some(x=>x.no>no);
@@ -1437,15 +1565,9 @@ function pastClassesHtml(s){
   const show=openAll?all:all.slice(0,3);
   const rows=show.map(h=>{
     const key=s.id+'-'+h.no;
-    const cnt=h.done||h.plan||0;
-    // 종료일: 저장값 → 정산일 순
-    const en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
-    // 회차 목록: 저장된 게 온전하면 사용, 아니면 종료일부터 거꾸로 복원(정산 건과 동일 규칙)
-    let list = h.confirmed && Array.isArray(h.sessions) ? h.sessions        // 원장님이 확정한 기록 → 그대로 사용
-             : (Array.isArray(h.sessions) && h.sessions.length>=cnt) ? h.sessions
-             : (en ? sessionDaysBack(s, en, cnt) : []);
-    // 시작일: 회차 목록의 첫날. 저장된 start가 종료일보다 뒤면(옛 데이터 오류) 무시
-    let st_ = list.length ? list[0] : ((h.start && en && h.start<=en) ? h.start : null);
+    // ★ 기간·회차 날짜는 단일 계산기 하나만 통과 (달력·정산·확정 화면과 반드시 같은 값)
+    const c_=histClassOf(s,h);
+    const list=c_.sessions, st_=c_.start, en=c_.end;
     const period=(st_&&en)?`${fmtMD(st_)} ~ ${fmtMD(en)}`:(en?`~ ${fmtMD(en)}`:'기간 미상');
     const open=histRowOpen.has(key);
     const calOpen=histCalOpen.has(key);
@@ -1480,11 +1602,12 @@ function pastClassesHtml(s){
 let billOpen=new Set();
 function toggleBill(id){ if(billOpen.has(id))billOpen.delete(id); else billOpen.add(id); renderSettle(); }
 /* 정산 건의 회차 날짜 목록 (없으면 실제 출결 기록에서 복원) */
+/* 정산 건의 회차 날짜 — 반드시 단일 계산기(billClassOf)를 통과한다.
+   예전엔 여기서 따로 역산해서, 카드 헤더 기간과 펼친 회차 날짜가 서로 달랐다. */
 function billSessions(b){
-  if(Array.isArray(b.sessions) && b.sessions.length>=(b.plan||0)) return b.sessions;
-  const s=st(b.sid);
-  if(s) return sessionDaysBack(s, b.endDate, b.plan||0);   // 달력에서 거꾸로 복원
-  const mine = sessions.filter(x=>x.sid===b.sid && dayKey(x.date)<=b.endDate)
+  const c=billClassOf(b);
+  if(c.sessions.length) return c.sessions;
+  const mine = sessions.filter(x=>x.sid===b.sid && (b.endDate==null || dayKey(x.date)<=b.endDate))
     .map(x=>dayKey(x.date)).sort((a,b2)=>a-b2);
   return mine.slice(-(b.plan||0));
 }
@@ -1512,9 +1635,11 @@ function renderSettle(){
 
   const billRow=(b)=>{
     const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
-    const list=billSessions(b);
-    const startMs = b.startDate || (list.length?list[0]:null);
-    const period = startMs ? `${fmtMD(startMs)} ~ ${fmtMD(b.endDate)}` : `~ ${fmtMD(b.endDate)}`;
+    const c_=billClassOf(b);                       // ★ 헤더 기간과 펼친 회차 날짜를 같은 값으로
+    const list=c_.sessions.length?c_.sessions:billSessions(b);
+    const startMs = c_.start || (list.length?list[0]:null);
+    const endMs_ = c_.end || (list.length?list[list.length-1]:b.endDate);
+    const period = startMs ? `${fmtMD(startMs)} ~ ${fmtMD(endMs_)}` : (endMs_?`~ ${fmtMD(endMs_)}`:'기간 미상');
     const open = billOpen.has(b.id);
     const detail = open ? `<div style="background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:9px">
         ${list.length ? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--ink)">
@@ -1614,25 +1739,25 @@ function doRollover(id){
   const byCalendar = doneCountOf(s) >= s.plan;              // 달력 기준 완주
   const byCounter  = (cycleDone[id]||0) >= s.plan;          // 등하원 카운터 기준 완주
   if(!byCalendar && !byCounter) return false;               // 아직 계약 회차 안 참
-  // 완주한 클래스의 종료일
-  let endMs = byCalendar ? (info.end || cycleEndOf(s)) : null;
-  if(!endMs){
-    const mine = sessions.filter(x=>x.sid===id).map(x=>dayKey(x.date)).sort((a,b)=>b-a);
-    endMs = mine.length ? mine[0] : dayKey(now.getTime());  // 마지막 실제 수업일
+  /* ★ 2026-07-27 무결성 통일:
+       회차 목록·시작일·종료일을 여기서 따로 만들지 않는다. classOf 결과를 그대로 쓴다.
+       예전에는 종료일만 '오늘'로 깎고 회차 목록은 안 깎아서, 저장되는 순간부터
+       end 와 sessions 마지막 날짜가 서로 달랐다(정산 헤더 7.24 / 12회차 7.27). */
+  let startMs = info.start;
+  if(startMs==null){
+    const mine = sessions.filter(x=>x.sid===id).map(x=>dayKey(x.date)).sort((a,b)=>a-b);
+    startMs = mine.length ? mine[0] : dayKey(now.getTime());
   }
-  // 완주한 클래스의 회차 날짜 목록
-  let sessList = byCalendar ? info.sessions.slice(0, s.plan) : null;
-  if(!sessList || sessList.length < s.plan){
-    sessList = sessionDaysBack(s, endMs, s.plan);   // 종료일부터 거꾸로 plan회
-    // 학원 수업 시작일 이전으로는 역산하지 않음 (불가능한 지난 클래스 방지)
-    if(s.startDate){ const s0=dayKey(s.startDate); sessList=sessList.filter(k=>k>=s0); }
-  }
-  if(endMs > dayKey(now.getTime())) endMs = dayKey(now.getTime());   // 종료일은 오늘을 넘지 않음
-  createBill(s, endMs, {startDate: sessList[0] || info.start || null, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
+  const cls = classOf(s, startMs, s.plan, {cutoff:Infinity});   // 끝난 클래스 = 달력 그대로(결정적)
+  let sessList = cls.sessions.slice(0, s.plan);
+  if(!sessList.length) sessList = info.sessions.slice(0, s.plan);
+  const endMs = sessList.length ? sessList[sessList.length-1] : dayKey(now.getTime());
+  // ※ '오늘로 자르기' 보정 삭제 — 앱을 연 날짜에 따라 저장값이 달라지던 원인.
+  createBill(s, endMs, {startDate: sessList[0] || startMs, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
   if(hist.some(h=>h.end===endMs)){ cycleDone[id]=0; s.cycleStart=nextSessionAfter(s,endMs); s.cycleEnd=null; return true; }  // 같은 클래스 이력 중복 방지
   hist.push({no:hist.length+1, plan:s.plan, done:s.plan,
-    start: sessList[0] || info.start || null, end: endMs,
+    start: sessList[0] || startMs, end: endMs,
     sessions: sessList, amount: priceOf(s), settledDate:new Date(endMs)});
   cycleDone[id]=0;
   s.cycleStart = nextSessionAfter(s, endMs);  // 다음 클래스 = 완주 다음 수업일부터
@@ -1663,20 +1788,22 @@ function confirmPastOnce(){
 }
 
 function normalizeHistory(){
-  let ch=false; const today=dayKey(now.getTime());
+  let ch=false;
   if(confirmPastOnce()) ch=true;                    // 과거 일괄 확정(최초 1회)
-  // 오늘 이전에 끝난 지난 클래스는 '확정'으로 간주하고 날짜를 고정(다시 계산되지 않게)
-  students.forEach(s=>{
-    (packHistory[s.id]||[]).forEach(h=>{
-      if(h.confirmed) return;
-      const en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
-      if(!en || en >= today) return;
-      const cnt=h.done||h.plan||0;
-      const list=(Array.isArray(h.sessions)&&h.sessions.length>=cnt)?h.sessions:sessionDaysBack(s,en,cnt);
-      if(list.length){ h.sessions=list.slice(); h.start=list[0]; h.end=list[list.length-1]; }
-      h.confirmed=true; ch=true;
+  /* ★ [1회성] 2026-07-27 무결성 통일 정리
+       예전 버전은 "오늘 이전에 끝난 클래스"를 원장님 확인 없이 자동으로 confirmed 로 바꿔
+       그날 잘린 잘못된 종료일을 그대로 고정시켰다. 그 자동 확정만 풀어서 다시 계산되게 한다.
+       원장님이 [확정]/[날짜 수정]으로 직접 정한 기록(confirmedBy==='owner')은 손대지 않는다.
+       ※ 데이터는 지우지 않는다. confirmed 표시만 해제하고 날짜는 계산기가 다시 만든다. */
+  if(histFixV < 1 && students.length){
+    students.forEach(s=>{
+      (packHistory[s.id]||[]).forEach(h=>{
+        if(h.confirmed && h.confirmedBy!=='owner'){ h.confirmed=false; ch=true; }
+      });
     });
-  });
+    bills.forEach(b=>{ if(b.confirmed && b.confirmedBy!=='owner'){ b.confirmed=false; ch=true; } });
+    histFixV=1; ch=true;
+  }
   // [이전 버전 호환] 옛 '오늘만 추가'(tempToday) → 보강(makeupLog)으로 옮기고 폐기
   if(tempToday.size && tempDay){
     [...tempToday].forEach(id=>{
@@ -1693,22 +1820,26 @@ function normalizeHistory(){
   students.forEach(s=>{
     let hist=(packHistory[s.id]||[]);
     hist.forEach(h=>{
-      let en = h.end || (h.settledDate? dayKey(new Date(h.settledDate).getTime()) : null);
-      if(en==null) return;
-      if(en>today){ en=today; ch=true; }                 // 미래 종료일 보정
-      if(h.end!==en){ h.end=en; ch=true; }
-      const cnt=h.done||h.plan||0;
-      if(!Array.isArray(h.sessions) || h.sessions.length<cnt){
-        h.sessions=sessionDaysBack(s,en,cnt); ch=true;   // 회차 날짜 복원·저장
+      /* ★ 저장값을 여기서 새로 만들지 않는다. 단일 계산기(histClassOf)가 낸 값을 그대로 반영만 한다.
+           '미래 종료일 → 오늘로 자르기' 보정은 삭제했다. 앱을 연 날짜에 따라 값이 달라지던 원인. */
+      if(h.start==null){ const bf=backfillHistStart(s,h); if(bf!=null){ h.start=bf; ch=true; } }
+      const c=histClassOf(s,h);
+      if(c.start!=null && h.start!==c.start){ h.start=c.start; ch=true; }
+      if(c.end!=null && h.end!==c.end){ h.end=c.end; ch=true; }
+      if(c.sessions.length){
+        const cur=Array.isArray(h.sessions)?h.sessions:[];
+        if(cur.length!==c.sessions.length || cur.some((v,i)=>v!==c.sessions[i])){ h.sessions=c.sessions.slice(); ch=true; }
       }
-      const st0=h.sessions.length? h.sessions[0] : null;
-      if(st0 && h.start!==st0){ h.start=st0; ch=true; }  // 시작일 교정
       if(h.amount==null){ h.amount=priceOf(s); ch=true; }
+      syncBillsOfHist(s.id, h);                          // 정산 건 = 지난 클래스와 같은 날짜
     });
+    /* 중복 제거는 '완전히 같은 기록'(시작·종료·회차수가 모두 같음)일 때만.
+       ★ 종료일만 같다고 지우면 기록이 사라진다 — 데이터 삭제 금지 원칙. */
     const seen={}, out=[];
-    hist.slice().sort((a,b)=>(a.end||0)-(b.end||0)).forEach(h=>{
-      if(h.end!=null && seen[h.end]){ ch=true; return; } // 중복 제거
-      if(h.end!=null) seen[h.end]=1;
+    hist.slice().sort((a,b)=>((a.start||a.end||0)-(b.start||b.end||0)) || ((a.end||0)-(b.end||0))).forEach(h=>{
+      const key=[h.start==null?'':h.start, h.end==null?'':h.end, h.plan||0, h.done||0].join('|');
+      if(h.end!=null && h.start!=null && seen[key]){ ch=true; return; }
+      seen[key]=1;
       out.push(h);
     });
     out.forEach((h,i)=>{ if(h.no!==i+1){ h.no=i+1; ch=true; } });  // 차수 재부여
@@ -1716,10 +1847,13 @@ function normalizeHistory(){
   });
   bills.forEach(b=>{
     const s2=st(b.sid); if(!s2) return;
-    if(b.endDate>today){ b.endDate=today; ch=true; }     // 정산건 미래 종료일 보정
-    if(!Array.isArray(b.sessions) || b.sessions.length<b.plan){
-      b.sessions=sessionDaysBack(s2,b.endDate,b.plan);
-      b.startDate=b.sessions[0]||null; ch=true;
+    // ★ 정산 건도 같은 계산기 하나만 통과. '미래 종료일 → 오늘로 자르기' 보정 삭제.
+    const c=billClassOf(b);
+    if(c.start!=null && b.startDate!==c.start){ b.startDate=c.start; ch=true; }
+    if(c.end!=null && b.endDate!==c.end){ b.endDate=c.end; ch=true; }
+    if(c.sessions.length){
+      const cur=Array.isArray(b.sessions)?b.sessions:[];
+      if(cur.length!==c.sessions.length || cur.some((v,i)=>v!==c.sessions[i])){ b.sessions=c.sessions.slice(); ch=true; }
     }
   });
   if(ch) saveData();
@@ -1764,10 +1898,13 @@ function unsettleBill(bid){
 function markSettled(id){
   const s=st(id);
   const hist=packHistory[id]||(packHistory[id]=[]);
-  const _endMs=cycleEndOf(s)||dayKey(now.getTime());
-  const _list=sessionDaysBack(s,_endMs,doneCountOf(s)||s.plan);
+  // ★ 여기서 날짜를 새로 만들지 않는다 — 이번 클래스 계산 결과를 그대로 넘긴다
+  const _cnt=doneCountOf(s)||s.plan;
+  const _ci=currentClassInfo(s);
+  const _list=_ci.sessions.slice(0,_cnt);
+  const _endMs=_list.length?_list[_list.length-1]:(cycleEndOf(s)||dayKey(now.getTime()));
   hist.push({no:hist.length+1, plan:s.plan, done:doneCountOf(s),
-    start:_list[0]||cycleStartOf(s)||null, end:_endMs,
+    start:_list[0]||_ci.start||null, end:_endMs,
     sessions:_list, amount:priceOf(s), settledDate:new Date()});
   payments.push({sid:id,date:new Date(),plan:s.plan,amount:priceOf(s)});
   cycleDone[id]=0;              // 새 클래스 시작
@@ -1782,7 +1919,9 @@ function buildSettleText(id, billId){
   const b = billId!=null ? bills.find(x=>x.id===billId) : null;
   let list, startMs, endMs, cnt, done;
   if(b){                                   // 완주해서 생긴 정산 건
-    list=billSessions(b); startMs=b.startDate||list[0]||null; endMs=b.endDate; cnt=b.plan; done=b.plan;
+    const bc=billClassOf(b);                 // ★ 정산 안내문도 같은 계산기
+    list=bc.sessions.length?bc.sessions:billSessions(b);
+    startMs=bc.start||list[0]||null; endMs=bc.end||b.endDate; cnt=b.plan; done=b.plan;
   } else {                                 // 진행 중(미리 안내)
     const ci=currentClassInfo(s);
     list=ci.sessions; startMs=ci.start; endMs=ci.end; cnt=s.plan; done=doneCountOf(s);
@@ -1793,7 +1932,9 @@ function buildSettleText(id, billId){
   const vars={
     학원명: academy.name||'', 원장명: academy.owner||'',
     학생명: s.name, 보호자명: g.name||s.guardian||'보호자',
-    회차: String(cnt), 금액: won(amt).replace(/원$/,''),
+    /* ★ #{회차} = '그 클래스에서 진행한 회차 수' 하나로 통일 (등하원·정산 모두 같은 뜻).
+         완주한 정산 건은 done===plan 이라 값이 같고, 진행 중 미리 안내는 진행 회차가 나간다. */
+    회차: String(done), 총회차: String(cnt), 금액: won(amt).replace(/원$/,''),
     시작일: fD(startMs), 종료일: fD(endMs), 기간: `${fD(startMs)} ~ ${fD(endMs)}`,
     시각: hm12(nowHM()), 내용:'',
     완료안내: finished ? `${s.name} 학생의 이번 회차 수업을 모두 마쳤습니다.`
@@ -2092,7 +2233,10 @@ function rpAutoEnd(){
   const plan=+sheet.dataset.plan||0;
   if(!plan||!days.length) return null;
   const sid=+(sheet.dataset.rpSid||0);
-  const tmp={id:sid||-1, days, plan, cycleStart:_rp.start};
+  /* ★ 실제 학생 정보(결석·보강·휴강 기록) 위에 화면에서 고친 값만 얹어서 계산한다.
+       예전엔 빈 객체 {id:-1} 로 계산해서, 미리보기 종료일과 저장 후 종료일이 달랐다. */
+  const base=sid?st(sid):null;
+  const tmp=Object.assign({}, base||{}, {id: base?base.id:-1, days, plan, cycleStart:_rp.start, cycleEnd:null});
   return currentClassInfo(tmp).end;
 }
 function rpLabel(){
@@ -2276,8 +2420,10 @@ function saveStudent(id){
     // 호환용 대표(보호자1) 미러
     guardian:guardians[0].name, kakao:guardians[0].kakao, dur};
   data.phone_guardian=guardians[0].phone; // 참고용
+  let _sid=id;
   if(id){ Object.assign(st(id),data); cycleDone[id]=curDone; }
-  else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; }
+  else { const nid=++nextId; students.push({id:nid,...data}); cycleDone[nid]=curDone; _sid=nid; }
+  recalcStudentDates(_sid);   // ★ 학생정보를 고치면 지난 클래스·정산 건 날짜도 즉시 같이 바뀐다
   saveData(); closeSheet(); renderManage(); showToast(`${name} ${id?'수정됨':'추가됨'}`);
 }
 /* ===== 등원 / 하원 / 완료 확인 시트 — 시·분 드래그 휠 ===== */
@@ -3147,7 +3293,7 @@ function snapshot(){
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
-    live, logbook, seedUntil,   // 등원중 · 오늘 알림 · 확정 기준일 (보강은 makeupLog로 통합)
+    live, logbook, seedUntil, histFixV,   // 등원중 · 오늘 알림 · 확정 기준일 · 지난기록 정리버전 (보강은 makeupLog로 통합)
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -3186,6 +3332,7 @@ function applyState(d){
   // '오늘만 추가'는 그날 하루만 유효 — 다른 날짜면 비움
   tempDay = (typeof d.tempDay==='number') ? d.tempDay : null;
   seedUntil = (typeof d.seedUntil==='number') ? d.seedUntil : null;
+  histFixV = (typeof d.histFixV==='number') ? d.histFixV : 0;   // 없으면 0 = 아직 정리 안 됨
   tempToday = (Array.isArray(d.tempToday) && tempDay===dayKey(now.getTime())) ? new Set(d.tempToday) : new Set();
   tempTimes = (d.tempTimes && tempDay===dayKey(now.getTime())) ? d.tempTimes : {};
   if(Array.isArray(d.logbook)) logbook=d.logbook.filter(l=>l && (l.d==null || l.d===dayKey(now.getTime())));

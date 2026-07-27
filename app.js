@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27c-no-class-overlap */
+/* ONSTUDY-BUILD: 2026-07-27e-price-single-source */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -12,7 +12,11 @@ const now=new Date();
 const todayIdx=now.getDay();
 
 // 클래스 금액 (설정에서 수정 가능)
-let packages={8:100000, 12:200000};
+/* ★ 요금표의 유일한 출처는 관리자 > 수업 기본 설정(저장 키: packages).
+     코드에는 어떤 금액도 두지 않는다. 값이 없으면 화면에 '미설정'으로 보이고 발송이 막힌다.
+     (예전에 여기 8:100000, 12:200000 이 박혀 있어서, 저장값이 아직 안 들어온 시점에
+      만들어진 정산 건에 200,000원이 굳어 버리는 사고가 있었다.) */
+let packages={};
 
 // 학생: 계약 회차(plan) + 요일/시간
 const students=[];
@@ -417,11 +421,23 @@ function logAdd(sid,kind,text){logbook.unshift({sid,kind,text,time:nowHM(),d:day
   if(document.getElementById('v-home').classList.contains('active'))renderHome();}
 
 /* ===== 유틸 ===== */
-const won=(n)=>n.toLocaleString('ko-KR')+'원';
+const won=(n)=>(typeof n==='number'&&isFinite(n))?n.toLocaleString('ko-KR')+'원':'미설정';
 const hm=(d)=>new Date(d).toTimeString().slice(0,5);
 const fmtDur=(min)=>{const h=Math.floor(min/60),m=Math.round(min%60);
   return h?(m?`${h}시간 ${m}분`:`${h}시간`):`${m}분`;};
-const priceOf=(st)=>packages[st.plan]||0;
+/* ===== 금액 단일 소스 =====
+   priceOfPlan(회차) : 요금표(packages)에서만 읽는다. 없으면 null(미설정). 0원으로 대체하지 않는다.
+   billAmount(정산건): 입금 완료 건만 '그때 실제로 받은 금액'을 보존하고, 미납 건은 항상 요금표를 다시 읽는다.
+   histAmount(지난클래스): 짝이 되는 입금 완료 정산 건이 있으면 그 금액, 없으면 요금표.
+   → 정산 건·지난 클래스에 금액을 굳혀 두지 않으므로, 요금표를 고치면 미납·미입금 건이 전부 따라온다. */
+const priceOfPlan=(plan)=>{ const v=packages[plan]; return (typeof v==='number'&&isFinite(v)&&v>0)?v:null; };
+const priceOf=(st)=> st?priceOfPlan(st.plan):null;
+const billAmount=(b)=>{ if(!b) return null;
+  if(b.paid && typeof b.amount==='number' && b.amount>0) return b.amount;   // 입금 완료 = 실제 입금액 보존
+  return priceOfPlan(b.plan); };                                            // 미납 = 요금표 참조
+const histAmount=(sid,h)=>{ if(!h) return null;
+  const pb=bills.find(b=>b.sid===sid && b.endDate===h.end && b.paid && typeof b.amount==='number' && b.amount>0);
+  return pb?pb.amount:priceOfPlan(h.plan); };
 const remainOf=(st)=>Math.max(0, st.plan-doneCountOf(st));
 const needSettle=(st)=>doneCountOf(st)>=st.plan;
 const doneToday=(sid)=>sessions.find(s=>s.sid===sid && s.date.toDateString()===now.toDateString());
@@ -524,7 +540,7 @@ function renderHome(){
 
   let todos=[];
   openList.forEach(x=>todos.push({ic:'amber',tx:`${x.name} 수업 진행 중 — 끝나면 종료를 눌러주세요`,v:'today'}));
-  unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(b.amount)})`,v:'settle'}); });
+  unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(billAmount(b))})`,v:'settle'}); });
 
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   el.innerHTML=`
@@ -1638,7 +1654,7 @@ function pastClassesHtml(s){
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회
           ${(h.confirmed || (en && en < dayKey(now.getTime())))?'<span style="font-size:10.5px;font-weight:600;color:#2F7A4F;background:#E7F1EA;border-radius:5px;padding:1px 5px;margin-left:4px">확정</span>':'<span style="font-size:10.5px;font-weight:600;color:#854F0B;background:#FAEEDA;border-radius:5px;padding:1px 5px;margin-left:4px">예상</span>'}</span>
-        <span style="font-size:12.5px;color:var(--muted)">${h.amount?won(h.amount):''}</span></div>
+        <span style="font-size:12.5px;color:var(--muted)">${won(histAmount(s.id,h))}</span></div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
       <div style="display:flex;gap:6px;margin-top:7px">
         <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
@@ -1687,8 +1703,8 @@ function renderSettle(){
   const paidMonth = bills.filter(b=>b.paid && b.paidDate &&
     new Date(b.paidDate).getMonth()===vM && new Date(b.paidDate).getFullYear()===vY)
     .sort((a,b)=>b.paidDate-a.paidDate);
-  const monthPaidAmt = paidMonth.reduce((a,b)=>a+b.amount,0);
-  const unpaidAmt = unpaid.reduce((a,b)=>a+b.amount,0);
+  const monthPaidAmt = paidMonth.reduce((a,b)=>a+(billAmount(b)||0),0);
+  const unpaidAmt = unpaid.reduce((a,b)=>a+(billAmount(b)||0),0);
 
   const billRow=(b)=>{
     const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
@@ -1703,7 +1719,7 @@ function renderSettle(){
             <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
           : '<div style="font-size:13px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
       </div>` : '';
-    const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(b.amount)}</span></div>
+    const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
       <div class="mg-line">📅 <b>${period}</b> · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
       <div class="row-btns" style="margin-top:8px">
         <button class="btn ghost small" onclick="toggleBill(${b.id})">${open?'접기 ▲':'자세히 ▾'}</button>
@@ -1776,7 +1792,9 @@ function createBill(s, endMs, meta){
   const end=endMs||dayKey(now.getTime());
   if(bills.some(b=>b.sid===s.id && b.endDate===end)) return; // 중복 정산건 방지
   const m=meta||{};
-  bills.push({id:++billSeq, sid:s.id, plan:s.plan, amount:priceOf(s),
+  /* ★ 금액을 저장하지 않는다(amount:null). 표시·발송은 billAmount(b)가 요금표에서 읽는다.
+       입금 완료 처리(settleBill) 시점에만 '실제 받은 금액'으로 굳힌다. */
+  bills.push({id:++billSeq, sid:s.id, plan:s.plan, amount:null,
     startDate: m.startDate||null,          // 클래스 시작일
     sessions: m.sessions||null,            // 회차별 날짜 [ms,...]
     endDate:end, paid:false, paidDate:null});
@@ -1821,7 +1839,7 @@ function doRollover(id){
   if(hist.some(h=>h.end===endMs)){ cycleDone[id]=0; s.cycleStart=nextSessionAfter(s,endMs); s.cycleEnd=null; return true; }  // 같은 클래스 이력 중복 방지
   hist.push({no:hist.length+1, plan:s.plan, done:s.plan,
     start: sessList[0] || startMs, end: endMs,
-    sessions: sessList, amount: priceOf(s), settledDate:new Date(endMs)});
+    sessions: sessList, amount: null, settledDate:new Date(endMs)});   // 금액은 histAmount()가 요금표에서 읽는다
   cycleDone[id]=0;
   s.cycleStart = nextSessionAfter(s, endMs);  // 다음 클래스 = 완주 다음 수업일부터
   s.cycleEnd=null;
@@ -1893,7 +1911,7 @@ function normalizeHistory(){
         const cur=Array.isArray(h.sessions)?h.sessions:[];
         if(cur.length!==c.sessions.length || cur.some((v,i)=>v!==c.sessions[i])){ h.sessions=c.sessions.slice(); ch=true; }
       }
-      if(h.amount==null){ h.amount=priceOf(s); ch=true; }
+      /* 금액은 더 이상 지난 클래스에 굳혀 두지 않는다 — histAmount()가 요금표에서 읽는다 */
       syncBillsOfHist(s.id, h);                          // 정산 건 = 지난 클래스와 같은 날짜
     });
     /* 중복 제거는 '완전히 같은 기록'(시작·종료·회차수가 모두 같음)일 때만.
@@ -1956,8 +1974,10 @@ function normalizeBills(){
 }
 function settleBill(bid){
   const b=bills.find(x=>x.id===bid); if(!b||b.paid) return;
-  b.paid=true; b.paidDate=Date.now();
-  payments.push({sid:b.sid, date:new Date(b.paidDate), plan:b.plan, amount:b.amount, billId:bid});
+  const amt=billAmount(b);
+  if(amt==null){ showToast(`${b.plan}회 금액이 요금표에 없어요 — 설정 > 수업 기본 설정에서 먼저 넣어주세요`); return; }
+  b.paid=true; b.paidDate=Date.now(); b.amount=amt;   // ★ 입금 완료 시점의 실제 금액만 굳힌다
+  payments.push({sid:b.sid, date:new Date(b.paidDate), plan:b.plan, amount:amt, billId:bid});
   saveData(); renderSettle(); showToast('정산 완료 처리했어요');
 }
 function unsettleBill(bid){
@@ -1969,6 +1989,8 @@ function unsettleBill(bid){
 
 function markSettled(id){
   const s=st(id);
+  const _amt=priceOf(s);
+  if(_amt==null){ showToast(`${s.plan}회 금액이 요금표에 없어요 — 설정 > 수업 기본 설정에서 먼저 넣어주세요`); return; }
   const hist=packHistory[id]||(packHistory[id]=[]);
   // ★ 여기서 날짜를 새로 만들지 않는다 — 이번 클래스 계산 결과를 그대로 넘긴다
   const _cnt=doneCountOf(s)||s.plan;
@@ -1977,8 +1999,8 @@ function markSettled(id){
   const _endMs=_list.length?_list[_list.length-1]:(cycleEndOf(s)||dayKey(now.getTime()));
   hist.push({no:hist.length+1, plan:s.plan, done:doneCountOf(s),
     start:_list[0]||_ci.start||null, end:_endMs,
-    sessions:_list, amount:priceOf(s), settledDate:new Date()});
-  payments.push({sid:id,date:new Date(),plan:s.plan,amount:priceOf(s)});
+    sessions:_list, amount:null, settledDate:new Date()});
+  payments.push({sid:id,date:new Date(),plan:s.plan,amount:_amt});
   cycleDone[id]=0;              // 새 클래스 시작
   s.cycleStart=null; s.cycleEnd=null;  // 새 회차는 자동 계산(과거는 packHistory에 보존)
   saveData(); renderSettle();
@@ -2000,7 +2022,7 @@ function buildSettleText(id, billId){
   }
   const finished = done>=cnt;
   const fD=(ms)=>{ if(!ms) return '-'; const d=new Date(ms); return `${d.getMonth()+1}.${d.getDate()}(${WD[d.getDay()]})`; };
-  const amt = b ? b.amount : priceOf(s);
+  const amt = b ? billAmount(b) : priceOf(s);
   const vars={
     학원명: academy.name||'', 원장명: academy.owner||'',
     학생명: s.name, 보호자명: g.name||s.guardian||'보호자',
@@ -2021,6 +2043,10 @@ function buildSettleText(id, billId){
 function openSettleMsg(id, billId){
   const s=st(id);
   const g=(s.guardians&&s.guardians[0])||{};
+  /* ★ 금액이 요금표에 없으면 발송을 막는다 — 임의의 숫자를 넣어 보내지 않는다 */
+  const _b=billId?bills.find(x=>x.id===billId):null;
+  const _amt=_b?billAmount(_b):priceOf(s);
+  if(_amt==null){ showToast(`${(_b?_b.plan:s.plan)}회 금액이 요금표에 없어요 — 설정 > 수업 기본 설정에서 먼저 넣어주세요`); return; }
   const text=buildSettleText(id, billId);
   _msgCtx={id, text};
   const kakao = g.kakao!==false;
@@ -2100,7 +2126,7 @@ function adminBasic(){
       <div class="cap">회차별 수업료를 정해요. 정산 금액이 여기 값으로 자동 계산됩니다. 필요하면 클래스를 추가할 수 있어요.</div>
       ${Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b).map(n=>`
         <div class="price-row"><label>${n}회</label>
-          <div class="price-in"><input type="number" value="${packages[n]}" onchange="setPrice(${n},this.value)"><span>원</span></div>
+          <div class="price-in"><input type="number" value="${(typeof packages[n]==='number')?packages[n]:''}" onchange="setPrice(${n},this.value)"><span>원</span></div>
           ${(n===8||n===12)?'':`<button class="btn ghost small" style="width:auto;margin:0 0 0 8px;padding:9px 12px" onclick="removePackage(${n})">삭제</button>`}
         </div>`).join('')}
       <button class="btn ghost small" style="width:auto;margin-top:8px;padding:10px 16px" onclick="openPackageSheet()">＋ 클래스 추가</button>
@@ -2162,7 +2188,10 @@ function logout(){ adminSection=null; if(typeof signOutNow==='function') signOut
 let closeTime='20:00';
 function setCloseTime(v){ closeTime=v; saveData(); }
 function resetData(){ location.reload(); }
-function setPrice(plan,val){ packages[plan]=parseInt(val||0,10)||0; saveData(); }
+function setPrice(plan,val){
+  const v=parseInt(val,10);
+  if(!isFinite(v)||v<=0){ showToast('금액을 0원보다 크게 넣어주세요'); openAdmin('basic'); return; }
+  packages[plan]=v; saveData(); }
 function openPackageSheet(){
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>클래스 추가</h3>
@@ -2991,7 +3020,7 @@ function findBadHistory(){
       if(can < need){
         const bill=bills.find(b=>b.sid===s.id && dayKey(b.endDate)===dayKey(cur.end));
         out.push({sid:s.id, name:s.name, no:cur.no, prevEnd:prev.end, curEnd:cur.end,
-          need, can, amount:cur.amount||(bill?bill.amount:0), billId:bill?bill.id:null, paid:bill?!!bill.paid:false});
+          need, can, amount:(bill?billAmount(bill):priceOfPlan(cur.plan)), billId:bill?bill.id:null, paid:bill?!!bill.paid:false});
       }
     }
   });
@@ -3024,7 +3053,7 @@ function askFixBad(sid, no){
     <div class="cap">이 기록은 <b>${fmtD(b.prevEnd)}</b>에 앞 클래스가 끝난 뒤
       <b>${fmtD(b.curEnd)}</b>까지 <b>${b.need}회</b>를 했다고 되어 있는데,
       그 사이 실제 수업 가능일은 <b>${b.can}일</b>뿐이라 있을 수 없는 기록이에요.</div>
-    <div class="msg">정산 ${won(b.amount||0)} · ${b.paid?'<b>받음</b>으로 표시됨':'미납'}</div>
+    <div class="msg">정산 ${won(b.amount)} · ${b.paid?'<b>받음</b>으로 표시됨':'미납'}</div>
     <div class="cap" style="margin-top:10px">실제로 이 학생에게 <b>수업료를 한 번 더 받으셨나요?</b></div>
     <div class="sheet-btns" style="flex-direction:column;gap:8px">
       <button class="btn pay" style="width:100%" onclick="fixBadHistory(${sid},${no},true)">아니요 · 기록과 정산 모두 삭제</button>
@@ -3049,7 +3078,7 @@ function renderDataCheck(){
       : `<div class="muted-card" style="border-color:var(--green)">✅ 이상한 기록이 없어요. 데이터가 깨끗합니다.</div>`}
     ${bad.map(b=>`<div class="row" style="border:1.6px solid var(--clay)">
       <div class="row-top"><span class="name">${b.name} · ${b.no}차</span>
-        <span class="amt">${won(b.amount||0)}</span></div>
+        <span class="amt">${won(b.amount)}</span></div>
       <div class="mg-line">📅 앞 클래스 종료 <b>${fmtD(b.prevEnd)}</b> → 이 클래스 종료 <b>${fmtD(b.curEnd)}</b></div>
       <div class="mg-line" style="color:var(--clay)">⚠ ${b.need}회가 필요한데 그 사이 수업 가능일은 <b>${b.can}일</b>뿐</div>
       <div class="mg-line">💰 정산 ${b.paid?'<b style="color:var(--green)">받음</b>':'미납'}</div>
@@ -3302,7 +3331,7 @@ function renderReport(){
   const max=Math.max(1,...months.map(m=>m.sum));
   const thisM=months[months.length-1];
   const monthClasses=students.reduce((a,s)=>a+monthCount(s.id),0);
-  const waiting=bills.filter(b=>!b.paid).reduce((a,b)=>a+b.amount,0);
+  const waiting=bills.filter(b=>!b.paid).reduce((a,b)=>a+(billAmount(b)||0),0);
 
   el.innerHTML=`
     <button class="back" onclick="goTab('home')">‹ 홈</button>
@@ -3371,7 +3400,7 @@ function snapshot(){
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
 function applyState(d){
   if(!d) return;
-  if(d.packages)packages=d.packages;
+  if(d.packages && typeof d.packages==='object') packages=d.packages;   // 없으면 {} 그대로 → 화면에 '미설정'
   if(d.cycleDone)cycleDone=d.cycleDone;
   if(d.closeTime)closeTime=d.closeTime;
   if(typeof d.nextId==='number')nextId=d.nextId;

@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-27-cycle-single-source */
+/* ONSTUDY-BUILD: 2026-07-27c-no-class-overlap */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -230,6 +230,10 @@ function currentClassInfo(s){
     }
     if(start==null) start=todayK;
   }
+  /* ★ 이번 클래스는 이미 끝난(확정·입금 완료) 지난 클래스 위로 겹칠 수 없다.
+       학생정보에서 시작일을 최초 등록일로 되돌려 저장하면 지난 클래스와 같은 기간이 되던 문제. */
+  const _se=settledHistEnd(s.id);
+  if(_se!=null && start!=null && start<=_se) start=nextSessionAfter(s,_se);
   const info=classOf(s, start, plan, {cutoff: seedUntil||0});
   // 원장님이 종료일을 직접 고정한 경우 — 이제 모든 화면에 똑같이 적용된다(예전엔 관리자에만 적용됨)
   if(s.cycleEnd){
@@ -252,7 +256,7 @@ function histClassOf(s, h){
   let start = (h.start!=null) ? dayKey(h.start)
             : (Array.isArray(h.sessions)&&h.sessions.length ? dayKey(Math.min.apply(null,h.sessions)) : null);
   if(s && start!=null && cnt){
-    const c=classOf(s, start, cnt, {cutoff:Infinity});          // 끝난 클래스 = 달력 그대로(결정적)
+    const c=classOf(s, start, cnt, {cutoff: seedUntil||0});     // ★ 진행 중 화면과 똑같은 규칙(등원 미입력도 같게 취급)
     if(c.sessions.length) return {start:c.start, end:c.end||c.sessions[c.sessions.length-1], sessions:c.sessions, confirmed:false};
   }
   const en = (h.end!=null) ? dayKey(h.end) : (h.settledDate ? dayKey(new Date(h.settledDate).getTime()) : null);
@@ -270,7 +274,7 @@ function billClassOf(b){
   let start = (b.startDate!=null) ? dayKey(b.startDate)
             : (Array.isArray(b.sessions)&&b.sessions.length ? dayKey(Math.min.apply(null,b.sessions)) : null);
   if(s && start!=null && b.plan){
-    const c=classOf(s, start, b.plan, {cutoff:Infinity});
+    const c=classOf(s, start, b.plan, {cutoff: seedUntil||0});  // ★ 지난 클래스·이번 클래스와 같은 규칙
     if(c.sessions.length) return {start:c.start, end:c.end||c.sessions[c.sessions.length-1], sessions:c.sessions, confirmed:false};
   }
   const en = (b.endDate!=null) ? dayKey(b.endDate) : null;
@@ -300,6 +304,7 @@ function syncBillsOfHist(sid, h, oldEnd){
      "학생정보에서 고치면 전체가 다 반영되어야 한다"는 원칙을 지키는 지점. */
 function recalcStudentDates(sid){
   const s=st(sid); if(!s) return;
+  resolveClassOverlap(sid);   // ★ 이번 클래스와 지난 클래스가 겹치면 먼저 정리한다
   (packHistory[sid]||[]).forEach(h=>{
     if(h.confirmed && h.confirmedBy==='owner') return;
     if(h.start==null){ const bf=backfillHistStart(s,h); if(bf!=null) h.start=bf; }
@@ -319,6 +324,58 @@ function recalcStudentDates(sid){
   });
 }
 // 이번 회차 시작일 — 모든 화면 공통 (앱·관리자·달력·알림톡)
+/* ★ 이미 '끝난 것이 확실한' 지난 클래스의 마지막 종료일.
+     확정([확정] 누름)했거나 정산이 입금 완료된 기록만 인정한다.
+     이번 클래스는 이 날짜보다 뒤에서 시작해야 한다. */
+function settledHistEnd(sid){
+  let e=null;
+  (packHistory[sid]||[]).forEach(h=>{
+    if(h.end==null) return;
+    const paid = bills.some(b=>b.sid===sid && b.paid &&
+      ((b.endDate!=null && dayKey(b.endDate)===dayKey(h.end)) ||
+       (h.start!=null && b.startDate!=null && dayKey(b.startDate)===dayKey(h.start))));
+    if(h.confirmed || paid){ if(e==null || h.end>e) e=h.end; }
+  });
+  return e;
+}
+
+/* ★ 이번 클래스와 지난 클래스는 절대 같은 기간을 쓸 수 없다.
+     겹치면 둘 중 하나다.
+       · 지난 클래스가 진짜(확정 또는 입금 완료)  → 이번 클래스 시작일을 그 다음 수업일로 민다.
+       · 지난 클래스가 완주 전에 성급히 만들어진 것(미확정·미납) → 되돌려서 다시 '진행 중'으로 만든다.
+     되돌릴 때도 출결·결석·보강 기록은 손대지 않는다. 지운 적 없는 그 클래스가 진행 중으로 살아날 뿐이고,
+     마지막 수업에 [등원]을 누르면 완주 처리가 정상적으로 다시 만들어 준다.
+     (2026-07-27 정도연·한지우 겹침 사고 재발 방지) */
+function resolveClassOverlap(sid){
+  const s=st(sid); if(!s) return false;
+  let ch=false;
+  const se=settledHistEnd(sid);
+  if(se!=null && s.cycleStart!=null && dayKey(s.cycleStart)<=se){
+    s.cycleStart=nextSessionAfter(s,se); ch=true;      // 저장값도 화면값과 같게 맞춘다
+  }
+  const cs=cycleStartOf(s);
+  if(cs==null) return ch;
+  const hist=packHistory[sid]||[];
+  const keep=[];
+  hist.forEach(h=>{
+    if(h.end==null || h.end<cs){ keep.push(h); return; }              // 안 겹침
+    const paid = bills.some(b=>b.sid===sid && b.paid &&
+      ((b.endDate!=null && dayKey(b.endDate)===dayKey(h.end)) ||
+       (h.start!=null && b.startDate!=null && dayKey(b.startDate)===dayKey(h.start))));
+    if(h.confirmed || paid){ keep.push(h); return; }                   // 진짜 지난 클래스 → 위에서 시작일을 밀었다
+    for(let i=bills.length-1;i>=0;i--){                                // 짝이 되는 미납·미확정 정산 건도 같이 되돌린다
+      const b=bills[i];
+      if(b.sid!==sid || b.paid || b.confirmed) continue;
+      const same=(b.endDate!=null && dayKey(b.endDate)===dayKey(h.end))
+              || (h.start!=null && b.startDate!=null && dayKey(b.startDate)===dayKey(h.start));
+      if(same) bills.splice(i,1);
+    }
+    ch=true;                                                           // h 는 keep 에 넣지 않는다 = 되돌림
+  });
+  if(ch){ keep.forEach((h,i)=>{ h.no=i+1; }); packHistory[sid]=keep; }
+  return ch;
+}
+
 function cycleStartOf(s){ return currentClassInfo(s).start; }
 // 이번 회차 종료일 — 모든 화면 공통 (수동 고정값도 currentClassInfo 안에서 반영됨)
 function cycleEndOf(s){ return currentClassInfo(s).end; }
@@ -1748,11 +1805,17 @@ function doRollover(id){
     const mine = sessions.filter(x=>x.sid===id).map(x=>dayKey(x.date)).sort((a,b)=>a-b);
     startMs = mine.length ? mine[0] : dayKey(now.getTime());
   }
-  const cls = classOf(s, startMs, s.plan, {cutoff:Infinity});   // 끝난 클래스 = 달력 그대로(결정적)
+  const cls = classOf(s, startMs, s.plan, {cutoff: seedUntil||0});   // ★ 진행 중에 보이던 기간 그대로 굳힌다
   let sessList = cls.sessions.slice(0, s.plan);
   if(!sessList.length) sessList = info.sessions.slice(0, s.plan);
   const endMs = sessList.length ? sessList[sessList.length-1] : dayKey(now.getTime());
   // ※ '오늘로 자르기' 보정 삭제 — 앱을 연 날짜에 따라 저장값이 달라지던 원인.
+  /* ★ 아직 끝나지 않은 클래스를 '지난 클래스'로 만들지 않는다 (2026-07-27).
+       마지막 수업일이 아직 안 왔거나, 오늘이 마지막인데 [등원]을 안 눌렀으면 진행 중이다.
+       예전엔 이 확인이 없어서 진행 중인 클래스가 지난 클래스·정산 건으로 미리 만들어졌다. */
+  const _todayK=dayKey(now.getTime());
+  if(endMs>_todayK) return false;
+  if(endMs===_todayK && !hasRecordOn(id,_todayK)) return false;
   createBill(s, endMs, {startDate: sessList[0] || startMs, sessions: sessList});  // 이전 클래스 → 정산 필요(미납)
   const hist=packHistory[id]||(packHistory[id]=[]);
   if(hist.some(h=>h.end===endMs)){ cycleDone[id]=0; s.cycleStart=nextSessionAfter(s,endMs); s.cycleEnd=null; return true; }  // 같은 클래스 이력 중복 방지
@@ -1856,6 +1919,15 @@ function normalizeHistory(){
       if(cur.length!==c.sessions.length || cur.some((v,i)=>v!==c.sessions[i])){ b.sessions=c.sessions.slice(); ch=true; }
     }
   });
+  /* ★ [1회성] 2026-07-27 겹침 정리 (histFixV 2) — 날짜 재계산이 모두 끝난 뒤 실행
+       '이번 클래스'와 기간이 겹치는 지난 클래스 기록을 정리한다.
+         · 확정·입금 완료 기록 → 그대로 두고, 이번 클래스 시작일을 그 다음 수업일로 민다.
+         · 미확정·미납 기록    → 완주 전에 성급히 만들어진 것이므로 되돌려 '진행 중'으로 복원한다.
+       출결·결석·보강 기록은 건드리지 않는다. */
+  if(histFixV < 2 && students.length){
+    students.forEach(s=>{ if(resolveClassOverlap(s.id)) ch=true; });
+    histFixV=2; ch=true;
+  }
   if(ch) saveData();
   return ch;
 }

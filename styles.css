@@ -308,6 +308,18 @@
   .note-area{width:100%;min-height:110px;border:1px solid var(--line);border-radius:10px;padding:12px;
     font-family:inherit;font-size:14px;line-height:1.5;resize:vertical;margin-bottom:14px;background:#F9F8F4;color:var(--ink)}
   .note-area:focus,.note-select:focus{outline:2px solid var(--amber);outline-offset:1px}
+
+  /* ---- 시각 고르개 (오전/오후 · 시 · 분) ---- 2026-07-28s
+     원장님 지시 — "둥근 시계판은 오전 오후가 헷갈려 다른 것으로".
+     휴대폰에서 목록 세 개가 한 줄에 들어가야 한다. 오전/오후 칸만 글자가 길어 조금 넓게 준다.
+     select 는 .note-select 에서 width:100% 를 받으므로 여기서 flex 로 다시 나눈다. */
+  .tsel{display:flex;gap:6px;align-items:center;margin-bottom:10px}
+  .tsel select{width:auto;flex:1;min-width:0;margin-bottom:0;padding:11px 6px;
+    text-align:center;text-align-last:center;-moz-text-align-last:center;cursor:pointer}
+  .tsel select.ts-ap{flex:1.15}
+  /* 요일별 시각 줄 · 설정의 마감 시각 줄 - 이름표 옆 남는 자리를 목록 셋이 나눠 쓴다 */
+  .daytime-row .tsel{flex:1;max-width:250px;margin-bottom:0}
+  .price-row .tsel{flex:1;margin-bottom:0}
   .chart{display:flex;align-items:flex-end;gap:8px;background:var(--card);border:1px solid var(--line);
     border-radius:16px;padding:16px 14px 12px;height:170px}
   .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:6px}
@@ -396,7 +408,6 @@
 .chk{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--ink);cursor:pointer}
 .chk input{width:16px;height:16px;accent-color:var(--amber)}
 .daytime-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:13px;color:var(--ink)}
-.daytime-row input{max-width:140px}
 .mini-x{float:right;font-size:11px;color:var(--clay);background:none;border:none;cursor:pointer;padding:0}
 .fld input[type=number]{-moz-appearance:textfield}
 

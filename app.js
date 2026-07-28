@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28r-save-fix */
+/* ONSTUDY-BUILD: 2026-07-28s-time-picker */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -132,9 +132,65 @@ function rng12(a,b){ if(!a) return ''; if(!b) return hm12(a);
   const sameAp=(+String(a).split(':')[0]<12)===(+String(b).split(':')[0]<12);
   return hm12(a)+'~'+(sameAp? hm12(b).replace(/^오[전후] /,'') : hm12(b)); }
 
-// 요일별 시간 (per-day 있으면 그 값, 없으면 공통 time)
+/* ===== 시각 고르개 (오전/오후 · 시 · 분) — 만드는 곳은 여기 하나뿐 ===== 2026-07-28s
+   원장님 지시 — "둥근 시계판은 오전 오후가 헷갈려 다른 것으로 해달라고", 분은 "1분단위".
+   휴대폰의 <input type="time"> 은 둥근 시계판(다이얼)을 띄운다. 오전/오후가 작게 붙어 있어
+   실제로 권미진 학생 시각이 새벽 2:30 으로 저장되는 일이 있었다.
+   대신 목록 세 개(오전/오후 · 1~12시 · 0~59분)로 받는다 - 휴대폰에서 위아래로 훑어 고르는 방식이다.
+
+   ★ 저장되는 값의 모양은 예전과 똑같은 'HH:MM'(24시간) 글자다.
+     진짜 값은 숨은 칸 하나(.ts-val)에만 있고, 목록 세 개는 그 값을 고치는 손잡이일 뿐이다(단일 소스).
+     숨은 칸에 예전 <input type="time"> 과 똑같은 id·class·data-* 를 그대로 달아 두었기 때문에
+     값을 읽어 가던 코드(document.getElementById('stTime').value 등)는 한 곳도 고칠 필요가 없다.
+   ★ 값이 없으면 세 목록 모두 빈 상태로 뜬다 - 코드가 임의의 시각을 채워 넣지 않는다.
+     세 개를 다 고르기 전까지 숨은 칸은 빈 글자이고, 저장은 기존 필수값 검사에서 그대로 막힌다. */
+function tsParse(v){                      // 'HH:MM' → {ap,h,m} / 비었거나 이상하면 null
+  if(!v) return null;
+  const p=String(v).split(':'); const H=+p[0], M=+p[1];
+  if(!Number.isFinite(H)||!Number.isFinite(M)) return null;
+  return {ap: H<12?'AM':'PM', h: (H%12)||12, m: M};
+}
+function tsBuild(ap,h,m){                 // 세 목록 값 → 'HH:MM' / 하나라도 비면 빈 글자
+  if(ap===''||h===''||m==='') return '';
+  let H=(+h)%12; if(ap==='PM') H+=12;
+  return `${String(H).padStart(2,'0')}:${String(+m).padStart(2,'0')}`;
+}
+/* o.id / o.cls / o.data 는 숨은 칸에 그대로 붙는다(예전 <input type="time"> 자리를 대신하기 위해서다).
+   o.on 은 값이 세 개 다 갖춰졌을 때만 부를 코드다(중간 상태로 저장하거나 경고하지 않는다). */
+function timeSel(val, o){
+  o=o||{};
+  const t=tsParse(val);
+  const ap=t?t.ap:'', hh=t?t.h:'', mm=t?t.m:'';
+  const op=(v,label,sel)=>`<option value="${v}"${sel?' selected':''}>${label}</option>`;
+  let apO=op('','오전/오후',ap==='')+op('AM','오전',ap==='AM')+op('PM','오후',ap==='PM');
+  let hO=op('','시',hh==='');
+  for(let i=1;i<=12;i++) hO+=op(i,`${i}시`,hh===i);
+  let mO=op('','분',mm==='');
+  for(let i=0;i<60;i++) mO+=op(i,`${String(i).padStart(2,'0')}분`,mm===i);   // ★ 1분 단위 60개(원장님 지시)
+  const idA=o.id?` id="${o.id}"`:'', clsA=o.cls?` ${o.cls}`:'', dataA=o.data?` ${o.data}`:'';
+  return `<span class="tsel"${o.on?` onchange="${o.on}"`:''}>`
+    + `<select class="note-select ts-ap" aria-label="오전 오후" onchange="tsSync(this)">${apO}</select>`
+    + `<select class="note-select ts-h" aria-label="시" onchange="tsSync(this)">${hO}</select>`
+    + `<select class="note-select ts-m" aria-label="분" onchange="tsSync(this)">${mO}</select>`
+    + `<input type="hidden"${idA} class="ts-val${clsA}"${dataA} value="${val||''}"></span>`;
+}
+function tsSync(sel){                     // 목록을 고칠 때마다 숨은 칸(진짜 값)을 다시 쓴다
+  const w=sel.closest('.tsel'); if(!w) return;
+  w.querySelector('.ts-val').value =
+    tsBuild(w.querySelector('.ts-ap').value, w.querySelector('.ts-h').value, w.querySelector('.ts-m').value);
+}
+function tsVal(w){ const v=w&&w.querySelector?w.querySelector('.ts-val'):null; return v?v.value:''; }
+function tsDone(w,fn){ const v=tsVal(w); if(v) fn(v); }   // 세 개 다 고른 뒤에만 부른다
+/* 숨은 칸(id)으로 찾아 목록 세 개를 잠그거나 푼다 - 예전 input.disabled 자리를 대신한다 */
+
+/* 이 학생이 '요일마다 시간 다르게'인가 — 판단하는 곳은 여기 하나뿐이다(단일 소스). 2026-07-28s */
+function perDayOn(s){ return !!(s && s.dayTimes && Object.keys(s.dayTimes).length); }
+/* 이 학생의 그 요일 수업 시작 시각 — 시각을 정하는 곳은 여기 하나뿐이다.
+   ★ 2026-07-28s 원장님 지시 — "요일마다 다르게면 공통 시각은 안 쓰는 값이다".
+     그래서 요일마다 다르게인 학생은 공통 s.time 으로 떨어지지 않는다.
+     그 요일 값이 없으면 빈값이다 — 코드가 다른 시각을 대신 넣지 않는다. */
 function timeFor(s,dayIdx){
-  if(s.dayTimes && s.dayTimes[dayIdx]) return s.dayTimes[dayIdx];
+  if(perDayOn(s)) return s.dayTimes[dayIdx]||'';
   return s.time||'';        // ★ 없으면 빈값 — '16:00' 같은 임의 시각을 넣지 않는다
 }
 // 시작일 이전 날짜인지 (시작일 null이면 항상 false=제한 없음)
@@ -467,7 +523,10 @@ function missingSettings(){
   MSG_KINDS.forEach(([k,label])=>{ if(sendOn(k) && !String((msgTemplates[k]&&msgTemplates[k].sms)||'').trim())
     out.push({tx:`${label} 문구가 비어 있어요 (설정 > 알림 문구)`, v:'send'}); });
   students.forEach(s=>{
-    if(!timeFor(s, todayIdx) && !s.time) out.push({tx:`${s.name} 수업 시각이 비어 있어요`, v:'manage'});
+    /* ★ 2026-07-28s: 공통 s.time 을 따로 보지 않는다(timeFor 하나만 본다).
+       요일마다 다르게인 학생은 수업 요일 중 한 칸이라도 비면 알린다. */
+    const _dchk=(s.days&&s.days.length)?s.days:[todayIdx];
+    if(_dchk.some(d=>!timeFor(s,d))) out.push({tx:`${s.name} 수업 시각이 비어 있어요`, v:'manage'});
     if(!durOf(s))                        out.push({tx:`${s.name} 수업 시간이 비어 있어요`, v:'manage'});
     const g=guardiansOf(s)[0]||{};
     if(!g.name)  out.push({tx:`${s.name} 보호자 이름이 비어 있어요`, v:'manage'});
@@ -515,7 +574,7 @@ function todayTimeOf(s, k){
   const kk = k || dayKey(now.getTime());
   const mk=makeupOn(s.id, kk);
   if(mk && mk.time) return mk.time;
-  return timeFor(s, new Date(kk).getDay()) || s.time || '';
+  return timeFor(s, new Date(kk).getDay());   // ★ 2026-07-28s: 공통 s.time 대체 삭제 — timeFor 하나만 본다
 }
 /* 오늘 이 학생의 수업 시간(분) (임시 추가 > 보강 > 학생 설정) */
 function todayDurOf(s, k){
@@ -683,7 +742,7 @@ function renderToday(){
   const aMs=attnBaseMs(); const aDate=new Date(aMs); const dowA=aDate.getDay();
   const isToday = aDate.toDateString()===now.toDateString();
   const list=(isToday ? todayRoster() : studentsOnDate(aMs)).slice()
-    .sort((a,b)=>(timeFor(a,dowA)||a.time||'').localeCompare(timeFor(b,dowA)||b.time||''));
+    .sort((a,b)=>timeFor(a,dowA).localeCompare(timeFor(b,dowA)));   // ★ 2026-07-28s: 공통 time 대체 삭제
   // 날짜 이동
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   const dateNav=dateNavBar(aMs, 'attnNav(-1)', 'attnNav(1)', 'attnToday()', 'attnGo');   // 홈과 동일한 공용 바
@@ -709,11 +768,11 @@ function renderToday(){
         btns=`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button>`; }
       else if(done){ stx = done.start ? `하원 완료 · ${rng12(hm(done.start),hm(done.end))}` : '수업 완료'; sc='var(--green)';
         btns=`<button class="btn ghost small" onclick="undoOn(${s.id},${aMs})">완료 취소</button>`; }
-      else if(isPast){ stx = `미확정 · 예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--amber)';
+      else if(isPast){ stx = `미확정 · 예정 ${hm12(timeFor(s,dowA))}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
       let inlineBtn='';
-      if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA)||s.time||'')}`; sc='var(--muted)';   // 회차는 cycBadge로 이름 옆 표기
+      if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA))}`; sc='var(--muted)';   // 회차는 cycBadge로 이름 옆 표기
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">
@@ -822,7 +881,7 @@ function renderToday(){
     </div>`;
   };
   // 시간대가 바뀌는 지점에 연한 구분선만 (주황 알약 탭 제거 — 2026-07-27 원장님 지시)
-  const hourOf=(s)=>{ const t=(isToday? todayTimeOf(s,aMs) : (timeFor(s,dowA)||s.time||'')); return t?t.slice(0,2)+':00':'시간 미정'; };
+  const hourOf=(s)=>{ const t=(isToday? todayTimeOf(s,aMs) : timeFor(s,dowA)); return t?t.slice(0,2)+':00':'시간 미정'; };
   let cards='', _lastHour=null, _first=true;
   list.forEach(s=>{
     const hour=hourOf(s);
@@ -1035,7 +1094,7 @@ function calDayClick(sid, ms){
   } else {
     sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
       <div class="cap">${dstr}을 보강일로 설정할까요?<br>보강은 회차에 포함돼 종료일이 다시 계산돼요.</div>
-      <div class="fld"><label>보강 시간</label><input type="time" id="mkTime2" class="note-select" value="${s.time||''}"></div>
+      <div class="fld"><label>보강 시간</label>${timeSel(timeFor(s, new Date(dayKey(ms)).getDay()), {id:'mkTime2'})}</div>
       <div class="sheet-btns"><button class="btn start" onclick="confirmMakeup(${sid},${ms})">예, 보강 지정</button>
         <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
   }
@@ -1078,7 +1137,7 @@ function openMakeupSheet(id){
   sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
     <div class="cap">보강 날짜·시작 시각과 수업 시간을 정하세요. <b>회차·예상 종료일에 자동 반영</b>되고 달력에 보라색으로 표시돼요.</div>
     <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select" value="${dateInputValue(dayKey(now.getTime()))}"></div>
-    <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||''}"></div>
+    <div class="fld"><label>시작 시각</label>${timeSel(timeFor(s, new Date().getDay()), {id:'mkTime'})}</div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="mkDurRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${dcur===m?'on':''}" data-dur="${m}" onclick="pickMkDur(${m})">${label}</button>`).join('')}
@@ -1142,14 +1201,14 @@ function openTempSheet(id, dateMs){
   const s=st(id);
   const k=dayKey(dateMs||now.getTime());
   const dow=new Date(k).getDay();
-  const defT = timeFor(s,dow) || s.time || '';     // ★ 없으면 빈칸 — 원장님이 직접 넣으신다
+  const defT = timeFor(s,dow);     // ★ 없으면 빈칸 — 원장님이 직접 넣으신다 (2026-07-28s: 공통 time 대체 삭제)
   const defD = durOf(s);
   const sheet=document.getElementById('sheet');
   sheet.dataset.tpDate=String(k);
   sheet.innerHTML=`<h3>${s.name} ${dayKey(now.getTime())===k?'오늘':fmtMD(k)} 보강</h3>
     <div class="cap"><b>${fmtMD(k)}</b> 하루만 오는 수업이에요. <b>시작 시각과 수업 시간</b>을 정해주세요. 정규 요일표는 그대로고, <b>회차·예상 종료일에 반영</b>됩니다.</div>
     <div class="fld"><label>시작 시각</label>
-      <input type="time" id="tpTime" class="note-select" value="${defT}"></div>
+      ${timeSel(defT, {id:'tpTime'})}</div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="tpDurRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${defD===m?'on':''}" data-dur="${m}" onclick="pickTpDur(${m})">${label}</button>`).join('')}
@@ -1422,7 +1481,7 @@ function openStudentCalendar(sid){
 function mngCalNav(id,delta){ mngCal.m+=delta; if(mngCal.m<0){mngCal.m=11;mngCal.y--;} if(mngCal.m>11){mngCal.m=0;mngCal.y++;} renderManage(); }
 function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
-  return (s.dayTimes&&Object.keys(s.dayTimes).length)
+  return perDayOn(s)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
     : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'시각 미설정'}`;
 }
@@ -1950,7 +2009,7 @@ function normalizeHistory(){
       const mks=(makeupLog[id]=makeupLog[id]||[]);
       if(!mks.some(x=>dayKey(x.t)===tempDay)){
         const ti=(tempTimes&&tempTimes[id])||{};
-        const _t=ti.time||timeFor(s0, new Date(tempDay).getDay())||s0.time;
+        const _t=ti.time||timeFor(s0, new Date(tempDay).getDay());   // ★ 2026-07-28s: 공통 time 대체 삭제
         const _d=+ti.dur||durOf(s0);
         if(!_t || !(_d>0)) return;      // ★ 시각·수업시간이 비어 있으면 만들지 않는다
         mks.push({t:tempDay, time:_t, dur:_d, done:false});
@@ -2200,7 +2259,7 @@ function adminBasic(){
       <h3>메모 마감 알림</h3>
       <div class="cap">이 시각이 지나면 홈에서 '오늘 학습내용 미작성' 학생을 챙겨줘요. (실제 푸시 알림은 앱 출시 때 연결)</div>
       <div class="price-row"><label>마감 시각</label>
-        <div class="price-in"><input type="time" value="${closeTime}" onchange="setCloseTime(this.value)" style="text-align:left"></div></div>
+        ${timeSel(closeTime, {on:'tsDone(this, setCloseTime)'})}</div>
     </div>
     <div class="set-sec">
       <h3>데이터</h3>
@@ -2283,7 +2342,7 @@ function setPlan(id,plan){ st(id).plan=plan; }
 let nextId=100;
 function manageCard(s, forDay){
   const days=s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
-  const timeTxt = (s.dayTimes&&Object.keys(s.dayTimes).length)
+  const timeTxt = perDayOn(s)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
     : (hm12(s.time)||'시각 미설정');
   const gLines = guardiansOf(s).map((g,i)=>`👤 보호자 ${i+1} : ${g.name} · ${g.phone||'연락처 미설정'} · ${g.kakao?'카톡':'문자'}`).join('<br>');
@@ -2413,7 +2472,9 @@ function rpFormTmp(){
   const tEl=document.getElementById('stTime');
   const commonTime=tEl?(tEl.value||''):'';
   let dayTimes=null;
-  if(chk && chk.checked){ dayTimes={}; days.forEach(d=>{ const inp=document.querySelector(`.dt-inp[data-d="${d}"]`); dayTimes[d]=inp?(inp.value||commonTime):commonTime; }); }
+  /* ★ 2026-07-28s: 빈 칸을 공통 시각으로 채우지 않는다 — 요일마다 다르게면 공통 값은 안 쓰는 값이다.
+     비어 있으면 빈 채로 두고, 저장 필수값 검사가 '○요일 수업 시작 시각'이라고 막는다. */
+  if(chk && chk.checked){ dayTimes={}; days.forEach(d=>{ const inp=document.querySelector(`.dt-inp[data-d="${d}"]`); dayTimes[d]=inp?(inp.value||''):''; }); }
   const sid=+(sheet.dataset.rpSid||0);
   const base=sid?st(sid):null;
   /* 실제 학생 정보(결석·보강·휴강) 위에 화면에서 고친 값만 얹는다 - 미리보기와 저장 후 값이 같아야 한다 */
@@ -2599,9 +2660,9 @@ function openStudentSheet(id){
   const pkgList = Object.keys(packages).map(n=>+n).filter(n=>n>0).sort((a,b)=>a-b);
   const dayBtns=WD.map((w,i)=>`<button type="button" class="day-btn ${s.days.includes(i)?'on':''}" data-d="${i}" onclick="this.classList.toggle('on');syncDayTimes();rpRender()">${w}</button>`).join('');
   // 요일별 시간 입력(모든 요일 렌더, per 모드에서만 노출)
-  const perOn = !!(s.dayTimes && Object.keys(s.dayTimes).length);
+  const perOn = perDayOn(s);
   const dayTimeRows=WD.map((w,i)=>`<div class="daytime-row" data-dt="${i}" style="display:none">
-      <span>${w}요일</span><input type="time" class="note-select dt-inp" data-d="${i}" value="${s.dayTimes&&s.dayTimes[i]?s.dayTimes[i]:(s.time||'')}"></div>`).join('');
+      <span>${w}요일</span>${timeSel(timeFor(s,i), {cls:'dt-inp', data:`data-d="${i}"`})}</div>`).join('');
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${id?'학생 수정':'학생 추가'}</h3>
     <div class="fld"><label>학생 이름</label><input id="stName" class="note-select" value="${s.name}" placeholder="학생 이름"></div>
@@ -2630,7 +2691,8 @@ function openStudentSheet(id){
       <div class="seg2" id="durRow">
         ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${durOf(s)===m?'on':''}" data-dur="${m}" onclick="pickDur(${m})">${label}</button>`).join('')}
       </div></div>
-    <div class="fld"><label>수업 시작 시각 <span class="hint" id="stTimeHint">비우면 저장되지 않아요</span></label><input type="time" id="stTime" class="note-select" value="${s.time||''}" oninput="syncDayTimes()">
+    <div class="fld">
+      <div id="stTimeFld" style="${perOn?'display:none':''}"><label>수업 시작 시각 <span class="hint" id="stTimeHint">비우면 저장되지 않아요</span></label>${timeSel(s.time||'', {id:'stTime', on:'syncDayTimes()'})}</div>
       <label class="chk"><input type="checkbox" id="perDayChk" ${perOn?'checked':''} onchange="togglePerDay();syncTimeLock()"> 요일마다 시간 다르게</label>
       <div id="dayTimes" style="${perOn?'':'display:none'}">${dayTimeRows}</div></div>
     <div class="fld"><label>보호자 1</label>
@@ -2679,16 +2741,16 @@ function pickGK(n,v){const sheet=document.getElementById('sheet');sheet.dataset[
   document.getElementById('g'+n+'kkX').classList.toggle('on',!v);}
 function togglePerDay(){const on=document.getElementById('perDayChk').checked;
   document.getElementById('dayTimes').style.display=on?'':'none'; syncDayTimes();}
-/* ★ 2026-07-27j: '요일마다 시간 다르게'를 켜면 위의 공통 '수업 시작 시각'은 쓰이지 않는다 →
-     쓰이지 않는 칸을 잠가서 어느 쪽이 진짜 값인지 헷갈리지 않게 한다. */
+/* ★ 2026-07-28s: 원장님 지시 — "안 쓰는 값이라 요일마다 다르게를 하면 화면에서 없애라".
+     예전엔 잠그기(회색)만 해서 값이 그대로 보였고, 어느 쪽이 진짜 시각인지 헷갈렸다
+     (권미진 학생 공통 칸의 '오전 02:30'이 그 경우다).
+     -> 칸 전체를 화면에서 없앤다. 요소는 지우지 않고 감추기만 한다 —
+        저장 코드가 document.getElementById('stTime').value 를 계속 읽어야 하기 때문이다.
+        그 값은 저장은 되지만(지우지 않는다) 이제 어디서도 쓰이지 않는다 — timeFor() 가 보지 않는다. */
 function syncTimeLock(){
-  const chk=document.getElementById('perDayChk'), t=document.getElementById('stTime');
-  if(!chk||!t) return;
-  t.disabled=chk.checked;
-  t.style.opacity=chk.checked?'0.45':'';
-  t.style.background=chk.checked?'#EFEDE6':'';
-  const h=document.getElementById('stTimeHint');
-  if(h) h.textContent = chk.checked ? '요일마다 다르게 켜짐 — 아래 요일별 시각을 쓰세요' : '비우면 저장되지 않아요';
+  const chk=document.getElementById('perDayChk'), fld=document.getElementById('stTimeFld');
+  if(!chk||!fld) return;
+  fld.style.display = chk.checked ? 'none' : '';
 }
 function pickDur(m){
   const sheet=document.getElementById('sheet'); sheet.dataset.dur=String(m);
@@ -2719,7 +2781,8 @@ function saveStudent(id){
   // 요일별 시간
   let dayTimes=null;
   if(document.getElementById('perDayChk').checked){
-    dayTimes={}; days.forEach(d=>{ const inp=document.querySelector(`.dt-inp[data-d="${d}"]`); dayTimes[d]=inp?inp.value||commonTime:commonTime; });
+    /* ★ 2026-07-28s: 빈 칸을 공통 시각으로 채우지 않는다(rpFormTmp 와 같은 규칙) */
+    dayTimes={}; days.forEach(d=>{ const inp=document.querySelector(`.dt-inp[data-d="${d}"]`); dayTimes[d]=inp?(inp.value||''):''; });
   }
   // 보호자
   /* ★ 2026-07-27g: 이름을 비우면 '○○ 보호자'로 자동 생성하던 것을 삭제. 비면 저장이 막힌다. */
@@ -3031,9 +3094,9 @@ function openTimeEdit(id){
   sheet.innerHTML=`<h3>${s.name} 시간 수정</h3>
     <div class="cap">실제 등원·하원 시각으로 고칠 수 있어요. ${isLive?'아직 수업 중이라 등원 시각만 고칩니다.':''}</div>
     <div class="fld"><label>등원 시각</label>
-      <input type="time" id="teStart" class="note-select" value="${v(startMs)}"></div>
+      ${timeSel(v(startMs), {id:'teStart'})}</div>
     ${isLive?'':`<div class="fld"><label>하원 시각</label>
-      <input type="time" id="teEnd" class="note-select" value="${v(endMs)}"></div>`}
+      ${timeSel(v(endMs), {id:'teEnd'})}</div>`}
     <div class="sheet-btns">
       <button class="btn start" onclick="saveTimeEdit(${id})">저장</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;

@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28m-auto-end */
+/* ONSTUDY-BUILD: 2026-07-28n-end-auto-only */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -265,12 +265,12 @@ function currentClassInfo(s){
   const _se=settledHistEnd(s.id);
   if(_se!=null && start!=null && start<=_se) start=nextSessionAfter(s,_se);
   const info=classOf(s, start, plan, {cutoff: seedUntil||0});
-  // 원장님이 종료일을 직접 고정한 경우 — 이제 모든 화면에 똑같이 적용된다(예전엔 관리자에만 적용됨)
-  if(s.cycleEnd){
-    const ce=dayKey(s.cycleEnd);
-    info.sessions=info.sessions.filter(k=>k<=ce);
-    info.end=ce;
-  }
+  /* ★ 2026-07-28n ★ 원장님 신고 — "15일 이후도 출첵했는데 반영 안됨" (윤지호)
+     예전에 학생별로 저장해 두던 종료일(s.cycleEnd)로 회차를 잘라내던 덮어쓰기를 삭제한다.
+     빌드 m 에서 화면의 종료일 입력칸을 없앴으므로, 이 값은 원장님이 고칠 방법이 없는데도
+     계산을 계속 이기고 있었다 — 종료 예정일의 출처가 둘이 되어 단일 소스 규칙에 어긋난다.
+     이제 종료 예정일은 언제나 '수업 시작일 + 요일 + 계약 회차' 하나로만 계산된다.
+     저장돼 있던 값은 지우지 않는다. 아무도 읽지 않는 값으로 남을 뿐이다. */
   return info;
 }
 /* ★ 지난 클래스 한 건의 기간·회차 날짜 — 저장값이 아니라 이 함수 하나로 결정한다.
@@ -2424,7 +2424,8 @@ function rpFormTmp(){
   const base=sid?st(sid):null;
   /* 실제 학생 정보(결석·보강·휴강) 위에 화면에서 고친 값만 얹는다 - 미리보기와 저장 후 값이 같아야 한다 */
   /* ★ 2026-07-28m: cycleEnd 는 얹지 않는다 — 화면에서 종료일을 고르지 않기 때문이다.
-     예전 학생에게 저장돼 있던 cycleEnd 는 base 에 그대로 있어 계산에 그대로 쓰인다(값을 지우지 않는다). */
+     ★ 2026-07-28n: 저장돼 있던 cycleEnd 는 base 에 남아 있어도 이제 아무도 읽지 않는다
+        (currentClassInfo 의 덮어쓰기를 삭제했다). 값은 지우지 않는다. */
   return Object.assign({}, base||{}, {id: base?base.id:-1, days, plan, dur, time:commonTime, dayTimes,
     cycleStart:_rp.start});
 }

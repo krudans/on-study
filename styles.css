@@ -373,7 +373,11 @@
 
   .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(20px);
     background:var(--ink);color:#fff;padding:12px 16px;border-radius:12px;font-size:13.5px;
-    opacity:0;transition:.25s;pointer-events:none;z-index:40;max-width:90%;text-align:center}
+    opacity:0;transition:.25s;pointer-events:none;z-index:60;max-width:90%;text-align:center}
+  /* ★ 2026-07-28r ★ z-index 는 반드시 .scrim(50) 보다 커야 한다.
+     40 이던 동안 시트(학생 수정 등)가 열려 있으면 안내 문구가 시트 뒤에 깔려 안 보였고,
+     원장님께는 "저장 단추가 눌리지도 않는" 것처럼 보였다(사실은 눌렸고 안내만 숨었다).
+     시트가 열려 있을 때는 시트 위에 겹쳐 보여야 한다. */
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
   .scrim{position:fixed;inset:0;background:rgba(20,22,26,.45);display:none;align-items:flex-end;justify-content:center;z-index:50}
   .scrim.show{display:flex}

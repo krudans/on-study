@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28q-date-picker */
+/* ONSTUDY-BUILD: 2026-07-28r-save-fix */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2618,7 +2618,7 @@ function openStudentSheet(id){
       </div></div>
     <div class="fld"><label>수업 시작일 <span class="hint">이 날부터 계약 회차만큼 셉니다 · 종료일은 고르지 않습니다(자동 계산)</span></label>
       <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
-        📅 <span id="rpLabel">${s.cycleStart?`${fmtMD(s.cycleStart)} ~ 종료일 자동 계산`:'날짜를 고르세요 (종료일 자동 계산)'}</span>
+        📅 <span id="rpLabel"></span>
       </button>
       <div id="rpBox"></div>
       <div class="cap" style="margin-top:6px">달력을 열어 <b>수업을 처음 한 날</b>을 누르세요 — 그 날이 <b>1회차</b>입니다.<br>
@@ -2653,7 +2653,13 @@ function openStudentSheet(id){
   sheet.dataset.g1kakao=(g1.kakao===true)?'1':(g1.kakao===false?'0':'');
   sheet.dataset.g2kakao=g2?((g2.kakao===true)?'1':(g2.kakao===false?'0':'')):'';
   cancelSaveStudent();                            // ★ 2026-07-27k: 남아 있던 저장 확인창 정리
-  rpInit(s.cycleStart||null);                     // ★ 2026-07-28m: 시작일 하나만 - 종료일은 고르지 않는다
+  /* ★ 2026-07-28r ★ 원장님 신고 - "테스트 학생 수업 시간 수정하고 저장했으나 적용이 안됨"
+     원인: 여기서만 s.cycleStart(저장된 원본 값)를 읽었다. 테스트 학생은 그 값이 없어서(옛 startDate 만 있음)
+     _rp.start 가 비고 -> saveStudent() 의 필수값 검사에 걸려 저장 전체가 중단됐다.
+     다른 화면은 모두 cycleStartOf(s) (= currentClassInfo(s).start) 를 쓰기 때문에 멀쩡해 보였다.
+     -> 수정 화면도 다른 화면과 똑같은 값 하나만 보게 한다(단일 소스).
+     새 학생 등록(id 없음)은 계산하지 않고 반드시 빈칸이다 - 코드가 날짜를 만들어 넣으면 안 된다. */
+  rpInit(id ? (cycleStartOf(s)||null) : null);
   sheet.dataset.dur=String(durOf(s));
   syncDayTimes(); syncTimeLock();
   rpRender();                                   // ★ 2026-07-28l: 진행 상황 줄을 계산 결과로 채운다

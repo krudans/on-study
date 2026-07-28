@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28t-time-sheet */
+/* ONSTUDY-BUILD: 2026-07-28u-back-lessonlog */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1571,6 +1571,98 @@ function schedText(s){
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
     : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'시각 미설정'}`;
 }
+/* ===== 학습 기록 보기 · 학습 분석 ===== 2026-07-28u
+   원장님 지시 — "달력 옆에 '학습기록' 버튼 만들고 누르면 날짜별로 볼 수 있게.
+                 그것을 바탕으로 AI 학습 분석 결과도 볼 수 있게".
+   ★ 자료를 새로 만들지 않는다. 출석부 [학습]에서 쌓아 온 lessons 배열이 유일한 원본이다.
+     lessons 한 줄 = {sid:학생 번호, date:적은 날, mood:태도(MOODS 중 하나 또는 빈값), text:적은 글}
+     저장되는 곳 = 파이어베이스 state/app 문서의 lessons 칸.
+     올리는 곳은 snapshot(), 내려받는 곳은 applyState() 하나씩뿐이다(단일 소스).
+   ★ 분석은 앱이 이 기록만 세어서 만든다. 바깥으로 아무것도 보내지 않고 요금도 들지 않는다.
+     기록이 없으면 아무 말도 지어내지 않고 '아직 없어요'라고만 한다. */
+let stuLog={open:null};                 // 지금 펼쳐 둔 학생 번호 (달력의 stuCal 과 같은 방식)
+function toggleStuLog(id){ stuLog.open = (stuLog.open===id) ? null : id; renderStudents(); }
+function lessonsOf(sid){ return lessons.filter(l=>l && l.sid===sid && l.date).slice().sort((a,b)=>b.date-a.date); }
+function lsnEsc(t){ return String(t==null?'':t).replace(/</g,'&lt;'); }
+/* 셈에서 빼는 흔한 말 — 이게 위로 올라오면 아무 도움이 안 된다 */
+const LSN_STOP=['그리고','하지만','오늘','다음','조금','정도','계속','아주','너무','매우','에서','으로','하고','했어요','합니다','같아요','같음','수업','학생','시간','부분','조금씩'];
+function lsnWords(ls){
+  const cnt={};
+  ls.forEach(l=>{ String(l.text||'').split(/[^가-힣A-Za-z0-9]+/).forEach(w=>{
+    if(w.length<2 || LSN_STOP.indexOf(w)>=0) return;
+    cnt[w]=(cnt[w]||0)+1; }); });
+  return Object.keys(cnt).filter(w=>cnt[w]>=2)
+    .sort((a,b)=>cnt[b]-cnt[a]||a.localeCompare(b,'ko')).slice(0,6).map(w=>({w:w,n:cnt[w]}));
+}
+const LSN_GOOD=['집중','열의'];         // '좋은 편'으로 세는 태도 (MOODS 안의 값)
+const LSN_WATCH=['산만','피곤'];        // '살펴볼 편'으로 세는 태도 (MOODS 안의 값)
+/* 배지 색만 정한다 - 값 자체는 바꾸지 않는다 */
+function lsnMoodCls(m){ return LSN_GOOD.indexOf(m)>=0 ? 'g' : (LSN_WATCH.indexOf(m)>=0 ? 'w' : 'n'); }
+function lsnGoodRate(ls){
+  const m=ls.filter(l=>l.mood);
+  if(!m.length) return null;
+  return Math.round(m.filter(l=>LSN_GOOD.indexOf(l.mood)>=0).length*100/m.length);
+}
+function lessonAnalysis(s){
+  const ls=lessonsOf(s.id);                       // 최신순
+  if(!ls.length) return '<div class="lsn-ai none">아직 학습 기록이 없어요. 출석부에서 그 학생 [학습]을 눌러 적으면 여기에 쌓입니다.</div>';
+  const old=ls.slice().reverse();                 // 오래된 순
+  const lines=[];
+  const md=(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`;
+  lines.push(`${md(old[0].date)}부터 ${md(old[old.length-1].date)}까지 <b>${ls.length}번</b> 적으셨어요.`);
+  // ① 태도 세기 — MOODS 순서 그대로
+  const mc={}; MOODS.forEach(m=>{mc[m]=0;});
+  let moodN=0;
+  ls.forEach(l=>{ if(l.mood && mc[l.mood]!==undefined){ mc[l.mood]++; moodN++; } });
+  if(moodN){
+    const txt=MOODS.filter(m=>mc[m]>0).sort((a,b)=>mc[b]-mc[a]).map(m=>`${m} ${mc[m]}번`).join(' · ');
+    lines.push(`태도는 ${txt} 입니다.`);
+    /* 태도를 고른 것만 먼저 추린 뒤 가까운 다섯 번 — 먼저 자르면 빈 것 때문에 개수가 모자란다 */
+    const recent=old.filter(l=>l.mood).slice(-5);
+    if(recent.length>=2) lines.push(`가까운 순서대로 태도는 ${recent.map(l=>l.mood).join(' → ')} 이었어요.`);
+    // ② 앞쪽 절반과 뒤쪽 절반 견주기 — 기록이 6개 이상일 때만(적으면 견줄 값이 못 된다)
+    if(moodN>=6){
+      const half=Math.floor(old.length/2);
+      const a=lsnGoodRate(old.slice(0,half)), b=lsnGoodRate(old.slice(half));
+      if(a!==null && b!==null){
+        const d=b-a;
+        lines.push(d>=10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}% 로 <b>늘었어요.</b>`
+                 : d<=-10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}% 로 <b>줄었어요.</b> 한 번 살펴보시면 좋겠어요.`
+                 : `'집중·열의' 비율은 ${a}%→${b}% 로 비슷하게 이어지고 있어요.`);
+      }
+    }
+  } else {
+    lines.push('태도를 고르신 기록이 아직 없어요. 태도를 같이 고르시면 흐름을 볼 수 있어요.');
+  }
+  // ③ 자주 나온 말 (두 번 이상 나온 것만)
+  const ws=lsnWords(ls);
+  if(ws.length) lines.push(`자주 적으신 말은 ${ws.map(o=>`<b>${lsnEsc(o.w)}</b> ${o.n}번`).join(' · ')} 이에요.`);
+  // ④ 결석·보강 — absentLog / makeupLog 에서 직접 센다
+  const ab=(absentLog[s.id]||[]).length, mk=(makeupLog[s.id]||[]).length;
+  if(ab||mk) lines.push(`지금까지 기록으로는 결석 ${ab}번, 보강 ${mk}번이 남아 있어요.`);
+  // ⑤ 마지막으로 적은 지 얼마나 됐나
+  const gap=Math.round((dayKey(now.getTime())-dayKey(ls[0].date.getTime()))/86400000);
+  if(gap>=7) lines.push(`마지막으로 적으신 지 <b>${gap}일</b> 됐어요.`);
+  return `<div class="lsn-ai"><div class="lsn-ai-h">학습 분석</div>`
+    + lines.map(t=>`<div class="lsn-ai-l">· ${t}</div>`).join('')
+    + `<div class="lsn-ai-c">원장님이 적어 두신 기록만 세어서 정리한 것입니다. 없는 내용을 지어내지 않습니다.</div></div>`;
+}
+function lessonLogHtml(s){
+  const ls=lessonsOf(s.id);              // 최신 날짜가 위로
+  const rows = ls.map(l=>{
+    const d=l.date;
+    return `<div class="lsn-row">
+      <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}</div>
+      <div class="lsn-t">${lsnEsc(l.text)||'<span class="lsn-none">내용 없이 태도만 골라 두셨어요</span>'}</div></div>`;
+  }).join('');
+  return `<div class="lsn-wrap">
+    ${lessonAnalysis(s)}
+    <div class="lsn-h">날짜별 기록 ${ls.length?`<span class="lsn-n">${ls.length}건</span>`:''}</div>
+    ${rows || '<div class="lsn-empty">아직 적어 두신 기록이 없어요.</div>'}
+    <div class="lsn-c">출석부에서 [학습]을 눌러 적은 글이 여기에 모입니다. 서버(파이어베이스)에 함께 저장돼 다른 기기에서도 같이 보여요.</div>
+  </div>`;
+}
+
 let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
 let stuDayFilter=null;
@@ -1585,8 +1677,13 @@ function studentCard(s, forDay){
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
-  const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
-  const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
+  /* 달력 · 학습 기록 두 단추를 한 줄에 나란히 (2026-07-28u 원장님 지시 — "달력 옆에 학습기록") */
+  const calBtn = `<div class="row-btns">
+      <button class="btn ghost small" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+      <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습 기록 닫기 ▲':'학습 기록 ▾'}</button>
+    </div>`;
+  const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '')
+                + (stuLog.open===s.id ? lessonLogHtml(s) : '');
   return `<div class="row">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
@@ -3835,8 +3932,64 @@ function renderReport(){
 }
 
 
+/* ===== 시스템 뒤로 가기(안드로이드 ‹) ===== 2026-07-28u
+   원장님 지시 — "시스템 백. 누르면 앱에서 나오지 말고 전 메뉴로 가게 해줘".
+   ★ 지금 보고 있는 화면을 아는 곳은 navView 하나뿐이다(단일 소스).
+     예전에는 화면 이름을 아래 탭 단추의 active 표시(.bt.active)에서 되짚었는데,
+     하위 화면(학생 관리·발송·알림 문구·데이터 점검 …)에서는 아래 탭이 하나도 안 켜져 있어
+     언제나 '홈'으로 잘못 읽혔다. 그래서 refreshCurrentView(다른 기기에서 값이 바뀌었을 때
+     지금 화면을 다시 그리는 함수)가 보이지도 않는 홈만 다시 그리고 있었다. 함께 고친다.
+   ★ navView 를 바꾸는 곳은 goTab 과 로그인 직후 첫 화면(initApp) 둘뿐이다. 다른 데서 손대지 말 것.
+   ★ navStack 은 '지나온 화면' 발자국이다. 뒤로 가는 중(navGoingBack)에는 쌓지 않는다.
+   ★ 설정 안의 하위(수업 기본 설정·관리자 등록)는 adminSection 이 따로 갖고 있으므로
+     발자국에도 {v,sec} 두 가지를 같이 적어 둔다. */
+let navView='home';        // 지금 보고 있는 화면 (goTab 의 v 값과 같은 말)
+let navStack=[];           // 지나온 화면 [{v, sec}]
+let navGoingBack=false;    // true 인 동안에는 발자국을 쌓지 않는다
+let navExitAsk=0;          // 뿌리에서 '한 번 더 누르면 닫혀요'를 띄운 시각(ms)
+
+/* 뒤로 갈 곳이 있으면 한 칸 물러나고 true, 더 물러날 데가 없으면 false.
+   순서 — ① 시각 고르개 시트 ② 입력 시트 ③ 설정 하위 ④ 지나온 화면 */
+function navBack(){
+  const ts=document.getElementById('tsScrim');
+  if(ts && ts.classList.contains('show')){ tsClose(); return true; }
+  const sc=document.getElementById('scrim');
+  if(sc && sc.classList.contains('show')){ closeSheet(); return true; }
+  if(navView==='admin' && adminSection){ openAdmin(null); return true; }
+  if(navStack.length){
+    const p=navStack.pop();
+    navGoingBack=true;
+    try{
+      if(p.v==='admin'){ adminSection=p.sec||null; goTab('admin'); }
+      else goTab(p.v);
+    } finally { navGoingBack=false; }
+    return true;
+  }
+  return false;
+}
+/* 브라우저 뒤로 가기가 앱 밖으로 나가 버리지 않게 지킴이 한 칸을 세워 둔다.
+   안드로이드 ‹ 를 누르면 이 한 칸이 먼저 빠지면서 popstate 가 오고, 우리가 대신 처리한다. */
+function navGuard(){ try{ history.pushState({onstudy:1},''); }catch(e){} }
+function navPop(){
+  if(navBack()){ navGuard(); return; }
+  /* 뿌리(홈 첫 화면) — 물러날 데가 없다. 여기서 바로 닫아 버리면 실수로 앱이 꺼지므로
+     한 번 알려 드리고, 2초 안에 다시 누르시면 그때 진짜 나간다. */
+  const t=Date.now();
+  if(navExitAsk && t-navExitAsk<2000){ navExitAsk=0; history.back(); return; }
+  navExitAsk=t; showToast('한 번 더 누르면 앱이 닫혀요'); navGuard();
+}
+if(typeof history!=='undefined' && history.pushState){
+  try{ history.replaceState({onstudy:0},''); }catch(e){}
+  navGuard();
+  window.addEventListener('popstate', navPop);
+}
+
 function goTab(v,keepDate){
   saveData();   // 바뀐 게 있을 때만 실제 저장됨(writeNow에서 변경 확인)
+  /* ★ 화면을 옮기기 전에 지금 화면을 발자국으로 남긴다(뒤로 가는 중이면 남기지 않는다) */
+  if(!navGoingBack && !(navView===v && adminSection===null)) navStack.push({v:navView, sec:adminSection});
+  if(navStack.length>40) navStack.splice(0, navStack.length-40);   // 발자국이 끝없이 쌓이지 않게
+  navView=v;
   if(v==='home') homeDate=null;    // 홈은 항상 오늘 (다른 화면 갔다 돌아오면 오늘로) — 2026-07-24 원장님 지시
   if(v==='today' && !keepDate) attnDate=null;   // 아래 탭으로 들어올 때만 오늘로 초기화
   if(v==='settle') settleYM=null;  // 정산은 항상 이번 달부터
@@ -3928,13 +4081,18 @@ function initApp(){
   autoRolloverAll();   // 완주한 클래스 자동으로 다음 클래스로 넘김
   if(Object.keys(live).length) ensureTicker();   // 복원된 '수업 중' 타이머 재시작
   // 데스크탑 관리자(admin.html)는 설정 화면부터, 모바일 앱은 홈부터
-  if(document.body.dataset.mode==='admin'){ goTab('admin'); }
-  else { renderHome(); }
+  if(document.body.dataset.mode==='admin'){
+    /* 첫 화면이므로 뒤로 갈 발자국을 만들지 않는다(뒤로 누르면 없는 홈으로 가 버린다) */
+    navGoingBack=true; try{ goTab('admin'); } finally { navGoingBack=false; }
+  }
+  else { navView='home'; renderHome(); }
+  navStack=[];   // 첫 화면이 뿌리다
 }
 /* 원격 변경(다른 기기)이 들어오면 auth/store가 호출 → 현재 화면 다시 그림 */
 function refreshCurrentView(){
-  const active=document.querySelector('.bt.active');
-  const v=active?active.dataset.v:'home';
+  /* ★ 2026-07-28u: 아래 탭 표시(.bt.active)에서 되짚던 것을 navView 하나로 바꿨다.
+     하위 화면에서는 아래 탭이 하나도 안 켜져 있어 늘 '홈'으로 잘못 읽히던 오류를 고친 것이다. */
+  const v=navView;
   const map={home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,
     send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,

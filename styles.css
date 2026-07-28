@@ -309,6 +309,28 @@
     font-family:inherit;font-size:14px;line-height:1.5;resize:vertical;margin-bottom:14px;background:#F9F8F4;color:var(--ink)}
   .note-area:focus,.note-select:focus{outline:2px solid var(--amber);outline-offset:1px}
 
+  /* ---- 학생 카드: 달력/학습 기록 단추 한 줄 · 학습 기록 목록 ---- 2026-07-28u */
+  .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .row-btns .btn{width:auto;padding:8px 14px;margin-top:0}
+  .lsn-wrap{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+  .lsn-ai{background:var(--amber-soft);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .lsn-ai.none{background:#F1F0EB;color:var(--muted);font-size:13px;line-height:1.6}
+  .lsn-ai-h{font-size:13px;font-weight:700;color:var(--amber);margin-bottom:6px}
+  .lsn-ai-l{font-size:13.5px;line-height:1.7;color:var(--ink)}
+  .lsn-ai-c{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.5}
+  .lsn-h{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px}
+  .lsn-n{font-size:12px;font-weight:600;color:var(--muted);margin-left:4px}
+  .lsn-row{border-left:3px solid var(--line);padding:2px 0 2px 10px;margin-bottom:10px}
+  .lsn-d{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:3px}
+  .lsn-m{display:inline-block;border-radius:7px;padding:1px 7px;font-size:11.5px;font-weight:700;margin-left:4px}
+  .lsn-m.g{background:var(--green-soft);color:var(--green)}   /* 집중·열의 */
+  .lsn-m.n{background:#F1F0EB;color:var(--muted)}             /* 보통 */
+  .lsn-m.w{background:var(--clay-soft);color:var(--clay)}     /* 산만·피곤 */
+  .lsn-t{font-size:14px;line-height:1.65;color:var(--ink);white-space:pre-line;word-break:break-word}
+  .lsn-none{color:var(--muted);font-size:13px}
+  .lsn-empty{font-size:13px;color:var(--muted);padding:6px 0}
+  .lsn-c{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.55}
+
   /* ---- 시각 고르개 ㉮ (한 줄 단추 + 아래에서 올라오는 시트) ---- 2026-07-28t
      원장님 지시 — "자리만 차지하는 방식은 안 된다. ㉮ 안으로 만들어".
      평소엔 한 줄 단추 하나만 보이고, 고를 때만 시트가 올라온다. */

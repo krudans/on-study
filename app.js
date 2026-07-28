@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28o-no-confirm-btn */
+/* ONSTUDY-BUILD: 2026-07-28p-lesson-btn-in-row */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -722,20 +722,36 @@ function renderToday(){
       const rng=tt?rng12(tt, endTimeOf(tt,dd)):'';
       statusText = `${isMk?'보강 '+rng:'예정 '+rng}`; statusColor='var(--muted)'; }
 
-    // 액션 버튼 (등원↔하원 토글 + 결석 + 완료)
+    /* ★ 2026-07-28p ★ 원장님 지시 — "여기다 넣어주세요"
+       오늘 학습내용 단추를 카드 위쪽(자세히 펼침 속)에서 [수정] 오른쪽 네 번째 자리로 옮겼다.
+       · 아직 안 적은 날은 「＋ 학습」(주황 점선), 적어 둔 날은 「학습 ✓」(초록)으로만 바뀐다.
+         눌렀을 때 여는 곳은 전과 똑같은 한 곳(openLessonSheet)이다 — 문을 둘로 만들지 않았다.
+       · 하원 완료·결석 카드에도 같은 단추를 붙인다. 학습내용은 수업이 끝난 뒤에 적는 것이니
+         '오늘 완료 취소'만 있던 줄에서 적을 길이 막히면 안 된다.
+       · 글자 크기·칸 나누기는 styles.css 의 .attn-btns.four / .btn.lsnew / .btn.lsdone 한 곳에서만 정한다. */
+    const lsToday = todayLesson(s.id);
+    const lsBtn = `<button class="btn ${lsToday?'lsdone':'lsnew'}" onclick="openLessonSheet(${s.id})">${lsToday?'학습 ✓':'＋ 학습'}</button>`;
+    // 액션 버튼 (등원↔하원 토글 + 결석 + 완료 + 학습내용)
     let action;
     if(done){
-      action=`<button class="btn ghost" onclick="undoToday(${s.id})">오늘 완료 취소</button>`;
+      action=`<div class="row-btns">
+        <button class="btn ghost" onclick="undoToday(${s.id})">오늘 완료 취소</button>
+        ${lsBtn}
+      </div>`;
     } else if(isAbsent){
-      action=`<button class="btn ghost" onclick="clearAbsent(${s.id})">결석 취소</button>`;
+      action=`<div class="row-btns">
+        <button class="btn ghost" onclick="clearAbsent(${s.id})">결석 취소</button>
+        ${lsBtn}
+      </div>`;
     } else {
       const first = isLive
         ? `<button class="btn stop" onclick="quickSend(${s.id},'end')">하원</button>`
         : `<button class="btn start" onclick="quickSend(${s.id},'start')">등원</button>`;
-      action=`<div class="attn-btns">
+      action=`<div class="attn-btns four">
         ${first}
         <button class="btn absentbtn" onclick="markAbsent(${s.id})">결석</button>
         <button class="btn ghost" onclick="openSendConfirm(${s.id},'${isLive?'end':'start'}')">수정</button>
+        ${lsBtn}
       </div>`;
     }
 
@@ -743,13 +759,14 @@ function renderToday(){
     const detail = expanded ? `
       <div class="cal-slot" id="cal-${s.id}"></div>
       ${(()=>{const ls=todayLesson(s.id);
+        /* ★ 2026-07-28p: 작성 단추는 아래 단추 줄 네 번째 자리로 옮겼다.
+           여기에는 적어 둔 내용을 읽는 자리만 남긴다 — 아직 안 적은 날은 아무것도 안 보인다. */
         return ls
         ? `<button class="lesson filled" onclick="openLessonSheet(${s.id})">
              <div class="ls-top"><span class="ls-label">오늘 학습내용</span>
                ${ls.mood?`<span class="ls-mood">${ls.mood}</span>`:''}</div>
              <div class="ls-tx">${ls.text}</div></button>`
-        : `<button class="lesson empty" onclick="openLessonSheet(${s.id})">
-             <span class="ls-plus">＋</span> 오늘 학습내용 작성</button>`;})()}
+        : '';})()}
       ${progBar(s)}
       <div class="clock ${isLive?'show':''}"><span class="dot"></span>
         <span class="time num" data-clock="${s.id}">00:00:00</span>

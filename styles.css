@@ -156,6 +156,13 @@
   .attn-btns.four{grid-template-columns:1fr 1fr 1fr 1fr;gap:6px}
   .attn-btns .btn{margin-top:0;padding:13px 0;font-size:15px}
   .attn-btns.four .btn{padding:13px 0;font-size:14px}
+  /* 학습내용 단추 (출석부 단추 줄 네 번째 자리) — 2026-07-28p
+     테두리는 border 가 아니라 outline 이다 — border 는 단추 높이를 3px 높여
+     옆자리 [등원]·[결석]·[수정] 과 줄이 안 맞게 되기 때문이다. */
+  .btn.lsnew{background:var(--amber-soft);color:var(--amber);
+    outline:1.5px dashed var(--amber);outline-offset:-1.5px}
+  .btn.lsnew:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .btn.lsdone{background:var(--green-soft);color:var(--green)}
   .log-item .badge.absent{background:var(--clay-soft);color:var(--clay)}
 
   /* 차수(팩) 선택 + 음영 */
@@ -170,9 +177,6 @@
   /* 오늘 학습내용 */
   .lesson{width:100%;text-align:left;font-family:inherit;cursor:pointer;border-radius:12px;
     margin:11px 0 2px;padding:12px 14px}
-  .lesson.empty{border:1.5px dashed var(--amber);background:var(--amber-soft);color:var(--amber);
-    font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:6px;justify-content:center}
-  .lesson.empty .ls-plus{font-size:16px}
   .lesson.filled{border:1px solid var(--line);background:#F8F7F2}
   .ls-top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
   .ls-label{font-size:11.5px;font-weight:600;color:var(--muted)}

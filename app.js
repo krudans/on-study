@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28l-past-pick */
+/* ONSTUDY-BUILD: 2026-07-28m-auto-end */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2384,23 +2384,27 @@ function renderManage(){
     <div id="mngList">${r.body}</div>`;
 }
 /* ===== 달력 클릭으로 기간(시작일~종료일) 고르기 ===== */
-/* _rp.past = 달력에서 켠 '지난에 수업한 날' (아직 저장 전) — 2026-07-28l */
-let _rp={start:null, end:null, y:0, m:0, open:false, past:new Set()};
-function rpInit(startMs, endMs){
+/* ★ 2026-07-28m ★ 원장님 지시 — "종료일은 자동 계산 해주세요"
+   달력은 '수업 시작일' 하나만 고른다. 종료 예정일은 고르는 칸이 아니라 계산 결과다(_rp.end 삭제).
+   지난에 수업한 날은 달력이 아니라 그 아래 날짜 단추 목록에서 받는다.
+   _rp.off = 그 목록에서 '이 날은 안 했다'고 끄신 날 (아직 저장 전). 처음 상태는 다 켜짐이다. */
+let _rp={start:null, y:0, m:0, open:false, off:new Set()};
+function rpInit(startMs){
   const base = startMs || dayKey(now.getTime());
-  _rp={ start:startMs||null, end:endMs||null, y:new Date(base).getFullYear(), m:new Date(base).getMonth(), open:false, past:new Set() };
+  _rp={ start:startMs||null, y:new Date(base).getFullYear(), m:new Date(base).getMonth(), open:false, off:new Set() };
 }
 function rpToggle(){ _rp.open=!_rp.open; rpRender(); }
 function rpNav(d){ _rp.m+=d; if(_rp.m<0){_rp.m=11;_rp.y--;} if(_rp.m>11){_rp.m=0;_rp.y++;} rpRender(); }
+/* ★ 2026-07-28m: 달력 클릭은 뜻이 하나다 — 어느 날을 누르셔도 '수업 시작일'이다.
+   빌드 l 까지는 같은 클릭이 다섯 가지 뜻(시작·시작교체·종료해제·지난수업켜기·종료지정)이라
+   원장님이 "시작 일과 끝나는 날을 선택하는것이 좀 애매함"이라고 하셨다. */
 function rpPick(ms){
-  if(_rp.start==null){ _rp.start=ms; _rp.end=null; }            // 첫 클릭 = 시작일
-  else if(ms < _rp.start){ _rp.start=ms; }                      // 시작보다 앞이면 시작 교체
-  else if(ms === _rp.start){ _rp.end=null; }                    // 시작일 다시 클릭 = 종료일 해제(자동으로)
-  else if(ms < dayKey(now.getTime())){ rpTogglePast(ms); return; }  // ★ 2026-07-28l: 시작일 뒤 · 오늘 이전 = 그날 수업했음 켜기/끄기
-  else { _rp.end=ms; }                                          // 시작 뒤 클릭 = 종료일 지정/변경 (리셋 없음)
+  const before=_rp.start;
+  _rp.start=ms;
+  if(before!==ms) _rp.off.clear();   // 시작일이 바뀌면 지난 수업 목록이 통째로 달라진다 → 끈 표시 초기화
   rpRender();
 }
-function rpClear(){ _rp.start=null; _rp.end=null; _rp.past.clear(); rpRender(); }
+function rpClear(){ _rp.start=null; _rp.off.clear(); rpRender(); }
 /* ===== 2026-07-28l: 지난 수업을 달력에서 직접 켜기 =====
    원장님 지시 — "달력으로 시작일을 정하고, 과거일 경우 수업한 날을 클릭하게 하는 것은 어때?"
    회차를 숫자로 역산하지 않는다. 실제로 수업한 날을 켜면 그 개수가 곧 회차다.
@@ -2419,8 +2423,10 @@ function rpFormTmp(){
   const sid=+(sheet.dataset.rpSid||0);
   const base=sid?st(sid):null;
   /* 실제 학생 정보(결석·보강·휴강) 위에 화면에서 고친 값만 얹는다 - 미리보기와 저장 후 값이 같아야 한다 */
+  /* ★ 2026-07-28m: cycleEnd 는 얹지 않는다 — 화면에서 종료일을 고르지 않기 때문이다.
+     예전 학생에게 저장돼 있던 cycleEnd 는 base 에 그대로 있어 계산에 그대로 쓰인다(값을 지우지 않는다). */
   return Object.assign({}, base||{}, {id: base?base.id:-1, days, plan, dur, time:commonTime, dayTimes,
-    cycleStart:_rp.start, cycleEnd:_rp.end});
+    cycleStart:_rp.start});
 }
 /* 시작일부터 어제까지의 수업일 - 달력에 "이 날 수업했나요?"로 띄울 날들 */
 function rpPastDays(tmp){
@@ -2435,9 +2441,10 @@ function rpPastDays(tmp){
   }
   return out;
 }
-/* 켜져 있는 지난 수업일 = 이미 기록이 있는 날 + 이번에 켠 날. 시작일은 1회차이므로 언제나 켜짐 */
+/* ★ 2026-07-28m: 처음 상태는 다 켜짐이다 — 끄신 날(_rp.off)만 뺀다.
+   시작일은 1회차이므로 끌 수 없고, 이미 기록이 있는 날도 끌 수 없다(데이터 삭제 금지). */
 function rpMarked(tmp){
-  return rpPastDays(tmp).filter(k=> k===_rp.start || hasRecordOn(tmp.id,k) || _rp.past.has(k));
+  return rpPastDays(tmp).filter(k=> k===_rp.start || hasRecordOn(tmp.id,k) || !_rp.off.has(k));
 }
 /* 지난 수업 기록 만들기 - 저장 확인 · 실제 저장이 모두 이 함수 하나만 쓴다(단일 소스).
    이미 기록이 있는 날은 만들지 않고, 시각이나 수업 시간이 비면 만들지 않는다. */
@@ -2471,74 +2478,102 @@ function rpPreview(tmp){
 }
 /* 학생 시트의 "진행 상황" 줄 - 달력을 만질 때마다 다시 계산한다.
    빌드 k 까지는 시트를 열 때 한 번만 그려서, 시작일을 바꿔도 옛 숫자가 남아 있었다. */
-function rpSyncProgress(){
+function rpSyncProgress(pIn){
   const el=document.getElementById('stProgress'); if(!el) return;
   const tmp=rpFormTmp();
-  const p=tmp?rpPreview(tmp):null;
+  const p=(pIn!==undefined)?pIn:(tmp?rpPreview(tmp):null);   // ★ 2026-07-28m: rpRender 가 이미 계산했으면 그대로 쓴다(같은 값 한 번만 계산)
   if(!p){ el.innerHTML='계약 회차 · 요일 · 수업 시작일을 고르면 여기에 회차가 나옵니다'; return; }
   el.innerHTML=`진행 상황 : <b>${p.done}회 끝남</b> · 다음은 ${p.done+1}번째 수업`
     +(tmp.plan>0?` (계약 ${tmp.plan}회 중 ${Math.max(0,tmp.plan-p.done)}회 남음)`:'')
     +(p.end?` · 종료 예정 ${fmtMD(p.end)}`:'')
     +(p.add?`<br>켜 두신 지난 수업 <b>${p.add}일</b>이 기록으로 함께 저장됩니다`:'');
 }
-/* 지난 수업일 하나를 켜고 끈다. 이미 기록된 날은 여기서 지우지 않는다(데이터 삭제 금지). */
+/* ★ 2026-07-28m: 지난 수업일 단추 하나를 켜고 끈다(처음은 다 켜짐 → 안 한 날만 끈다).
+   시작일과 이미 기록된 날은 끌 수 없다 - 기록을 지우는 일은 여기서 하지 않는다(데이터 삭제 금지). */
 function rpTogglePast(k){
   const tmp=rpFormTmp();
-  if(!tmp || !tmp.days.length){ showToast('요일을 먼저 골라주세요'); return; }
+  if(!tmp || !tmp.days || !tmp.days.length){ showToast('요일을 먼저 골라주세요'); return; }
   if(!isSessionDay(tmp,k)){ showToast(`${fmtMD(k)}은 이 학생의 수업일이 아니에요`); return; }
+  if(k===_rp.start){ showToast(`${fmtMD(k)}은 수업 시작일이라 1회차예요 - 끌 수 없습니다`); return; }
   if(hasRecordOn(tmp.id,k)){ showToast(`${fmtMD(k)}은 이미 기록된 날이에요 - 여기서는 지울 수 없습니다`); return; }
-  const t=timeFor(tmp, new Date(k).getDay());
-  if(!t || !(durOf(tmp)>0)){ showToast('수업 시작 시각과 수업 시간을 먼저 넣어주세요 - 없으면 기록을 만들 수 없어요'); return; }
-  if(_rp.past.has(k)) _rp.past.delete(k); else _rp.past.add(k);
+  if(_rp.off.has(k)) _rp.off.delete(k); else _rp.off.add(k);
   rpRender();
 }
-/* 시작일 + 폼의 회차·요일로 예상 종료일 자동 계산 (미리보기용) */
-function rpAutoEnd(){
-  const sheet=document.getElementById('sheet'); if(!sheet||!_rp.start) return null;
-  const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
-  const plan=+sheet.dataset.plan||0;
-  if(!plan||!days.length) return null;
-  const sid=+(sheet.dataset.rpSid||0);
-  /* ★ 실제 학생 정보(결석·보강·휴강 기록) 위에 화면에서 고친 값만 얹어서 계산한다.
-       예전엔 빈 객체 {id:-1} 로 계산해서, 미리보기 종료일과 저장 후 종료일이 달랐다. */
-  const base=sid?st(sid):null;
-  const tmp=Object.assign({}, base||{}, {id: base?base.id:-1, days, plan, cycleStart:_rp.start, cycleEnd:null});
-  return currentClassInfo(tmp).end;
+/* 모두 켜기 / 모두 끄기 - 끌 수 없는 날(시작일 · 이미 기록된 날)은 건드리지 않는다 */
+function rpAllOn(){ _rp.off.clear(); rpRender(); }
+function rpAllOff(){
+  const tmp=rpFormTmp(); if(!tmp) return;
+  rpPastDays(tmp).forEach(k=>{ if(k!==_rp.start && !hasRecordOn(tmp.id,k)) _rp.off.add(k); });
+  rpRender();
 }
-function rpLabel(){
-  if(!_rp.start) return '날짜를 고르세요 (자동 계산)';
-  if(_rp.end) return `${fmtMD(_rp.start)} ~ ${fmtMD(_rp.end)}`;
-  const ae=rpAutoEnd();
-  return ae? `${fmtMD(_rp.start)} ~ ${fmtMD(ae)} (자동 계산)` : `${fmtMD(_rp.start)} ~ 자동 계산`;
+/* ★ 2026-07-28m: 지난에 수업한 날 목록 - 달력이 아니라 시작일 칸 바로 아래에 단추로 뜬다.
+   여기 켜진 날의 개수가 곧 회차다(회차를 숫자로 역산하지 않는다 - 단일 소스). */
+function rpRenderPast(tmp, p){
+  const el=document.getElementById('rpPast'); if(!el) return;
+  const days=tmp?rpPastDays(tmp):[];
+  if(!days.length){ el.innerHTML=''; return; }
+  const mark=new Set(rpMarked(tmp));
+  const noTime=days.some(k=>{ const t=timeFor(tmp, new Date(k).getDay()); return !t || !(durOf(tmp)>0); });
+  const chips=days.map(k=>{
+    const on=mark.has(k);
+    const fixed=(k===_rp.start)||hasRecordOn(tmp.id,k);
+    const st_= on
+      ? (fixed?'background:#DFF3E4;color:#1B6B33;border:1px solid #9FD6B0;'
+             :'background:#2F9E44;color:#fff;border:1px solid #2F9E44;')
+      : 'background:#F1F0EA;color:#A8A496;border:1px solid var(--line);text-decoration:line-through;';
+    return `<button type="button" onclick="rpTogglePast(${k})" style="${st_}border-radius:8px;padding:6px 9px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:${fixed?'default':'pointer'}">${fmtMD(k)}${fixed?' 🔒':''}</button>`;
+  }).join('');
+  el.innerHTML=`<div style="margin-top:9px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#FBFAF6">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+      <span style="font-size:12.5px;font-weight:700">지난에 수업한 날 <span style="color:var(--muted);font-weight:600">${days.length}일 중 ${mark.size}일 켜짐</span></span>
+      <span style="display:flex;gap:6px">
+        <button type="button" class="btn ghost small" style="width:auto;padding:4px 9px;font-size:11.5px;margin:0" onclick="rpAllOn()">모두 켜기</button>
+        <button type="button" class="btn ghost small" style="width:auto;padding:4px 9px;font-size:11.5px;margin:0" onclick="rpAllOff()">모두 끄기</button>
+      </span></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>
+    <div class="cap" style="margin-top:7px">수업을 <b>안 한 날만 눌러서 끄세요</b>. 끈 날은 회차로 세지 않고 종료 예정일이 그만큼 뒤로 밀립니다.<br>
+      🔒 = 시작일(1회차) · 이미 기록이 있는 날 — 여기서는 끌 수 없습니다.
+      ${noTime?'<br><b style="color:#B54708">수업 시작 시각과 수업 시간을 먼저 넣어주세요 — 없으면 그 날은 기록으로 만들 수 없습니다.</b>':''}
+      ${(p&&p.add)?`<br>저장하면 <b>${p.add}일</b>이 기록으로 함께 만들어집니다.`:''}</div>
+  </div>`;
+}
+/* ★ 2026-07-28m: 예상 종료일은 rpPreview(=currentClassInfo) 한 곳에서만 나온다.
+   빌드 l 까지는 여기서 따로 계산해서, 지난 수업을 끄고 켤 때 달력의 종료일 표시와
+   진행 상황 줄의 종료일이 서로 달랐다. 이제 같은 값 하나를 나눠 쓴다(단일 소스). */
+function rpAutoEnd(p){
+  if(!_rp.start) return null;
+  const q=(p!==undefined)?p:(function(){ const t=rpFormTmp(); return t?rpPreview(t):null; })();
+  return q?q.end:null;
+}
+function rpLabel(p){
+  if(!_rp.start) return '날짜를 고르세요 (종료일 자동 계산)';
+  const ae=rpAutoEnd(p);
+  return ae? `${fmtMD(_rp.start)} ~ ${fmtMD(ae)} · 자동 계산` : `${fmtMD(_rp.start)} ~ 종료일 자동 계산`;
 }
 function rpRender(){
   const box=document.getElementById('rpBox'); if(!box) return;
-  const lab=document.getElementById('rpLabel'); if(lab) lab.textContent=rpLabel();
-  rpSyncProgress();                                   // ★ 2026-07-28l: 달력을 만질 때마다 회차 줄을 다시 계산
+  /* ★ 2026-07-28m: 한 번만 계산해서 라벨 · 진행 상황 줄 · 달력이 같은 값을 쓴다(단일 소스) */
+  const tmpP=rpFormTmp();
+  const p=tmpP?rpPreview(tmpP):null;
+  const lab=document.getElementById('rpLabel'); if(lab) lab.textContent=rpLabel(p);
+  rpSyncProgress(p);                                  // 달력을 만질 때마다 회차 줄을 다시 계산
+  rpRenderPast(tmpP, p);                              // ★ 2026-07-28m: 지난 수업한 날 목록(달력 밖)
   if(!_rp.open){ box.innerHTML=''; return; }
   const sid=+(document.getElementById('sheet').dataset.rpSid||0);
   const s=sid?st(sid):null;
-  /* ★ 2026-07-28l: 시작일이 과거면 그 뒤의 수업일을 켜고 끌 수 있게 표시한다 */
-  const tmpP=rpFormTmp();
-  const pastSet=new Set(tmpP?rpPastDays(tmpP):[]);
-  const markSet=new Set(tmpP?rpMarked(tmpP):[]);
   const y=_rp.y, m=_rp.m;
   const first=new Date(y,m,1).getDay(), dim=new Date(y,m+1,0).getDate();
   const todayK=dayKey(now.getTime());
-  const autoEnd = (_rp.start && !_rp.end) ? rpAutoEnd() : null;   // 자동 계산된 예상 종료일 표시
+  const autoEnd = rpAutoEnd(p);                       // 자동 계산된 예상 종료일 - 주황 테두리로 표시만 한다
   let grid='';
   ['일','월','화','수','목','금','토'].forEach(w=>grid+=`<div class="cal-wd">${w}</div>`);
   for(let i=0;i<first;i++) grid+='<div></div>';
   for(let dd=1;dd<=dim;dd++){
     const t=new Date(y,m,dd).getTime();
     const isClass = (tmpP && tmpP.days && tmpP.days.length) ? isClassDay(tmpP,t) : (s?isClassDay(s,t):false);
-    const isPastPick = pastSet.has(t) && t!==_rp.start;
     let style='cursor:pointer;border-radius:7px;';
-    if(_rp.start && _rp.end && t>_rp.start && t<_rp.end) style+='background:#FAEEDA;color:#854F0B;';
-    if(t===_rp.start || t===_rp.end) style+='background:var(--amber);color:#fff;font-weight:700;';
-    else if(isPastPick) style+= markSet.has(t)
-        ? 'background:#2F9E44;color:#fff;font-weight:700;'
-        : 'background:#F1F0EA;color:#A8A496;box-shadow:inset 0 0 0 1.5px #C9E4D3;';
+    if(_rp.start && autoEnd && t>_rp.start && t<autoEnd) style+='background:#FAEEDA;color:#854F0B;';
+    if(t===_rp.start) style+='background:var(--amber);color:#fff;font-weight:700;';
     else if(autoEnd && t===autoEnd) style+='box-shadow:inset 0 0 0 2px var(--amber);font-weight:700;';
     else if(isClass) style+='box-shadow:inset 0 0 0 1.5px #C9E4D3;';
     if(t===todayK) style+='outline:2px solid #E03131;outline-offset:-2px;';
@@ -2550,10 +2585,9 @@ function rpRender(){
       <button type="button" onclick="rpNav(1)">›</button></div>
     <div class="cal-grid">${grid}</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-      <span style="font-size:11.5px;color:var(--muted)">${pastSet.size?'초록 = 수업한 날 (눌러서 켜고 끄기)':'첫 클릭=시작일 · 종료일은 자동 계산(주황 테두리) · 직접 정하려면 그 날짜 클릭'}</span>
+      <span style="font-size:11.5px;color:var(--muted)">누르시는 날 = <b>수업 시작일</b>(주황) · 종료 예정일은 자동 계산(주황 테두리)</span>
       <button type="button" class="btn ghost small" style="width:auto;padding:4px 9px;font-size:11.5px;margin:0" onclick="rpClear()">지우기</button>
     </div>
-    ${pastSet.size?`<div class="cap" style="margin-top:6px">지난 수업일 ${pastSet.size}일 중 <b>${markSet.size}일</b> 켜짐 · 실제로 수업한 날만 켜 주세요.<br>끈 날은 회차로 세지 않고 종료 예정일이 그만큼 뒤로 밀립니다.</div>`:''}
   </div>`;
 }
 
@@ -2587,13 +2621,14 @@ function openStudentSheet(id){
       <div id="planBtns" style="display:flex;flex-wrap:wrap;gap:8px">
         ${pkgList.map(n=>`<button type="button" class="pl-btn" data-p="${n}" onclick="pickPlan(${n})" style="flex:1;min-width:64px;padding:10px;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid ${s.plan===n?'var(--ink)':'var(--line)'};background:${s.plan===n?'var(--ink)':'#F7F6F1'};color:${s.plan===n?'#fff':'var(--ink)'}">${n}회</button>`).join('')}
       </div></div>
-    <div class="fld"><label>수업 시작일 <span class="hint">이 날부터 계약 회차만큼 세요 · 종료일은 요일·회차로 자동 계산</span></label>
+    <div class="fld"><label>수업 시작일 <span class="hint">이 날부터 계약 회차만큼 셉니다 · 종료일은 고르지 않습니다(자동 계산)</span></label>
       <button type="button" onclick="rpToggle()" style="width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer">
-        📅 <span id="rpLabel">${s.cycleStart?(s.cycleEnd?`${fmtMD(s.cycleStart)} ~ ${fmtMD(s.cycleEnd)}`:`${fmtMD(s.cycleStart)} ~ 자동 계산`):'날짜를 고르세요 (자동 계산)'}</span>
+        📅 <span id="rpLabel">${s.cycleStart?`${fmtMD(s.cycleStart)} ~ 종료일 자동 계산`:'날짜를 고르세요 (종료일 자동 계산)'}</span>
       </button>
       <div id="rpBox"></div>
       <div class="cap" style="margin-top:6px">달력을 열어 <b>수업을 처음 한 날</b>을 누르세요 — 그 날이 <b>1회차</b>입니다.<br>
-        지난 날짜를 고르면 그 뒤의 수업일이 달력에 뜹니다. <b>실제로 수업한 날만 눌러</b> 초록으로 켜 주세요. 켠 날이 회차로 셉니다.</div>
+        <b>종료 예정일은 고르지 않습니다</b> — 요일·계약 회차로 자동 계산됩니다.</div>
+      <div id="rpPast"></div>
       <div class="cap" id="stProgress" style="margin-top:7px"></div></div>
     <div class="fld"><label>요일</label><div class="day-row" id="dayRow">${dayBtns}</div></div>
     <div class="fld"><label>수업 시간 <span class="hint">직접 골라주세요 · 비우면 저장되지 않아요</span></label>
@@ -2623,7 +2658,7 @@ function openStudentSheet(id){
   sheet.dataset.g1kakao=(g1.kakao===true)?'1':(g1.kakao===false?'0':'');
   sheet.dataset.g2kakao=g2?((g2.kakao===true)?'1':(g2.kakao===false?'0':'')):'';
   cancelSaveStudent();                            // ★ 2026-07-27k: 남아 있던 저장 확인창 정리
-  rpInit(s.cycleStart||null, s.cycleEnd||null);   // 달력 기간 선택기 초기화
+  rpInit(s.cycleStart||null);                     // ★ 2026-07-28m: 시작일 하나만 - 종료일은 고르지 않는다
   sheet.dataset.dur=String(durOf(s));
   syncDayTimes(); syncTimeLock();
   rpRender();                                   // ★ 2026-07-28l: 진행 상황 줄을 계산 결과로 채운다
@@ -2719,11 +2754,13 @@ function saveStudent(id){
        같은 뜻의 날짜를 두 칸에서 받아 서로 달라지던 항목이라 '수업 시작일' 하나로 합쳤다.
        예전 학생에게 저장돼 있던 startDate 값은 지우지 않는다(아래 data 에 넣지 않음 = 그대로 보존).
        startDate 가 없으면 enrollStartMs() 가 cycleStart 를 쓴다. */
+  /* ★ 2026-07-28m: 원장님 지시 — "종료일은 자동 계산 해주세요".
+       종료 예정일은 더 이상 입력값이 아니므로 data 에 cycleEnd 를 넣지 않는다.
+       startDate 때와 같은 방식이다 — 넣지 않으면 예전 학생에게 저장돼 있던 값은 지워지지 않고 그대로 남는다. */
   const cycleStart=_rp.start||null;      // 달력에서 고른 수업 시작일 (필수)
-  const cycleEnd=_rp.end||null;          // 직접 고른 종료일 (비우면 자동 계산)
   const data={name, phone:document.getElementById('stPhone').value.trim(),
     grade:document.getElementById('stGrade').value, school:document.getElementById('stSchool').value.trim(),
-    plan, days, time:commonTime, dayTimes, cycleStart, cycleEnd, guardians,
+    plan, days, time:commonTime, dayTimes, cycleStart, guardians,
     // 호환용 대표(보호자1) 미러
     guardian:guardians[0].name, kakao:guardians[0].kakao, dur};
   data.phone_guardian=guardians[0].phone; // 참고용
@@ -2731,7 +2768,6 @@ function saveStudent(id){
      회차 숫자는 어디에도 저장하지 않는다. 저장하는 것은 '수업 시작일' 하나뿐이고,
      현재 회차는 언제나 달력(currentClassInfo().sessions)이 센다.
      빌드 i 까지 있던 '회차 → 시작일 역산'도 입력칸이 사라져 더 필요 없어 삭제했다. */
-  if(data.cycleEnd!=null && data.cycleStart!=null && dayKey(data.cycleEnd)<dayKey(data.cycleStart)) data.cycleEnd=null;
   /* ★ 2026-07-27k: 바로 저장하지 않는다 — 입력값으로 계산된 결과(종료 예정일 · 진행 상황)를
        먼저 보여 드리고, 원장님이 [맞아요]를 누르셨을 때에만 저장한다.
        원장님 지시: "이게 맞는지 확인 과정을 거치면 되잖아" */
@@ -2780,7 +2816,7 @@ function askSaveStudent(id, data, pastDays){
     ${row('수업 시각', timeTxt||'미설정', !timeTxt)}
     ${row('수업 시간', durLabel(data.dur))}
     ${row('계약 회차', `${data.plan}회 · ${price!=null?won(price):'수업료 미설정'}`, price==null)}
-    ${row('종료 예정일', info.end?fmtMD(info.end):'계산 안 됨', !info.end)}
+    ${row('종료 예정일', info.end?`${fmtMD(info.end)} · 자동 계산`:'계산 안 됨', !info.end)}
     ${row('진행 상황', `오늘까지 ${done}회 끝남 · 다음은 ${done+1}번째`)}
     ${_recs.length?row('지난 수업', `${_recs.length}일을 기록으로 함께 저장<br><span style="font-weight:600;font-size:12.5px;color:var(--muted)">${_recs.map(r=>fmtMD(r.date.getTime())).join(' · ')}</span>`):''}
     ${row('보호자', data.guardians.map(g=>`${g.name} · ${g.phone||'연락처 없음'} · ${g.kakao?'카톡':'문자만'}`).join('<br>'))}
@@ -2806,7 +2842,7 @@ function commitStudent(){
      기록을 먼저 넣고 난 뒤에 날짜를 다시 계산해야 종료 예정일이 맞는다. */
   const _made = makePastRecs(st(_sid), pastDays);
   _made.forEach(r=>sessions.push(r));
-  _rp.past.clear();
+  _rp.off.clear();
   recalcStudentDates(_sid);   // ★ 학생정보를 고치면 지난 클래스·정산 건 날짜도 즉시 같이 바뀐다
   saveData(); closeSheet(); renderManage();
   showToast(`${data.name} ${id?'수정됨':'추가됨'}${_made.length?` · 지난 수업 ${_made.length}일 기록됨`:''} · ${doneCountOf(st(_sid))}회 끝남 · 다음 ${doneCountOf(st(_sid))+1}번째`);

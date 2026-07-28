@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28n-end-auto-only */
+/* ONSTUDY-BUILD: 2026-07-28o-no-confirm-btn */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1399,8 +1399,7 @@ function studentCard(s, forDay){
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${hm12(timeFor(s,forDay))}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
-  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)
-    <button class="btn ghost small" style="width:auto;padding:3px 8px;font-size:11px;margin-left:6px;display:inline-block" onclick="askConfirmCurrent(${s.id})">회차 확정</button></div>`;
+  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
   const calBtn = `<button class="btn ghost small" style="margin-top:10px;width:auto;padding:8px 14px" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>`;
   const calHtml = stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '';
@@ -1541,7 +1540,7 @@ function histCalendar(s, h, list){
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 /* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
-/* ===== 회차 확정 — 프로그램이 계산한 일정을 원장님이 확인 후 고정 ===== */
+/* ===== 지난 클래스 확정 — 이미 끝난 클래스의 날짜를 고정한다 (이번 클래스와 무관) ===== */
 /* 지난 클래스: 계산된 회차 날짜를 확정(고정)해서 다시 계산되지 않게 함 */
 function askConfirmHist(sid, no){
   const s=st(sid);
@@ -1642,57 +1641,15 @@ function saveHistDates(sid, no){
   showToast(`${s.name} ${no}차 날짜 수정됨 (${fmtMD(h.start)} ~ ${fmtMD(h.end)})${cycleMoved?` · 이번 회차는 ${fmtMD(s.cycleStart)}부터`:''}`);
 }
 
-/* 이번 클래스: 계산된 지난 수업일을 실제 기록으로 확정 */
-function askConfirmCurrent(sid){
-  const s=st(sid);
-  const info=currentClassInfo(s);
-  const past=pastSessionsOf(s, info);          // ★ 2026-07-27i: 화면 숫자와 똑같은 목록 하나만 쓴다
-  const need=past.filter(k=>!hasRecordOn(sid,k));       // 아직 기록이 없는 날
-  const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} 이번 회차 확정</h3>
-    <div class="cap">프로그램이 계산한 <b>오늘까지 ${past.length}회</b>예요. 맞으면 확정하세요.
-      확정하면 각 날짜가 <b>수업 기록으로 저장</b>돼서 회차가 흔들리지 않아요.</div>
-    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;max-height:230px;overflow-y:auto">
-      ${past.length? past.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
-        <span style="color:var(--muted)">${i+1}회차</span>
-        <span>${fmtMD(t)} ${hasRecordOn(sid,t)?'<b style="color:#2F7A4F">기록됨</b>':'<span style="color:var(--amber)">예상</span>'}</span></div>`).join('')
-        : '<div style="font-size:13px;color:var(--muted)">아직 지난 수업이 없어요.</div>'}
-    </div>
-    <div class="cap" style="margin-top:10px">${need.length?`${need.length}일이 기록으로 저장됩니다 (예정 시각 ${durLabel(durOf(s))} 기준)`:'이미 모두 기록돼 있어요'}</div>
-    <div class="sheet-btns" style="margin-top:12px">
-      <button class="btn settle" ${past.length?'':'disabled'} onclick="confirmCurrent(${sid})">맞아요 · 확정</button>
-      <button class="btn sms" onclick="closeSheet()">취소</button></div>
-    <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="closeSheet();openStudentSheet(${sid})">회차가 달라요 · 수업 시작일 고치기</button>`;
-  document.getElementById('scrim').classList.add('show');
-}
-function confirmCurrent(sid){
-  const s=st(sid);
-  const info=currentClassInfo(s);
-  const past=pastSessionsOf(s, info);          // ★ 2026-07-27i: 화면 숫자와 똑같은 목록 하나만 쓴다
-  let added=0;
-  past.forEach(k=>{
-    if(hasRecordOn(sid,k)) return;
-    const dow=new Date(k).getDay();
-    const mk=(makeupLog[sid]||[]).find(x=>dayKey(x.t)===k);
-    const t=(mk&&mk.time)?mk.time:timeFor(s,dow);
-    if(!t) return;                       // ★ 시각이 비어 있으면 기록을 만들지 않는다
-    const _dm=(mk&&mk.dur?+mk.dur:durOf(s));
-    if(!(_dm>0)) return;                 // ★ 수업 시간이 비어 있으면 기록을 만들지 않는다
-    const [h,m]=t.split(':').map(Number);
-    const d=new Date(k); d.setHours(h,m,0,0);
-    const start=d.getTime(), end=start+(_dm*60000);
-    const rec={sid, date:new Date(start)};
-    setSessionTimes(rec, start, end);
-    sessions.push(rec); added++;
-  });
-  /* ★ 2026-07-27i: 회차 숫자를 따로 저장하지 않는다(달력이 단일 소스).
-       cycleDone 은 시작일이 없는 옛 학생의 시작일 역산용으로만 남는다. */
-  cycleDone[sid]=past.length;
-  if(!s.cycleStart && info.start) s.cycleStart=info.start;   // 시작일도 고정
-  saveData(); closeSheet(); refreshCurrentView();
-  showToast(`${s.name} 이번 회차 확정 · ${past.length}회 (${added}일 기록 추가)`);
-}
-
+/* ★ 2026-07-28o ★ 원장님 지시 — "소용이 있냐 판단하고, 없으면 없애야지"
+   [회차 확정] 단추와 그 시트(askConfirmCurrent / confirmCurrent)를 삭제했다.
+   이유 ① 하는 일이 학생 시트의 '지난에 수업한 날' 칩 목록(makePastRecs)과 똑같은데,
+          칩 목록은 날짜를 하나씩 켜고 끌 수 있고 저장 확인 시트도 거친다 - 문이 둘일 이유가 없다.
+        ② 시트 아래 [회차가 달라요 · 수업 시작일 고치기]가 실제로는 아무것도 못 고쳤다.
+          이미 기록된 날은 학생 시트에서 잠겨 있기 때문이다.
+        ③ 날짜를 하나씩 고를 수 없어서, 누르면 seedUntil(2026.7.21) 이전 날이 통째로 기록이 됐다.
+   대신 쓰는 곳 - 지난 수업일을 기록으로 만들기 : 학생 시트의 날짜 칩 목록(makePastRecs).
+                 잘못 찍힌 기록 지우기 : 출석부 탭 -> 그 날짜 -> [완료 취소](undoOn). */
 function pastClassesHtml(s){
   // 1차 → 2차 순(오래된 것부터). 차수 우선, 없으면 종료일 순
   const all=(packHistory[s.id]||[]).slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)));
@@ -2304,8 +2261,7 @@ function manageCard(s, forDay){
     ${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt} · <b>${durLabel(durOf(s))}</b></div>
     <div class="mg-line">🏫 학원 등록일(첫 수업일) : ${startTxt}</div>
-    <div class="mg-line">🔄 이번 계약 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · ${doneCountOf(s)}/${s.plan}회 끝남
-      <button class="btn ghost small" style="width:auto;padding:3px 8px;font-size:11px;margin-left:6px;display:inline-block" onclick="askConfirmCurrent(${s.id})">회차 확정</button></div>
+    <div class="mg-line">🔄 이번 계약 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · ${doneCountOf(s)}/${s.plan}회 끝남</div>
     <div class="mg-line">${gLines}</div>
     ${pastClassesHtml(s)}
     <div class="row-btns" style="margin-top:11px">
@@ -2409,7 +2365,7 @@ function rpClear(){ _rp.start=null; _rp.off.clear(); rpRender(); }
    원장님 지시 — "달력으로 시작일을 정하고, 과거일 경우 수업한 날을 클릭하게 하는 것은 어때?"
    회차를 숫자로 역산하지 않는다. 실제로 수업한 날을 켜면 그 개수가 곧 회차다.
    여기서 만드는 기록은 [등원]/[하원]이 만드는 것과 같은 모양의 세션 기록이고, 발송은 하지 않는다
-   (이미 있는 confirmCurrent 와 같은 방식). 값이 없으면 만들지 않는다 - 시각·수업 시간이 비면 건너뛴다. */
+   값이 없으면 만들지 않는다 - 시각·수업 시간이 비면 건너뛴다. */
 function rpFormTmp(){
   const sheet=document.getElementById('sheet'); if(!sheet) return null;
   const days=[...document.querySelectorAll('#dayRow .day-btn.on')].map(b=>+b.dataset.d);
@@ -2838,7 +2794,7 @@ function commitStudent(){
   else { const nid=++nextId; students.push({id:nid,...data}); _sid=nid; }
   cancelSaveStudent();
   /* ★ 2026-07-28l: 달력에서 켜 두신 지난 수업일을 실제 기록으로 만든다.
-     [등원]/[하원]이 만드는 것과 같은 모양이고 발송은 하지 않는다(confirmCurrent 와 같은 방식).
+     [등원]/[하원]이 만드는 것과 같은 모양이고 발송은 하지 않는다.
      회차 숫자(cycleDone)는 쓰지 않는다 — 회차는 언제나 달력이 센다(단일 소스).
      기록을 먼저 넣고 난 뒤에 날짜를 다시 계산해야 종료 예정일이 맞는다. */
   const _made = makePastRecs(st(_sid), pastDays);

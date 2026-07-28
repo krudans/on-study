@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28s-time-picker */
+/* ONSTUDY-BUILD: 2026-07-28t-time-sheet */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -155,33 +155,119 @@ function tsBuild(ap,h,m){                 // 세 목록 값 → 'HH:MM' / 하나
   let H=(+h)%12; if(ap==='PM') H+=12;
   return `${String(H).padStart(2,'0')}:${String(+m).padStart(2,'0')}`;
 }
-/* o.id / o.cls / o.data 는 숨은 칸에 그대로 붙는다(예전 <input type="time"> 자리를 대신하기 위해서다).
-   o.on 은 값이 세 개 다 갖춰졌을 때만 부를 코드다(중간 상태로 저장하거나 경고하지 않는다). */
+/* ★ 2026-07-28t 원장님이 고르신 방식(시안 ㉮) ★
+     평소엔 「오후 2:30」 한 줄 단추만 보이고, 누르면 아래에서 시트가 올라와
+     오전/오후 · 시 · 분을 큰 글씨로 고른 뒤 [확인]을 누른다.
+     빌드 s 의 목록 세 개는 한 줄을 세 칸이나 먹고 세 번을 눌러야 해서 원장님이 물리셨다.
+   ★ 저장되는 값의 모양은 예전 그대로 'HH:MM'(24시간) 글자다.
+     진짜 값은 여전히 숨은 칸 하나(.ts-val)에만 있다(단일 소스). 단추는 그 값을 보여 주는 껍데기다.
+     숨은 칸에 예전 <input type="time"> 과 똑같은 id·class·data-* 가 그대로 달려 있으므로
+     값을 읽어 가던 코드(document.getElementById('stTime').value 등)는 한 곳도 고칠 필요가 없다.
+   ★ 값이 없으면 단추에 '고르지 않음'이라고 뜬다 - 코드가 임의의 시각을 채워 넣지 않는다.
+     세 가지를 다 고르기 전에는 [확인]이 눌리지 않고 숨은 칸은 빈 글자로 남는다.
+     그래서 저장은 기존 필수값 검사에서 그대로 막힌다.
+   o.id / o.cls / o.data 는 숨은 칸에 그대로 붙는다.
+   o.on 은 [확인]을 눌러 값이 갖춰졌을 때만 불린다(중간 상태로 저장하거나 경고하지 않는다). */
+function tsLabel(v){ return v ? hm12(v) : '고르지 않음'; }
 function timeSel(val, o){
   o=o||{};
-  const t=tsParse(val);
-  const ap=t?t.ap:'', hh=t?t.h:'', mm=t?t.m:'';
-  const op=(v,label,sel)=>`<option value="${v}"${sel?' selected':''}>${label}</option>`;
-  let apO=op('','오전/오후',ap==='')+op('AM','오전',ap==='AM')+op('PM','오후',ap==='PM');
-  let hO=op('','시',hh==='');
-  for(let i=1;i<=12;i++) hO+=op(i,`${i}시`,hh===i);
-  let mO=op('','분',mm==='');
-  for(let i=0;i<60;i++) mO+=op(i,`${String(i).padStart(2,'0')}분`,mm===i);   // ★ 1분 단위 60개(원장님 지시)
+  const v=val||'';
   const idA=o.id?` id="${o.id}"`:'', clsA=o.cls?` ${o.cls}`:'', dataA=o.data?` ${o.data}`:'';
   return `<span class="tsel"${o.on?` onchange="${o.on}"`:''}>`
-    + `<select class="note-select ts-ap" aria-label="오전 오후" onchange="tsSync(this)">${apO}</select>`
-    + `<select class="note-select ts-h" aria-label="시" onchange="tsSync(this)">${hO}</select>`
-    + `<select class="note-select ts-m" aria-label="분" onchange="tsSync(this)">${mO}</select>`
-    + `<input type="hidden"${idA} class="ts-val${clsA}"${dataA} value="${val||''}"></span>`;
+    + `<button type="button" class="tsbtn${v?'':' empty'}" onclick="tsOpen(this)">`
+    +   `<span class="tsb-v">${tsLabel(v)}</span><span class="tsb-c">고르기 ▾</span></button>`
+    + `<input type="hidden"${idA} class="ts-val${clsA}"${dataA} value="${v}"></span>`;
 }
-function tsSync(sel){                     // 목록을 고칠 때마다 숨은 칸(진짜 값)을 다시 쓴다
-  const w=sel.closest('.tsel'); if(!w) return;
-  w.querySelector('.ts-val').value =
-    tsBuild(w.querySelector('.ts-ap').value, w.querySelector('.ts-h').value, w.querySelector('.ts-m').value);
+/* 고르는 시트는 앱에 하나뿐이다 - 만드는 곳도 여기 하나뿐이다(단일 소스).
+   학생 수정 시트(#scrim, z-index 50)가 이미 열린 위에 겹쳐 떠야 하므로 z-index 를 그보다 높게 준다. */
+let tsWrap=null, tsAp='', tsH='', tsM='';
+function tsEnsure(){
+  let el=document.getElementById('tsScrim');
+  if(el) return el;
+  el=document.createElement('div');
+  el.className='ts-scrim'; el.id='tsScrim';
+  el.innerHTML=`<div class="ts-sheet">
+      <h3>시각 고르기</h3>
+      <div class="ts-now none" id="tsNow"></div>
+      <div class="ts-cols">
+        <div class="ts-col" id="tsColA"></div>
+        <div class="ts-col" id="tsColH"></div>
+        <div class="ts-col" id="tsColM"></div></div>
+      <div class="ts-hint" id="tsHint"></div>
+      <div class="sheet-btns">
+        <button class="btn sms" type="button" onclick="tsClose()">취소</button>
+        <button class="btn hawon" type="button" id="tsOk" onclick="tsConfirm()">확인</button></div></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e=>{ if(e.target.id==='tsScrim') tsClose(); });
+  tsFill();
+  return el;
+}
+function tsFill(){                        // 고를 거리를 한 번만 만들어 둔다
+  const col=(id,items,k)=>{
+    const c=document.getElementById(id); if(!c) return;
+    c.innerHTML=items.map(it=>`<button type="button" data-v="${it.v}" onclick="tsSet('${k}','${it.v}')">${it.t}</button>`).join('');
+  };
+  const hs=[]; for(let i=1;i<=12;i++) hs.push({v:i,t:`${i}시`});
+  const ms=[]; for(let i=0;i<60;i++) ms.push({v:i,t:`${String(i).padStart(2,'0')}분`});   // ★ 1분 단위 60개(원장님 지시)
+  col('tsColA',[{v:'AM',t:'오전'},{v:'PM',t:'오후'}],'ap');
+  col('tsColH',hs,'h');
+  col('tsColM',ms,'m');
+}
+function tsOpen(btn){
+  const w=btn.closest('.tsel'); if(!w) return;
+  tsWrap=w;
+  const t=tsParse(tsVal(w));
+  tsAp=t?t.ap:''; tsH=t?t.h:''; tsM=t?t.m:'';    // ★ 값이 없으면 아무것도 고르지 않은 채로 연다
+  tsEnsure().classList.add('show');
+  tsMark(); tsPreview(); tsScroll();
+}
+function tsClose(){
+  const el=document.getElementById('tsScrim'); if(el) el.classList.remove('show');
+  tsWrap=null;
+}
+function tsSet(k,v){                      // 고른 것만 표시를 바꾼다(다시 그리지 않아 자리가 튀지 않는다)
+  if(k==='ap') tsAp=v; else if(k==='h') tsH=+v; else tsM=+v;
+  tsMark(); tsPreview();
+}
+function tsMark(){
+  [['tsColA',String(tsAp)],['tsColH',String(tsH)],['tsColM',String(tsM)]].forEach(pair=>{
+    const c=document.getElementById(pair[0]); if(!c) return;
+    c.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===pair[1]));
+  });
+}
+function tsScroll(){                      // 지금 값이 가운데 보이게 굴려 둔다
+  ['tsColA','tsColH','tsColM'].forEach(id=>{
+    const c=document.getElementById(id); if(!c) return;
+    const on=c.querySelector('button.on');
+    c.scrollTop = on ? (on.offsetTop - c.clientHeight/2 + on.offsetHeight/2) : 0;
+  });
+}
+function tsPreview(){
+  const v=tsBuild(tsAp,tsH,tsM);
+  const now=document.getElementById('tsNow'), hint=document.getElementById('tsHint'), ok=document.getElementById('tsOk');
+  /* 아직 다 못 골랐으면 고른 것만 보여 주고 나머지 자리는 빈 자리로 둔다 - 코드가 채워 넣지 않는다 */
+  const part = (tsAp==='AM'?'오전 ':tsAp==='PM'?'오후 ':'')
+             + (tsH!==''?tsH:'□') + ':' + (tsM!==''?String(tsM).padStart(2,'0'):'□□');
+  if(now){ now.textContent = v ? hm12(v) : part; now.className = 'ts-now' + (v?'':' none'); }
+  if(hint) hint.textContent = v ? '' : '오전/오후 · 시 · 분 세 가지를 모두 골라 주세요';
+  if(ok)   ok.disabled      = !v;         // ★ 다 고르기 전에는 [확인]이 눌리지 않는다
+}
+function tsConfirm(){
+  const v=tsBuild(tsAp,tsH,tsM);
+  if(!v||!tsWrap) return;                 // 하나라도 안 골랐으면 아무 일도 하지 않는다
+  const w=tsWrap, inp=w.querySelector('.ts-val');
+  if(!inp) return;
+  inp.value=v;                            // ★ 진짜 값을 쓰는 곳은 여기 하나뿐이다
+  const b=w.querySelector('.tsbtn'), bv=w.querySelector('.tsb-v');
+  if(bv) bv.textContent=hm12(v);
+  if(b)  b.classList.remove('empty');
+  tsClose();
+  /* 예전 <select> 가 올려 주던 change 를 그대로 흉내 낸다 -
+     timeSel(...,{on:'...'}) 로 걸어 둔 코드가 고친 곳 없이 그대로 불린다. */
+  inp.dispatchEvent(new Event('change',{bubbles:true}));
 }
 function tsVal(w){ const v=w&&w.querySelector?w.querySelector('.ts-val'):null; return v?v.value:''; }
-function tsDone(w,fn){ const v=tsVal(w); if(v) fn(v); }   // 세 개 다 고른 뒤에만 부른다
-/* 숨은 칸(id)으로 찾아 목록 세 개를 잠그거나 푼다 - 예전 input.disabled 자리를 대신한다 */
+function tsDone(w,fn){ const v=tsVal(w); if(v) fn(v); }   // 값이 갖춰졌을 때만 부른다
 
 /* 이 학생이 '요일마다 시간 다르게'인가 — 판단하는 곳은 여기 하나뿐이다(단일 소스). 2026-07-28s */
 function perDayOn(s){ return !!(s && s.dayTimes && Object.keys(s.dayTimes).length); }

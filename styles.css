@@ -39,6 +39,24 @@
   .view.active{display:block}
   .empty{text-align:center;color:var(--muted);font-size:14px;padding:34px 10px}
 
+  /* ---- 날짜 이동 바의 날짜 글씨 = 날짜 고르는 곳 (홈·출석부 공용) ---- 2026-07-28q
+     원장님 지시: "날짜 클릭하면 바로 날짜 선택해서 해당일로 갈 수 있게".
+     보이는 글씨는 그대로 두고, 그 위에 투명한 날짜칸(input type=date)을 겹쳐 둔다.
+     칸을 안 보이게 하려고 display:none 을 쓰면 안 된다 - 그러면 브라우저가
+     달력을 띄우지 않는다. 자리는 차지하되 opacity:0 으로 투명하게만 만든다.
+     글씨 크기·굵기는 예전에 인라인으로 있던 값과 똑같이 여기 한 곳에서만 정한다. */
+  .dn-pick{position:relative;display:block;font-weight:600;font-size:15px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:34px}
+  .dn-txt{border-bottom:1px dashed var(--line);padding-bottom:1px}
+  .dn-pick input[type=date]{position:absolute;left:0;top:0;width:100%;height:100%;
+    opacity:0;border:none;padding:0;margin:0;background:none;cursor:pointer;font-family:inherit}
+  .dn-pick input[type=date]:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:8px}
+  /* 아이폰 사파리는 날짜칸 안쪽 글자에 제 나름의 여백을 넣어 칸이 커진다 - 눌리는 자리가
+     옆 단추까지 넘어가지 않도록 안쪽 글자도 같이 지운다. */
+  .dn-pick input[type=date]::-webkit-date-and-time-value{margin:0;height:100%}
+  .dn-pick input[type=date]::-webkit-calendar-picker-indicator{opacity:0;width:100%;height:100%;
+    position:absolute;left:0;top:0;margin:0;padding:0;cursor:pointer}
+
   /* ---- 홈 ---- */
   .greet{padding:2px 2px 16px}
   .greet .hi{font-size:15px;color:var(--muted)}

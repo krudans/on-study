@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28p-lesson-btn-in-row */
+/* ONSTUDY-BUILD: 2026-07-28q-date-picker */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -170,6 +170,13 @@ function nextClassDay(s, fromMs){
 // 이번 회차 시작일: 수동값 → 직전 정산 다음 수업일 → 학생 시작일
 // 날짜를 그날 00:00 ms로
 function dayKey(ms){ const d=new Date(ms); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+/* ★ 2026-07-28q ★ 날짜칸(<input type="date">)에 넣을 글자를 만드는 단 하나의 자리.
+   toISOString() 을 쓰면 안 된다 - 그것은 세계표준시(UTC) 기준이라 한국(+9시간)에서는
+   그 날 0시가 전날 오후 3시로 계산되어 날짜칸에 '하루 전'이 찍힌다.
+   (실제로 보강 날짜 칸의 기본값이 어제로 떠 있었다 - 이번에 같이 고쳤다.) */
+function dateInputValue(ms){ if(!ms) return '';
+  const d=new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 /* ★ 2026-07-27i 회차 단일 소스 ★
    완료 회차는 '달력이 초록으로 칠하는 그 날짜 목록'(currentClassInfo().sessions) 하나에서만 나온다.
    예전에는 저장된 카운터(cycleDone)와 달력이 각자 세서 두 숫자가 갈라졌다.
@@ -538,12 +545,15 @@ function upcomingDates(st){
 
 /* 홈 화면 기준 날짜 (기본 오늘, ‹ › 로 이동) */
 /* 날짜 이동 바 — 홈·출석부 공용. 버튼 위치가 절대 움직이지 않도록 고정 폭 */
-function dateNavBar(ms, prevFn, nextFn, todayFn){
+function dateNavBar(ms, prevFn, nextFn, todayFn, goFn){
   const d=new Date(ms), isToday = dayKey(ms)===dayKey(now.getTime());
   const btn='width:34px;height:34px;flex:0 0 34px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;padding:0';
   return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 12px">
     <button onclick="${prevFn}" aria-label="전날" style="${btn}">‹</button>
-    <span style="flex:1;min-width:0;text-align:center;font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일${isToday?' · 오늘':''}</span>
+    <span class="dn-pick" style="flex:1;min-width:0;text-align:center">
+      <span class="dn-txt">${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일${isToday?' · 오늘':''}</span>
+      <input type="date" aria-label="날짜 선택" value="${dateInputValue(ms)}"
+        onclick="try{this.showPicker()}catch(e){}" onchange="${goFn}(this.value)"></span>
     <button onclick="${nextFn}" aria-label="다음날" style="${btn}">›</button>
     <button onclick="${todayFn}" style="flex:0 0 44px;width:44px;height:34px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;padding:0;${isToday?'visibility:hidden':''}">오늘</button>
   </div>`;
@@ -552,12 +562,24 @@ let homeDate=null;
 function homeBaseMs(){ return homeDate ? homeDate.getTime() : dayKey(now.getTime()); }
 function homeNav(d){ const b=new Date(homeBaseMs()); b.setDate(b.getDate()+d); homeDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderHome(); }
 function homeToday(){ homeDate=null; renderHome(); }
+/* ★ 2026-07-28q ★ 원장님 지시 — "날짜 클릭하면 바로 날짜 선택해서 해당일로 갈 수 있게도 해줘"
+   고른 날이 오늘이면 homeDate 를 비운다 - '오늘'을 나타내는 방법을 둘로 만들지 않기 위해서다. */
+function homeGo(v){ const ms=dayFromInput(v); if(ms==null) return;
+  homeDate = ms===dayKey(now.getTime()) ? null : new Date(ms); renderHome(); }
 
 /* 출석부 기준 날짜 (기본 오늘, ‹ › 로 이동) */
 let attnDate=null;
 function attnBaseMs(){ return attnDate ? attnDate.getTime() : dayKey(now.getTime()); }
 function attnNav(d){ const b=new Date(attnBaseMs()); b.setDate(b.getDate()+d); attnDate=new Date(b.getFullYear(),b.getMonth(),b.getDate()); renderToday(); }
 function attnToday(){ attnDate=null; renderToday(); }
+/* ★ 2026-07-28q ★ 날짜 글씨를 눌러 고른 날로 바로 이동 (홈의 homeGo 와 같은 방식) */
+function attnGo(v){ const ms=dayFromInput(v); if(ms==null) return;
+  attnDate = ms===dayKey(now.getTime()) ? null : new Date(ms); renderToday(); }
+/* 날짜칸에서 읽어 온 글자(YYYY-MM-DD)를 그 날 0시로 바꾸는 단 하나의 자리 (dateInputValue 의 반대) */
+function dayFromInput(v){ if(!v) return null;
+  const p=String(v).split('-').map(Number);
+  if(p.length!==3 || p.some(n=>!Number.isFinite(n))) return null;
+  return new Date(p[0], p[1]-1, p[2]).getTime(); }
 /* 홈에서 보고 있던 날짜를 그대로 출석부로 인계 (2026-07-24 원장님 지시) */
 function goAttnFromHome(){ attnDate = homeDate ? new Date(homeDate.getTime()) : null; goTab('today', true); }
 
@@ -596,7 +618,7 @@ function renderHome(){
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
   el.innerHTML=`
     <div class="greet"><div class="hi">안녕하세요, 원장님</div></div>
-    ${dateNavBar(hDate.getTime(), 'homeNav(-1)', 'homeNav(1)', 'homeToday()')}
+    ${dateNavBar(hDate.getTime(), 'homeNav(-1)', 'homeNav(1)', 'homeToday()', 'homeGo')}
     <div class="hero">
       <div class="ring">
         <svg width="96" height="96" viewBox="0 0 96 96">
@@ -664,7 +686,7 @@ function renderToday(){
     .sort((a,b)=>(timeFor(a,dowA)||a.time||'').localeCompare(timeFor(b,dowA)||b.time||''));
   // 날짜 이동
   const navBtn='width:30px;height:30px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-  const dateNav=dateNavBar(aMs, 'attnNav(-1)', 'attnNav(1)', 'attnToday()');   // 홈과 동일한 공용 바
+  const dateNav=dateNavBar(aMs, 'attnNav(-1)', 'attnNav(1)', 'attnToday()', 'attnGo');   // 홈과 동일한 공용 바
   // 상단 요약 (그날 기준)
   const isAbsentOn=(sid)=>(absentLog[sid]||[]).some(x=>dayKey(x)===aMs);
   const doneOn=(sid)=>sessions.find(x=>x.sid===sid && dayKey(x.date)===aMs);
@@ -1055,7 +1077,7 @@ function openMakeupSheet(id){
   const dcur=durOf(s);
   sheet.innerHTML=`<h3>${s.name} 보강일 지정</h3>
     <div class="cap">보강 날짜·시작 시각과 수업 시간을 정하세요. <b>회차·예상 종료일에 자동 반영</b>되고 달력에 보라색으로 표시돼요.</div>
-    <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select" value="${new Date(dayKey(now.getTime())).toISOString().slice(0,10)}"></div>
+    <div class="fld"><label>날짜</label><input type="date" id="mkDate" class="note-select" value="${dateInputValue(dayKey(now.getTime()))}"></div>
     <div class="fld"><label>시작 시각</label><input type="time" id="mkTime" class="note-select" value="${timeFor(s, new Date().getDay())||s.time||''}"></div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="mkDurRow">
@@ -1608,10 +1630,9 @@ function editHistDates(sid, no){
   if(!h){ showToast('기록을 찾을 수 없어요'); return; }
   const cnt=h.done||h.plan||0;
   const list=histClassOf(s,h).sessions.slice(0,cnt);  // ★ 단일 계산기 경유
-  const toV=(ms)=>{ if(!ms) return ''; const d=new Date(ms); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
   const rows=Array.from({length:cnt},(_,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 0">
       <span style="font-size:13px;color:var(--muted);white-space:nowrap">${i+1}회차</span>
-      <input type="date" class="note-select he-inp" data-i="${i}" value="${toV(list[i])}" style="flex:1;margin:0"></div>`).join('');
+      <input type="date" class="note-select he-inp" data-i="${i}" value="${dateInputValue(list[i])}" style="flex:1;margin:0"></div>`).join('');
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} ${no}차 날짜 수정</h3>
     <div class="cap">회차별 날짜를 고친 뒤 저장하세요. 기간·수업 기록·정산 기간이 함께 바뀝니다.</div>

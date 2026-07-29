@@ -16,7 +16,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<!-- ★ 2026-07-29 — CSS도 JS와 똑같이 늘 새것을 받는다.
+     이게 없으면 새 app.js 가 그리는 새 모양을 브라우저가 캐시해 둔 옛 styles.css 로 그려서
+     알약이 맨 네모 단추로 나온다. 불러오는 방식은 아래 JS 와 같은 한 가지다. -->
+<script>(function(){var v='?v='+Date.now();
+['styles.css'].forEach(function(f){
+  document.write('<link rel="stylesheet" href="'+f+v+'">');});})();</script>
+<noscript><link rel="stylesheet" href="styles.css"></noscript>
 <!-- Firebase compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

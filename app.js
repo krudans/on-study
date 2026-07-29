@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28v-lessoncat */
+/* ONSTUDY-BUILD: 2026-07-29w-lessonrange-pastday */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -148,7 +148,14 @@ function catsetOfKeys(keys){
 }
 const QN_STEPS=[10,20,30,40,50,60,70,80,90,100];      // 문제 수 — 10단위
 const ACC_STEPS=[0,10,20,30,40,50,60,70,80,90,100];   // 정답률 — 10단위
-function todayLesson(sid){return lessons.find(l=>l.sid===sid && l.date.toDateString()===now.toDateString());}
+/* ★ 2026-07-29 원장님 지시 — "학습내용을 전일에도 기록할 수 있게 해줘"(이전 출석부 날짜)
+   그날 기록을 찾는 곳은 여기 한 곳뿐이다. 오늘도 지난 날도 이 함수를 쓴다. */
+function lessonOn(sid, ms){ const k=dayKey(ms); return lessons.find(l=>l && l.sid===sid && l.date && dayKey(l.date.getTime())===k); }
+function todayLesson(sid){ return lessonOn(sid, now.getTime()); }
+/* 시트 제목·안내글에 쓰는 날짜 이름도 한 곳에서만 만든다 */
+function lsnDayLabel(ms){ const k=dayKey(ms);
+  if(k===dayKey(now.getTime())) return '오늘';
+  const d=new Date(k); return `${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}.(${WD[d.getDay()]})`; }
 
 // 보호자 목록 (신규 모델 guardians[] 우선, 없으면 구 필드에서 구성)
 function guardiansOf(s){
@@ -926,6 +933,11 @@ function renderToday(){
       else if(isPast){ stx = `미확정 · 예정 ${hm12(timeFor(s,dowA))}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
               <button class="btn absentbtn small" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }
+      /* ★ 2026-07-29 원장님 지시 — 지난 날 출석부에서도 학습내용을 적을 수 있어야 한다.
+         결석이든 완료든 미확정이든 그날이 이미 지났으면 붙인다. 아직 오지 않은 날은 적을 것이 없으니 안 붙인다.
+         여는 곳은 오늘 카드와 똑같은 한 곳(openLessonSheet)이고, 날짜만 그날(aMs)로 넘긴다. */
+      if(isPast){ const lsD=lessonOn(s.id, aMs);
+        btns += `<button class="btn ${lsD?'lsdone':'lsnew'} small" onclick="openLessonSheet(${s.id},${aMs})">${lsD?'학습 ✓':'＋ 학습'}</button>`; }
       let inlineBtn='';
       if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA))}`; sc='var(--muted)';   // 회차는 cycBadge로 이름 옆 표기
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
@@ -1180,19 +1192,22 @@ function buildCalendar(s, cal, prevClick, nextClick){
     <div class="cal-foot">${rangeLine}${payLine}${mkLine}</div>
   </div>`;
 }
-function openLessonSheet(id){
-  const s=st(id); const ls=todayLesson(id);
+function openLessonSheet(id, ms){
+  /* 날짜를 안 주시면 오늘이다 — 학생 탭 등 다른 곳에서 부르던 방식이 그대로 살아 있어야 한다 */
+  const dMs = dayKey(ms==null ? now.getTime() : ms);
+  const dLb = lsnDayLabel(dMs), isTd = (dLb==='오늘');
+  const s=st(id); const ls=lessonOn(id, dMs);
   const chips=MOODS.map(m=>`<button type="button" class="mood-chip ${ls&&ls.mood===m?'on':''}" data-m="${m}" onclick="pickMood(this)">${m}</button>`).join('');
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} · 오늘 학습내용</h3>
-    <div class="cap">오늘 아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.</div>
+  sheet.innerHTML=`<h3>${s.name} · ${dLb} 학습내용</h3>
+    <div class="cap">${isTd?'오늘':'그날'} 아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.${isTd?'':`<br><b>${dLb}</b> 기록으로 저장됩니다.`}</div>
     <div class="mood-row" id="moodRow"><span class="mood-k">태도</span>${chips}</div>
     <div class="lsc" id="catBox"></div>
     <div class="lsc" id="qnBox"></div>
     <div class="lsc" id="accBox"></div>
     <textarea id="lessonText" class="note-area" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
-    <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id})">저장</button>
-      ${ls?`<button class="btn sms" onclick="deleteLesson(${id})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
+    <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
+      ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
   /* ★ 고르신 값은 시트가 열려 있는 동안만 여기(dataset)에 둔다. [저장]을 눌러야 기록에 들어간다. */
   sheet.dataset.cats  = (ls&&Array.isArray(ls.cats))?ls.cats.join(','):'';
@@ -1226,7 +1241,11 @@ function lsnDrawCats(){
   /* 다른 과정에서 골라 둔 것이 있으면 알려 드린다 — 안 보인다고 사라진 게 아니다 */
   const hid = sel.filter(k=>k!=='etc' && !(set && CATSETS[set].list.some(c=>c.k===k)));
   const hidHtml = hid.length ? `<div class="lsc-hid">다른 과정에서 고르신 것도 함께 저장됩니다 — ${hid.map(k=>lsnEsc(catName(k)||k)).join(' · ')}</div>` : '';
-  box.innerHTML = `<div class="lsc-k">수업 내용 ${head}</div>${pick}<div class="lsc-chips">${chips}</div>${hidHtml}
+  /* ★ 2026-07-29 원장님 지시 — 고른 게 눈에 안 보인다고 하셨다.
+     알약 색(.lsc-chip.on)만으로는 CSS 가 늦게 오면 아무 표시가 안 난다.
+     문제 수·정답률과 똑같이 글자로도 몇 개 골랐는지 적는다. 복수 선택 + 기타 함께 고르기가 원래 동작이다. */
+  const cnt = `<span class="lsc-v">${sel.length?sel.length+'개 고름':'안 고름'}</span>`;
+  box.innerHTML = `<div class="lsc-k">수업 내용 ${cnt} ${head}</div>${pick}<div class="lsc-chips">${chips}</div>${hidHtml}
     <input id="lsnEtc" class="note-select lsc-etc" style="display:${sel.indexOf('etc')>=0?'block':'none'}" value="${lsnAttr(sheet.dataset.etc||'')}" placeholder="직접 적기 (예: 도형 심화 프린트)">`;
 }
 function lsnPickToggle(){ const sheet=document.getElementById('sheet'); lsnKeepEtc(); sheet.dataset.pick = sheet.dataset.pick==='1'?'':'1'; lsnDrawCats(); }
@@ -1240,6 +1259,9 @@ function pickCat(btn,k){
   if(i>=0) sel.splice(i,1); else sel.push(k);
   sheet.dataset.cats=sel.join(',');
   btn.classList.toggle('on');
+  /* 알약만 켜고 끄므로 '몇 개 고름' 글자는 여기서 같이 고친다 — 다시 그리면 적으신 글이 날아간다 */
+  const cv=document.querySelector('#catBox .lsc-v');
+  if(cv) cv.textContent = sel.length ? sel.length+'개 고름' : '안 고름';
   if(k==='etc'){ const e=document.getElementById('lsnEtc'); if(e) e.style.display = sel.indexOf('etc')>=0?'block':'none'; }
 }
 function lsnDrawQn(){
@@ -1265,7 +1287,9 @@ function pickMood(btn){
   if(cur===sel){document.getElementById('sheet').dataset.mood='';}
   else{btn.classList.add('on');document.getElementById('sheet').dataset.mood=sel;}
 }
-function saveLesson(id){
+function saveLesson(id, ms){
+  const dMs = dayKey(ms==null ? now.getTime() : ms);
+  const dLb = lsnDayLabel(dMs);
   const sheet=document.getElementById('sheet');
   const text=document.getElementById('lessonText').value.trim();
   const mood=sheet.dataset.mood||'';
@@ -1277,8 +1301,9 @@ function saveLesson(id){
   if(!text && !mood && !cats.length && qn===null && acc===null){
     showToast('내용을 적거나 태도·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
   }
-  const ex=todayLesson(id);
-  const rec = ex || {sid:id, date:new Date()};
+  const ex=lessonOn(id, dMs);
+  /* 오늘이면 지금 시각까지 남기고, 지난 날이면 그날 0시로 둔다 — 없는 시각을 지어내지 않는다 */
+  const rec = ex || {sid:id, date: (dLb==='오늘') ? new Date() : new Date(dMs)};
   rec.mood=mood; rec.text=text;
   /* ★ 안 고른 것은 넣지 않고 지운다 — 빈 값을 임의의 숫자로 채우지 않는다(미설정은 미설정으로 남는다) */
   if(cats.length) rec.cats=cats; else delete rec.cats;
@@ -1289,14 +1314,15 @@ function saveLesson(id){
   saveData(); closeSheet(); renderToday();
   /* 학생 탭에서 그 학생 학습 기록을 펼쳐 두셨으면 같이 다시 그린다 — 저장했는데 옛 목록이 남아 있으면 안 된다 */
   if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
-  showToast(`${st(id).name} 오늘 학습내용 저장됨`);
+  showToast(`${st(id).name} ${dLb} 학습내용 저장됨`);
 }
-function deleteLesson(id){
-  const i=lessons.findIndex(l=>l.sid===id && l.date.toDateString()===now.toDateString());
+function deleteLesson(id, ms){
+  const dMs = dayKey(ms==null ? now.getTime() : ms), dLb = lsnDayLabel(dMs);
+  const i=lessons.findIndex(l=>l && l.sid===id && l.date && dayKey(l.date.getTime())===dMs);
   if(i>=0)lessons.splice(i,1);
   saveData(); closeSheet(); renderToday();
   if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
-  showToast('오늘 학습내용을 삭제했어요');
+  showToast(`${dLb} 학습내용을 삭제했어요`);
 }
 
 // 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
@@ -1736,6 +1762,85 @@ function schedText(s){
 let stuLog={open:null};                 // 지금 펼쳐 둔 학생 번호 (달력의 stuCal 과 같은 방식)
 function toggleStuLog(id){ stuLog.open = (stuLog.open===id) ? null : id; renderStudents(); }
 function lessonsOf(sid){ return lessons.filter(l=>l && l.sid===sid && l.date).slice().sort((a,b)=>b.date-a.date); }
+/* ★ 2026-07-29w — 학습 결과를 주 / 달 / 해 / 전체로 나눠 본다.
+     원장님 지시 — "결과를 주단위 / 월단위 / 년 / 전체 로 볼수 있는 기능도 넣어줘
+     (당연히 주, 월, 년 선택할 수 있어야 겠지요?"
+   ★ 고른 기간은 화면에서만 쓰고 서버에 저장하지 않는다(창을 닫으면 '전체'로 돌아온다).
+   ★ 주는 앱 달력과 같은 규칙으로 일요일에 시작한다 — 화면마다 다른 규칙을 두지 않는다.
+   ★ ref 는 지금 보고 있는 기간 안의 아무 날(밀리초). 이 값 하나로 주·달·해를 모두 옮긴다. */
+let lsnRange={mode:'all', ref:null};
+const LSN_MODES=[['w','주'],['m','달'],['y','해'],['all','전체']];
+function lsnRangeRef(){ return lsnRange.ref===null ? dayKey(now.getTime()) : lsnRange.ref; }
+/* 지금 고른 기간의 시작·끝(둘 다 그 날 0시). 전체면 null 을 돌려준다 — 없는 경계를 지어내지 않는다. */
+function lsnRangeBounds(){
+  if(lsnRange.mode==='all') return null;
+  const d=new Date(lsnRangeRef()), y=d.getFullYear(), m=d.getMonth();
+  if(lsnRange.mode==='w'){
+    const s0=new Date(y,m,d.getDate()-d.getDay());
+    return {from:dayKey(s0.getTime()), to:dayKey(new Date(y,m,d.getDate()-d.getDay()+6).getTime())};
+  }
+  if(lsnRange.mode==='m') return {from:dayKey(new Date(y,m,1).getTime()), to:dayKey(new Date(y,m+1,0).getTime())};
+  return {from:dayKey(new Date(y,0,1).getTime()), to:dayKey(new Date(y,11,31).getTime())};
+}
+function lsnRangeLabel(){
+  const b=lsnRangeBounds();
+  if(!b) return '전체 기간';
+  const f=new Date(b.from), t=new Date(b.to);
+  if(lsnRange.mode==='w') return `${f.getFullYear()}. ${f.getMonth()+1}. ${f.getDate()}. ~ ${t.getMonth()+1}. ${t.getDate()}.`;
+  if(lsnRange.mode==='m') return `${f.getFullYear()}년 ${f.getMonth()+1}월`;
+  return `${f.getFullYear()}년`;
+}
+/* 그 기간에 든 기록만 남긴다. 전체면 그대로 둔다. */
+function lsnInRange(ls){
+  const b=lsnRangeBounds();
+  if(!b) return ls;
+  return ls.filter(l=>{ const k=dayKey(l.date.getTime()); return k>=b.from && k<=b.to; });
+}
+/* 날짜 밀리초 목록을 같은 기준으로 거른다 — 결석·보강도 기간에 맞춰 센다 */
+function lsnMsInRange(list){
+  const b=lsnRangeBounds();
+  if(!b) return list;
+  return list.filter(ms=>{ const k=dayKey(ms); return k>=b.from && k<=b.to; });
+}
+/* 오늘이 든 기간보다 앞으로는 가지 않는다 — 아직 오지 않은 주·달·해를 보여 줄 이유가 없다 */
+/* 지금 보고 있는 기간 안에 오늘이 들어 있나 — [오늘] 단추를 보일지 정하는 데 쓴다.
+   ★ 2026-07-29 고침: 예전엔 끝날짜만 견줘서 지난 기간도 '오늘'로 쳤고,
+   그 바람에 지난 기간에서 [오늘] 단추가 안 보이고 앞으로 넘기는 것도 안 막혔다. */
+function lsnRangeAtNow(){
+  const b=lsnRangeBounds();
+  if(!b) return true;
+  const k=dayKey(now.getTime());
+  return k>=b.from && k<=b.to;
+}
+function lsnRangeSet(m){
+  lsnRange.mode=m;
+  lsnRange.ref = (m==='all') ? null : dayKey(now.getTime());   // 고를 때마다 오늘이 든 기간부터 본다
+  renderStudents();
+}
+function lsnRangeNav(step){
+  if(lsnRange.mode==='all') return;
+  const d=new Date(lsnRangeRef());
+  const nd = lsnRange.mode==='w' ? new Date(d.getFullYear(),d.getMonth(),d.getDate()+7*step)
+           : lsnRange.mode==='m' ? new Date(d.getFullYear(),d.getMonth()+step,1)
+           : new Date(d.getFullYear()+step,0,1);
+  const save=lsnRange.ref; lsnRange.ref=dayKey(nd.getTime());
+  /* 앞으로는 오늘이 든 기간까지만 — 오늘보다 뒤에서 시작하는 기간이면 되돌린다 */
+  if(step>0 && dayKey(now.getTime())<lsnRangeBounds().from){
+    lsnRange.ref=save; showToast('아직 오지 않은 기간이에요'); return;   // 앞으로는 오늘이 든 기간까지만
+  }
+  renderStudents();
+}
+function lsnRangeToNow(){ if(lsnRange.mode!=='all'){ lsnRange.ref=dayKey(now.getTime()); renderStudents(); } }
+function lsnRangeBar(){
+  const tabs=LSN_MODES.map(m=>`<button type="button" class="lsc-chip ${lsnRange.mode===m[0]?'on':''}" onclick="lsnRangeSet('${m[0]}')">${m[1]}</button>`).join('');
+  const nav = lsnRange.mode==='all' ? '' : `<div class="lsn-nav">
+      <button type="button" class="lsn-nav-b" onclick="lsnRangeNav(-1)" aria-label="이전">‹</button>
+      <span class="lsn-nav-t">${lsnRangeLabel()}</span>
+      <button type="button" class="lsn-nav-b" onclick="lsnRangeNav(1)" aria-label="다음">›</button>
+      ${lsnRangeAtNow()?'':`<button type="button" class="lsc-sw" onclick="lsnRangeToNow()">오늘</button>`}
+    </div>`;
+  return `<div class="lsn-rg"><div class="lsc-chips sm">${tabs}</div>${nav}</div>`;
+}
 function lsnEsc(t){ return String(t==null?'':t).replace(/</g,'&lt;'); }
 /* 셈에서 빼는 흔한 말 — 이게 위로 올라오면 아무 도움이 안 된다 */
 const LSN_STOP=['그리고','하지만','오늘','다음','조금','정도','계속','아주','너무','매우','에서','으로','하고','했어요','합니다','같아요','같음','수업','학생','시간','부분','조금씩'];
@@ -1768,9 +1873,14 @@ function lsnCatStats(ls){
   return Object.keys(m).map(k=>{ const o=m[k]; o.avg = o.accN ? Math.round(o.accSum/o.accN) : null; return o; })
     .sort((a,b)=>b.cnt-a.cnt || a.n.localeCompare(b.n,'ko'));
 }
-function lessonAnalysis(s){
-  const ls=lessonsOf(s.id);                       // 최신순
-  if(!ls.length) return '<div class="lsn-ai none">아직 학습 기록이 없어요. 출석부에서 그 학생 [학습]을 눌러 적으면 여기에 쌓입니다.</div>';
+function lessonAnalysis(s, lsIn){
+  /* ★ 목록·그래프·분석이 모두 같은 목록을 본다 — 거르는 규칙을 두 곳에 두지 않는다 */
+  const ls = lsIn || lsnInRange(lessonsOf(s.id));   // 최신순
+  if(!ls.length){
+    const all=lessonsOf(s.id).length;
+    if(!all) return '<div class="lsn-ai none">아직 학습 기록이 없어요. 출석부에서 그 학생 [학습]을 눌러 적으면 여기에 쌓입니다.</div>';
+    return `<div class="lsn-ai none">${lsnEsc(lsnRangeLabel())}에는 적어 두신 기록이 없어요. 전체로는 ${all}건 있습니다.</div>`;
+  }
   const old=ls.slice().reverse();                 // 오래된 순
   const lines=[];
   const md=(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`;
@@ -1832,14 +1942,24 @@ function lessonAnalysis(s){
     }
   }
   // ④ 결석·보강 — absentLog / makeupLog 에서 직접 센다
-  const ab=(absentLog[s.id]||[]).length, mk=(makeupLog[s.id]||[]).length;
-  if(ab||mk) lines.push(`지금까지 기록으로는 결석 ${ab}번, 보강 ${mk}번이 남아 있어요.`);
-  // ⑤ 마지막으로 적은 지 얼마나 됐나
-  const gap=Math.round((dayKey(now.getTime())-dayKey(ls[0].date.getTime()))/86400000);
-  if(gap>=7) lines.push(`마지막으로 적으신 지 <b>${gap}일</b> 됐어요.`);
+  const ab=lsnMsInRange(absentLog[s.id]||[]).length;
+  const mk=lsnMsInRange((makeupLog[s.id]||[]).map(x=>x&&x.t).filter(x=>x)).length;
+  /* ★ 2026-07-29 — 0번은 적지 않는다. 기간을 좁히면 한쪽만 0 이 되는데
+     '보강 0번이 남아 있어요'는 없는 말을 적는 것과 같다. 있는 것만 적는다. */
+  if(ab||mk){
+    const pt=[]; if(ab) pt.push(`결석 ${ab}번`); if(mk) pt.push(`보강 ${mk}번`);
+    lines.push(`${lsnRange.mode==='all'?'지금까지 기록으로는':lsnEsc(lsnRangeLabel())+'에는'} ${pt.join(', ')}이 남아 있어요.`);
+  }
+  // ⑤ 마지막으로 적은 지 얼마나 됐나 — 기간을 좁혀 놓으면 뜻이 달라지므로 '전체'일 때만 말한다
+  if(lsnRange.mode==='all'){
+    const gap=Math.round((dayKey(now.getTime())-dayKey(ls[0].date.getTime()))/86400000);
+    if(gap>=7) lines.push(`마지막으로 적으신 지 <b>${gap}일</b> 됐어요.`);
+  }
   return `<div class="lsn-ai"><div class="lsn-ai-h">학습 분석</div>`
     + lines.map(t=>`<div class="lsn-ai-l">· ${t}</div>`).join('')
-    + `<div class="lsn-ai-c">원장님이 적어 두신 기록만 세어서 정리한 것입니다. 없는 내용을 지어내지 않습니다.</div></div>`;
+    /* ★ 2026-07-29 원장님 지시 — 이 아래에 있던 안내 문구를 뺐다.
+       이 화면을 그대로 부모님께 학습알림장으로 보낼 수 있어서, 안에서만 쓰는 말이 들어가면 안 된다. */
+    + `</div>`;
 }
 /* 정답률 흐름 — 그림은 앱이 직접 그린다(바깥 그림 도구를 불러오지 않는다).
    정답률을 적어 두신 기록만, 오래된 것부터 최근 12번까지. 두 번은 있어야 선이 된다. */
@@ -1870,15 +1990,25 @@ function lsnCatChart(ls){
     + `</div>`;
 }
 function lessonLogHtml(s){
-  const ls=lessonsOf(s.id);              // 최신 날짜가 위로
+  const all=lessonsOf(s.id);
+  const ls=lsnInRange(all);              // 최신 날짜가 위로
   const rows = ls.map(l=>{
     const d=l.date;
     const cats=(Array.isArray(l.cats)?l.cats:[]).map(k=> k==='etc' ? lsnEsc(l.catEtc||'기타') : lsnEsc(catName(k)||k));
     const catHtml = cats.length ? `<div class="lsn-cats">${cats.map(n=>`<span class="lsn-cat">${n}</span>`).join('')}</div>` : '';
+    /* ★ 2026-07-29 원장님 지시 — "문제수와 정답률은 그래프로 그려줘. 100문제를 최대로,
+       100점을 만점으로, 화면의 비율로 그려주면 됨."
+       칸 너비를 100 으로 보고 그 비율만큼 채운다. 100 이 넘어도 칸을 넘지 않게 100 에서 멈춘다.
+       숫자도 같이 적는다 — 막대만 있으면 정확한 값을 못 읽는다.
+       고르지 않은 값은 막대를 그리지 않는다(0 으로 지어내지 않는다). */
+    const meter=(k,v,txt,cls)=>`<div class="lsn-mt ${cls}">
+        <span class="lsn-mt-k">${k}</span>
+        <span class="lsn-mt-bar"><i style="width:${Math.max(0,Math.min(100,v))}%"></i></span>
+        <span class="lsn-mt-v">${txt}</span></div>`;
     const num=[];
-    if(l.qn>0) num.push(`${l.qn}문제`);
-    if(typeof l.acc==='number') num.push(`정답률 ${l.acc}%`);
-    const numHtml = num.length ? `<div class="lsn-num">${num.join(' · ')}</div>` : '';
+    if(l.qn>0) num.push(meter('문제 수', l.qn, `${l.qn}문제`, 'q'));
+    if(typeof l.acc==='number') num.push(meter('정답률', l.acc, `${l.acc}%`, 'a'));
+    const numHtml = num.length ? `<div class="lsn-num">${num.join('')}</div>` : '';
     const body = lsnEsc(l.text) || (catHtml||numHtml||l.mood ? '' : '<span class="lsn-none">비어 있어요</span>');
     return `<div class="lsn-row">
       <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}</div>
@@ -1886,12 +2016,12 @@ function lessonLogHtml(s){
       ${body?`<div class="lsn-t">${body}</div>`:''}</div>`;
   }).join('');
   return `<div class="lsn-wrap">
-    ${lessonAnalysis(s)}
+    ${lsnRangeBar()}
+    ${lessonAnalysis(s, ls)}
     ${lsnAccChart(ls)}
     ${lsnCatChart(ls)}
-    <div class="lsn-h">날짜별 기록 ${ls.length?`<span class="lsn-n">${ls.length}건</span>`:''}</div>
-    ${rows || '<div class="lsn-empty">아직 적어 두신 기록이 없어요.</div>'}
-    <div class="lsn-c">출석부에서 [학습]을 눌러 적은 글이 여기에 모입니다. 서버(파이어베이스)에 함께 저장돼 다른 기기에서도 같이 보여요.</div>
+    <div class="lsn-h">날짜별 기록 ${ls.length?`<span class="lsn-n">${ls.length}건</span>`:''}${lsnRange.mode!=='all'?`<span class="lsn-n">전체 ${all.length}건</span>`:''}</div>
+    ${rows || `<div class="lsn-empty">${all.length? lsnEsc(lsnRangeLabel())+'에는 적어 두신 기록이 없어요.' : '아직 적어 두신 기록이 없어요.'}</div>`}
   </div>`;
 }
 

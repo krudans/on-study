@@ -373,11 +373,30 @@
   .lsn-bar-t{flex:1 1 auto;height:9px;background:#F1F0EB;border-radius:999px;overflow:hidden}
   .lsn-bar-t i{display:block;height:100%;background:var(--green);border-radius:999px}
   .lsn-bar-v{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+  /* ---- 학습 결과 기간 고르개 (주 / 달 / 해 / 전체) ---- 2026-07-29w */
+  .lsn-rg{margin-bottom:12px}
+  .lsn-nav{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .lsn-nav-b{width:30px;height:30px;flex:0 0 auto;border:1px solid var(--line);border-radius:9px;
+    background:var(--card);color:var(--ink);font-family:inherit;font-size:16px;line-height:1;
+    cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .lsn-nav-b:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .lsn-nav-t{flex:1 1 auto;text-align:center;font-size:13px;font-weight:700;color:var(--ink)}
   .lsn-cats{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 3px}
   .lsn-cat{font-size:11px;font-weight:600;color:var(--green);background:var(--green-soft);
     border-radius:999px;padding:1px 8px}
-  .lsn-num{display:inline-block;font-size:11.5px;font-weight:700;color:var(--amber);background:var(--amber-soft);
-    border-radius:7px;padding:1px 7px;margin-right:4px}
+  .lsn-num{display:block;margin-top:4px}
+  /* 문제 수·정답률 막대 — 2026-07-29 원장님 지시
+     칸 너비 전체 = 100문제 / 100점. 채운 비율만 색으로 칠한다.
+     너비는 여기 한 곳에서만 정한다(app.js 는 style="width:n%" 로 비율만 넘긴다). */
+  .lsn-mt{display:flex;align-items:center;gap:8px;margin-top:5px}
+  .lsn-mt-k{flex:none;width:44px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .lsn-mt-bar{flex:1 1 auto;min-width:0;height:9px;border-radius:999px;background:#EDEBE4;overflow:hidden}
+  .lsn-mt-bar i{display:block;height:100%;border-radius:999px}
+  .lsn-mt.q .lsn-mt-bar i{background:var(--amber)}
+  .lsn-mt.a .lsn-mt-bar i{background:var(--green)}
+  .lsn-mt-v{flex:none;min-width:52px;text-align:right;font-size:12px;font-weight:700;color:var(--ink)}
+  .lsn-mt.q .lsn-mt-v{color:var(--amber)}
+  .lsn-mt.a .lsn-mt-v{color:var(--green)}
 
   /* ---- 시각 고르개 ㉮ (한 줄 단추 + 아래에서 올라오는 시트) ---- 2026-07-28t
      원장님 지시 — "자리만 차지하는 방식은 안 된다. ㉮ 안으로 만들어".

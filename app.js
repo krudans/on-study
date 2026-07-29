@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-28u-back-lessonlog */
+/* ONSTUDY-BUILD: 2026-07-28v-lessoncat */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -79,6 +79,75 @@ let packView={};
 // 오늘 학습내용(학습일지) {sid,date,mood,text}
 let lessons=[];
 const MOODS=['집중','보통','산만','피곤','열의'];
+
+/* ===== 수업 내용 갈래 · 문제 수 · 정답률 ===== 2026-07-28v
+   원장님 지시 — "등록한 정보에 따라 교육부 수학 학습 카테고리를 알약으로, 기타는 직접 쓰게.
+                 문제풀이는 10단위로 몇 문제, 정답률도 10단위로."
+   ★ 갈래 이름을 적어 두는 곳은 여기 하나뿐이다(단일 소스). 화면도 셈도 그래프도 이 표만 본다.
+   ★ 2022 개정 교육과정은 초등·중학교 모두 영역이 넷으로 같다
+     — 수와 연산 / 변화와 관계 / 도형과 측정 / 자료와 가능성.
+     아래 열 갈래는 그 넷을 공부방에서 쓰기 좋게 나눈 것이고, 갈래마다 속한 영역 번호(a)를
+     같이 적어 두어 영역별로 묶어 셀 때 다시 정하지 않게 했다.
+   ★ 초등 이전은 교육부 수학 교육과정에 단원이 없다(누리과정 '자연탐구').
+     그래서 공부방에서 실제 하는 활동 이름으로 따로 둔다 — 없는 단원을 지어내지 않는다.
+   ★ 저장되는 값은 k(영문 열쇠말)다. 보이는 이름(n)을 나중에 고쳐도 쌓인 기록이 깨지지 않는다. */
+const CAT_AREAS=['수와 연산','변화와 관계','도형과 측정','자료와 가능성'];
+const CATS_ELEM=[
+  {k:'e-num',   a:0, n:'수'},
+  {k:'e-add',   a:0, n:'덧셈과 뺄셈'},
+  {k:'e-mul',   a:0, n:'곱셈과 나눗셈'},
+  {k:'e-frac',  a:0, n:'분수'},
+  {k:'e-dec',   a:0, n:'소수'},
+  {k:'e-rule',  a:1, n:'규칙과 대응'},
+  {k:'e-ratio', a:1, n:'비와 비율'},
+  {k:'e-shape', a:2, n:'도형'},
+  {k:'e-meas',  a:2, n:'측정'},
+  {k:'e-data',  a:3, n:'자료와 그래프'}
+];
+const CATS_MID=[
+  {k:'m-num',   a:0, n:'수와 연산'},
+  {k:'m-expr',  a:1, n:'문자와 식'},
+  {k:'m-eq',    a:1, n:'방정식'},
+  {k:'m-ineq',  a:1, n:'부등식'},
+  {k:'m-func',  a:1, n:'함수'},
+  {k:'m-basic', a:2, n:'기본 도형과 작도'},
+  {k:'m-solid', a:2, n:'평면도형과 입체도형'},
+  {k:'m-prop',  a:2, n:'삼각형과 사각형의 성질'},
+  {k:'m-sim',   a:2, n:'닮음·피타고라스·삼각비'},
+  {k:'m-prob',  a:3, n:'확률과 통계'}
+];
+const CATS_PRE=[
+  {k:'p-count', a:0, n:'수 세기'},
+  {k:'p-split', a:0, n:'모으기와 가르기'},
+  {k:'p-comp',  a:2, n:'크기·양 비교'},
+  {k:'p-shape', a:2, n:'모양'},
+  {k:'p-rule',  a:1, n:'규칙'},
+  {k:'p-sort',  a:3, n:'분류하기'}
+];
+const CAT_ETC={k:'etc', a:-1, n:'기타'};
+const CATSETS={ pre:{n:'초등 이전', list:CATS_PRE}, elem:{n:'초등 과정', list:CATS_ELEM}, mid:{n:'중등 과정', list:CATS_MID} };
+/* 학년(students[].grade) → 어느 과정을 보여 줄지. 학년이 없으면 빈값 — 지어내지 않는다. */
+function catsetForGrade(g){
+  if(g==='pre') return 'pre';
+  if(g==='m1'||g==='m2'||g==='m3'||g==='post') return 'mid';
+  if(g && g.charAt(0)==='g') return 'elem';
+  return '';
+}
+/* 열쇠말(k) 하나로 갈래를 찾는다 — 세 과정 어디에 있든 */
+function catInfo(k){
+  if(k===CAT_ETC.k) return CAT_ETC;
+  for(const sname in CATSETS){ const f=CATSETS[sname].list.find(c=>c.k===k); if(f) return f; }
+  return null;
+}
+function catName(k){ const c=catInfo(k); return c?c.n:''; }
+/* 열쇠말 첫 글자로 어느 과정인지 되짚는다(e-=초등, m-=중등, p-=초등 이전) */
+function catsetOfKeys(keys){
+  const k=(keys||[]).find(x=>x&&x!=='etc');
+  if(!k) return '';
+  return k.charAt(0)==='e' ? 'elem' : (k.charAt(0)==='m' ? 'mid' : 'pre');
+}
+const QN_STEPS=[10,20,30,40,50,60,70,80,90,100];      // 문제 수 — 10단위
+const ACC_STEPS=[0,10,20,30,40,50,60,70,80,90,100];   // 정답률 — 10단위
 function todayLesson(sid){return lessons.find(l=>l.sid===sid && l.date.toDateString()===now.toDateString());}
 
 // 보호자 목록 (신규 모델 guardians[] 우선, 없으면 구 필드에서 구성)
@@ -561,7 +630,7 @@ function cycleEndOf(s){ return currentClassInfo(s).end; }
 function fmtD(ms){ return ms? new Date(ms).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'}) : '—'; }
 
 // 학년 (정렬·표시용)
-const GRADES=[['pre','초등 이전'],['g1','초1'],['g2','초2'],['g3','초3'],['g4','초4'],['g5','초5'],['g6','초6'],['post','초등 이후']];
+const GRADES=[['pre','초등 이전'],['g1','초1'],['g2','초2'],['g3','초3'],['g4','초4'],['g5','초5'],['g6','초6'],['m1','중1'],['m2','중2'],['m3','중3'],['post','초등 이후']];
 function gradeLabel(v){ const f=GRADES.find(g=>g[0]===v); return f?f[1]:''; }
 function gradeOrder(v){ const i=GRADES.findIndex(g=>g[0]===v); return i<0?99:i; }
 let manageSort='name';  // name(가나다) | day(요일별) | grade(학년별)
@@ -1118,12 +1187,78 @@ function openLessonSheet(id){
   sheet.innerHTML=`<h3>${s.name} · 오늘 학습내용</h3>
     <div class="cap">오늘 아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.</div>
     <div class="mood-row" id="moodRow"><span class="mood-k">태도</span>${chips}</div>
+    <div class="lsc" id="catBox"></div>
+    <div class="lsc" id="qnBox"></div>
+    <div class="lsc" id="accBox"></div>
     <textarea id="lessonText" class="note-area" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id})">저장</button>
       ${ls?`<button class="btn sms" onclick="deleteLesson(${id})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
+  /* ★ 고르신 값은 시트가 열려 있는 동안만 여기(dataset)에 둔다. [저장]을 눌러야 기록에 들어간다. */
+  sheet.dataset.cats  = (ls&&Array.isArray(ls.cats))?ls.cats.join(','):'';
+  sheet.dataset.etc   = (ls&&ls.catEtc)?ls.catEtc:'';
+  sheet.dataset.qn    = (ls&&ls.qn>0)?String(ls.qn):'';
+  sheet.dataset.acc   = (ls&&typeof ls.acc==='number')?String(ls.acc):'';   // 0%도 값이므로 빈칸과 구분한다
+  sheet.dataset.grade = s.grade||'';
+  /* 이미 적어 둔 기록이 있으면 그 기록의 과정을, 없으면 학년으로 정한다 */
+  sheet.dataset.catset = catsetOfKeys((sheet.dataset.cats||'').split(',')) || catsetForGrade(s.grade||'');
+  sheet.dataset.pick = '';
+  lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
   document.getElementById('scrim').classList.add('show');
 }
+/* 큰따옴표까지 막아야 값이 칸 밖으로 새지 않는다 */
+function lsnAttr(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function lsnDrawCats(){
+  const sheet=document.getElementById('sheet'), box=document.getElementById('catBox');
+  if(!sheet||!box) return;
+  const set=sheet.dataset.catset||'', g=sheet.dataset.grade||'';
+  const sel=(sheet.dataset.cats||'').split(',').filter(Boolean);
+  const showPick = (sheet.dataset.pick==='1') || !set;
+  const head = set
+    ? `<span class="lsc-src">${gradeLabel(g)?gradeLabel(g)+' · ':''}${CATSETS[set].n}</span><button type="button" class="lsc-sw" onclick="lsnPickToggle()">과정 바꾸기</button>`
+    : `<span class="lsc-src warn">학년이 없어 갈래를 자동으로 못 골랐어요 — 아래 [기타]에 직접 적으시거나, 과정을 고르시면 됩니다</span>`;
+  /* ★ 학년이 없어도 [기타]는 늘 있어야 한다 — 자동으로 못 골랐다고 적을 방법까지 막으면 안 된다 */
+  const list = set ? CATSETS[set].list.concat([CAT_ETC]) : [CAT_ETC];
+  const chips = list.map(c=>`<button type="button" class="lsc-chip ${sel.indexOf(c.k)>=0?'on':''}" onclick="pickCat(this,'${c.k}')">${c.n}</button>`).join('');
+  const pick = showPick
+    ? `<div class="lsc-pick">${Object.keys(CATSETS).map(k=>`<button type="button" class="lsc-chip sw ${k===set?'on':''}" onclick="lsnSetCatset('${k}')">${CATSETS[k].n}</button>`).join('')}</div>`
+    : '';
+  /* 다른 과정에서 골라 둔 것이 있으면 알려 드린다 — 안 보인다고 사라진 게 아니다 */
+  const hid = sel.filter(k=>k!=='etc' && !(set && CATSETS[set].list.some(c=>c.k===k)));
+  const hidHtml = hid.length ? `<div class="lsc-hid">다른 과정에서 고르신 것도 함께 저장됩니다 — ${hid.map(k=>lsnEsc(catName(k)||k)).join(' · ')}</div>` : '';
+  box.innerHTML = `<div class="lsc-k">수업 내용 ${head}</div>${pick}<div class="lsc-chips">${chips}</div>${hidHtml}
+    <input id="lsnEtc" class="note-select lsc-etc" style="display:${sel.indexOf('etc')>=0?'block':'none'}" value="${lsnAttr(sheet.dataset.etc||'')}" placeholder="직접 적기 (예: 도형 심화 프린트)">`;
+}
+function lsnPickToggle(){ const sheet=document.getElementById('sheet'); lsnKeepEtc(); sheet.dataset.pick = sheet.dataset.pick==='1'?'':'1'; lsnDrawCats(); }
+function lsnSetCatset(v){ const sheet=document.getElementById('sheet'); lsnKeepEtc(); sheet.dataset.catset=v; sheet.dataset.pick=''; lsnDrawCats(); }
+/* 화면을 다시 그리기 전에, 직접 적으신 글이 날아가지 않게 챙겨 둔다 */
+function lsnKeepEtc(){ const e=document.getElementById('lsnEtc'); if(e) document.getElementById('sheet').dataset.etc=e.value; }
+function pickCat(btn,k){
+  const sheet=document.getElementById('sheet');
+  const sel=(sheet.dataset.cats||'').split(',').filter(Boolean);
+  const i=sel.indexOf(k);
+  if(i>=0) sel.splice(i,1); else sel.push(k);
+  sheet.dataset.cats=sel.join(',');
+  btn.classList.toggle('on');
+  if(k==='etc'){ const e=document.getElementById('lsnEtc'); if(e) e.style.display = sel.indexOf('etc')>=0?'block':'none'; }
+}
+function lsnDrawQn(){
+  const sheet=document.getElementById('sheet'), box=document.getElementById('qnBox');
+  if(!sheet||!box) return;
+  const v=sheet.dataset.qn||'';
+  box.innerHTML=`<div class="lsc-k">문제 수 <span class="lsc-v">${v?v+'문제':'안 고름'}</span></div>
+    <div class="lsc-chips sm">${QN_STEPS.map(n=>`<button type="button" class="lsc-chip ${String(n)===v?'on':''}" onclick="pickQn(${n})">${n}</button>`).join('')}</div>`;
+}
+function lsnDrawAcc(){
+  const sheet=document.getElementById('sheet'), box=document.getElementById('accBox');
+  if(!sheet||!box) return;
+  const v=sheet.dataset.acc||'';
+  box.innerHTML=`<div class="lsc-k">정답률 <span class="lsc-v">${v===''?'안 고름':v+'%'}</span></div>
+    <div class="lsc-chips sm">${ACC_STEPS.map(n=>`<button type="button" class="lsc-chip ${String(n)===v?'on':''}" onclick="pickAcc(${n})">${n}</button>`).join('')}</div>`;
+}
+/* 같은 것을 다시 누르면 '안 고름'으로 돌아간다 — 잘못 누르셨을 때 지울 방법이 있어야 한다 */
+function pickQn(n){ const sheet=document.getElementById('sheet'); sheet.dataset.qn = (sheet.dataset.qn===String(n))?'':String(n); lsnDrawQn(); }
+function pickAcc(n){ const sheet=document.getElementById('sheet'); sheet.dataset.acc = (sheet.dataset.acc===String(n))?'':String(n); lsnDrawAcc(); }
 function pickMood(btn){
   const sel=btn.dataset.m; const cur=document.getElementById('sheet').dataset.mood;
   document.querySelectorAll('#moodRow .mood-chip').forEach(c=>c.classList.remove('on'));
@@ -1131,19 +1266,37 @@ function pickMood(btn){
   else{btn.classList.add('on');document.getElementById('sheet').dataset.mood=sel;}
 }
 function saveLesson(id){
+  const sheet=document.getElementById('sheet');
   const text=document.getElementById('lessonText').value.trim();
-  const mood=document.getElementById('sheet').dataset.mood||'';
-  if(!text&&!mood){showToast('학습내용을 적거나 태도를 골라주세요');return;}
+  const mood=sheet.dataset.mood||'';
+  const cats=(sheet.dataset.cats||'').split(',').filter(Boolean);
+  const etcEl=document.getElementById('lsnEtc');
+  const catEtc=(cats.indexOf('etc')>=0 && etcEl) ? etcEl.value.trim() : '';
+  const qn = sheet.dataset.qn==='' ? null : +sheet.dataset.qn;
+  const acc = sheet.dataset.acc==='' ? null : +sheet.dataset.acc;   // 0%와 '안 고름'은 다른 값이다
+  if(!text && !mood && !cats.length && qn===null && acc===null){
+    showToast('내용을 적거나 태도·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
+  }
   const ex=todayLesson(id);
-  if(ex){ex.text=text;ex.mood=mood;}
-  else lessons.push({sid:id,date:new Date(),mood,text});
+  const rec = ex || {sid:id, date:new Date()};
+  rec.mood=mood; rec.text=text;
+  /* ★ 안 고른 것은 넣지 않고 지운다 — 빈 값을 임의의 숫자로 채우지 않는다(미설정은 미설정으로 남는다) */
+  if(cats.length) rec.cats=cats; else delete rec.cats;
+  if(catEtc) rec.catEtc=catEtc; else delete rec.catEtc;
+  if(qn!==null) rec.qn=qn; else delete rec.qn;
+  if(acc!==null) rec.acc=acc; else delete rec.acc;
+  if(!ex) lessons.push(rec);
   saveData(); closeSheet(); renderToday();
+  /* 학생 탭에서 그 학생 학습 기록을 펼쳐 두셨으면 같이 다시 그린다 — 저장했는데 옛 목록이 남아 있으면 안 된다 */
+  if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
   showToast(`${st(id).name} 오늘 학습내용 저장됨`);
 }
 function deleteLesson(id){
   const i=lessons.findIndex(l=>l.sid===id && l.date.toDateString()===now.toDateString());
   if(i>=0)lessons.splice(i,1);
-  saveData(); closeSheet(); renderToday(); showToast('오늘 학습내용을 삭제했어요');
+  saveData(); closeSheet(); renderToday();
+  if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
+  showToast('오늘 학습내용을 삭제했어요');
 }
 
 // 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
@@ -1603,6 +1756,18 @@ function lsnGoodRate(ls){
   if(!m.length) return null;
   return Math.round(m.filter(l=>LSN_GOOD.indexOf(l.mood)>=0).length*100/m.length);
 }
+/* 갈래별 셈 — 횟수 · 정답률 평균 · 푼 문제 수. 화면과 그래프가 같은 곳을 본다. */
+function lsnCatStats(ls){
+  const m={};
+  ls.forEach(l=>{ (Array.isArray(l.cats)?l.cats:[]).forEach(k=>{
+    const o = m[k] || (m[k]={k:k, n:(k==='etc' ? (l.catEtc||'기타') : (catName(k)||k)), cnt:0, accN:0, accSum:0, qn:0});
+    o.cnt++;
+    if(typeof l.acc==='number'){ o.accN++; o.accSum+=l.acc; }
+    if(l.qn>0) o.qn+=l.qn;
+  }); });
+  return Object.keys(m).map(k=>{ const o=m[k]; o.avg = o.accN ? Math.round(o.accSum/o.accN) : null; return o; })
+    .sort((a,b)=>b.cnt-a.cnt || a.n.localeCompare(b.n,'ko'));
+}
 function lessonAnalysis(s){
   const ls=lessonsOf(s.id);                       // 최신순
   if(!ls.length) return '<div class="lsn-ai none">아직 학습 기록이 없어요. 출석부에서 그 학생 [학습]을 눌러 적으면 여기에 쌓입니다.</div>';
@@ -1620,23 +1785,52 @@ function lessonAnalysis(s){
     /* 태도를 고른 것만 먼저 추린 뒤 가까운 다섯 번 — 먼저 자르면 빈 것 때문에 개수가 모자란다 */
     const recent=old.filter(l=>l.mood).slice(-5);
     if(recent.length>=2) lines.push(`가까운 순서대로 태도는 ${recent.map(l=>l.mood).join(' → ')} 이었어요.`);
-    // ② 앞쪽 절반과 뒤쪽 절반 견주기 — 기록이 6개 이상일 때만(적으면 견줄 값이 못 된다)
+    // 앞쪽 절반과 뒤쪽 절반 견주기 — 기록이 6개 이상일 때만(적으면 견줄 값이 못 된다)
     if(moodN>=6){
       const half=Math.floor(old.length/2);
       const a=lsnGoodRate(old.slice(0,half)), b=lsnGoodRate(old.slice(half));
       if(a!==null && b!==null){
         const d=b-a;
-        lines.push(d>=10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}% 로 <b>늘었어요.</b>`
-                 : d<=-10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}% 로 <b>줄었어요.</b> 한 번 살펴보시면 좋겠어요.`
-                 : `'집중·열의' 비율은 ${a}%→${b}% 로 비슷하게 이어지고 있어요.`);
+        lines.push(d>=10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}%로 <b>늘었어요.</b>`
+                 : d<=-10 ? `앞쪽 절반보다 뒤쪽 절반에서 '집중·열의'가 ${a}%→${b}%로 <b>줄었어요.</b> 한 번 살펴보시면 좋겠어요.`
+                 : `'집중·열의' 비율은 ${a}%→${b}%로 비슷하게 이어지고 있어요.`);
       }
     }
   } else {
     lines.push('태도를 고르신 기록이 아직 없어요. 태도를 같이 고르시면 흐름을 볼 수 있어요.');
   }
-  // ③ 자주 나온 말 (두 번 이상 나온 것만)
-  const ws=lsnWords(ls);
-  if(ws.length) lines.push(`자주 적으신 말은 ${ws.map(o=>`<b>${lsnEsc(o.w)}</b> ${o.n}번`).join(' · ')} 이에요.`);
+  // ② 수업 내용 갈래 — 고르신 기록만 센다
+  const cs=lsnCatStats(ls);
+  if(cs.length){
+    lines.push(`수업 내용은 ${cs.slice(0,3).map(o=>`<b>${lsnEsc(o.n)}</b> ${o.cnt}번`).join(' · ')} 순으로 많았어요.`);
+  }
+  // ③ 문제 수 · 정답률
+  const accs=ls.filter(l=>typeof l.acc==='number');
+  const qns=ls.filter(l=>l.qn>0);
+  if(qns.length){
+    const tot=qns.reduce((a,l)=>a+l.qn,0);
+    lines.push(`푼 문제는 ${qns.length}번에 걸쳐 모두 <b>${tot}문제</b>예요.`);
+  }
+  if(accs.length){
+    const avg=Math.round(accs.reduce((a,l)=>a+l.acc,0)/accs.length);
+    lines.push(`정답률을 적으신 ${accs.length}번의 평균은 <b>${avg}%</b>입니다.`);
+    if(accs.length>=4){
+      const oa=accs.slice().sort((a,b)=>a.date-b.date);
+      const h=Math.floor(oa.length/2);
+      const a1=Math.round(oa.slice(0,h).reduce((a,l)=>a+l.acc,0)/h);
+      const a2=Math.round(oa.slice(h).reduce((a,l)=>a+l.acc,0)/(oa.length-h));
+      const d=a2-a1;
+      lines.push(d>=10 ? `정답률이 앞쪽 ${a1}% → 뒤쪽 ${a2}%로 <b>올랐어요.</b>`
+               : d<=-10 ? `정답률이 앞쪽 ${a1}% → 뒤쪽 ${a2}%로 <b>떨어졌어요.</b> 한 번 살펴보시면 좋겠어요.`
+               : `정답률은 앞쪽 ${a1}% → 뒤쪽 ${a2}%로 비슷하게 이어지고 있어요.`);
+    }
+    /* 갈래별로 견주는 것은 각 갈래에 정답률 기록이 2번 이상 있을 때만 — 한 번 값으로는 잘 하고 못 하고를 말할 수 없다 */
+    const per=cs.filter(o=>o.accN>=2);
+    if(per.length>=2){
+      const hi=per.slice().sort((a,b)=>b.avg-a.avg)[0], lo=per.slice().sort((a,b)=>a.avg-b.avg)[0];
+      if(hi.k!==lo.k) lines.push(`갈래로 보면 <b>${lsnEsc(hi.n)}</b> ${hi.avg}%가 가장 높고, <b>${lsnEsc(lo.n)}</b> ${lo.avg}%가 가장 낮아요.`);
+    }
+  }
   // ④ 결석·보강 — absentLog / makeupLog 에서 직접 센다
   const ab=(absentLog[s.id]||[]).length, mk=(makeupLog[s.id]||[]).length;
   if(ab||mk) lines.push(`지금까지 기록으로는 결석 ${ab}번, 보강 ${mk}번이 남아 있어요.`);
@@ -1647,16 +1841,54 @@ function lessonAnalysis(s){
     + lines.map(t=>`<div class="lsn-ai-l">· ${t}</div>`).join('')
     + `<div class="lsn-ai-c">원장님이 적어 두신 기록만 세어서 정리한 것입니다. 없는 내용을 지어내지 않습니다.</div></div>`;
 }
+/* 정답률 흐름 — 그림은 앱이 직접 그린다(바깥 그림 도구를 불러오지 않는다).
+   정답률을 적어 두신 기록만, 오래된 것부터 최근 12번까지. 두 번은 있어야 선이 된다. */
+function lsnAccChart(ls){
+  const pts=ls.filter(l=>typeof l.acc==='number').slice().sort((a,b)=>a.date-b.date).slice(-12);
+  if(pts.length<2) return '';
+  const W=320,H=140,L=30,R=10,T=12,B=26, iw=W-L-R, ih=H-T-B;
+  const x=i=>L+iw*i/(pts.length-1), y=v=>T+ih*(100-v)/100;
+  const path=pts.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.acc).toFixed(1)}`).join(' ');
+  const grid=[0,50,100].map(v=>`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" class="lsn-g"/>`
+    +`<text x="${L-6}" y="${(y(v)+3.5).toFixed(1)}" class="lsn-yl">${v}</text>`).join('');
+  const dots=pts.map((p,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(p.acc).toFixed(1)}" r="3.2" class="lsn-dot"/>`).join('');
+  const dl=(p)=>`${p.date.getMonth()+1}/${p.date.getDate()}`;
+  const xl=`<text x="${L}" y="${H-7}" class="lsn-xl" text-anchor="start">${dl(pts[0])}</text>`
+        +`<text x="${W-R}" y="${H-7}" class="lsn-xl" text-anchor="end">${dl(pts[pts.length-1])}</text>`;
+  return `<div class="lsn-ch"><div class="lsn-ch-h">정답률 흐름 <span>최근 ${pts.length}번 · 마지막 ${pts[pts.length-1].acc}%</span></div>
+    <svg viewBox="0 0 ${W} ${H}" class="lsn-svg" role="img" aria-label="정답률 흐름 그래프">${grid}<path d="${path}" class="lsn-line"/>${dots}${xl}</svg></div>`;
+}
+/* 수업 내용 갈래 막대 — 많이 한 순서 여섯 개까지. 정답률은 그 갈래에 적어 두신 것만 평균낸다. */
+function lsnCatChart(ls){
+  const cs=lsnCatStats(ls).slice(0,6);
+  if(!cs.length) return '';
+  const max=cs[0].cnt||1;
+  return `<div class="lsn-ch"><div class="lsn-ch-h">수업 내용 <span>많이 한 순서</span></div>`
+    + cs.map(o=>`<div class="lsn-bar"><div class="lsn-bar-n">${lsnEsc(o.n)}</div>
+        <div class="lsn-bar-t"><i style="width:${Math.round(o.cnt*100/max)}%"></i></div>
+        <div class="lsn-bar-v">${o.cnt}번${o.avg!==null?` · ${o.avg}%`:''}</div></div>`).join('')
+    + `</div>`;
+}
 function lessonLogHtml(s){
   const ls=lessonsOf(s.id);              // 최신 날짜가 위로
   const rows = ls.map(l=>{
     const d=l.date;
+    const cats=(Array.isArray(l.cats)?l.cats:[]).map(k=> k==='etc' ? lsnEsc(l.catEtc||'기타') : lsnEsc(catName(k)||k));
+    const catHtml = cats.length ? `<div class="lsn-cats">${cats.map(n=>`<span class="lsn-cat">${n}</span>`).join('')}</div>` : '';
+    const num=[];
+    if(l.qn>0) num.push(`${l.qn}문제`);
+    if(typeof l.acc==='number') num.push(`정답률 ${l.acc}%`);
+    const numHtml = num.length ? `<div class="lsn-num">${num.join(' · ')}</div>` : '';
+    const body = lsnEsc(l.text) || (catHtml||numHtml||l.mood ? '' : '<span class="lsn-none">비어 있어요</span>');
     return `<div class="lsn-row">
       <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}</div>
-      <div class="lsn-t">${lsnEsc(l.text)||'<span class="lsn-none">내용 없이 태도만 골라 두셨어요</span>'}</div></div>`;
+      ${catHtml}${numHtml}
+      ${body?`<div class="lsn-t">${body}</div>`:''}</div>`;
   }).join('');
   return `<div class="lsn-wrap">
     ${lessonAnalysis(s)}
+    ${lsnAccChart(ls)}
+    ${lsnCatChart(ls)}
     <div class="lsn-h">날짜별 기록 ${ls.length?`<span class="lsn-n">${ls.length}건</span>`:''}</div>
     ${rows || '<div class="lsn-empty">아직 적어 두신 기록이 없어요.</div>'}
     <div class="lsn-c">출석부에서 [학습]을 눌러 적은 글이 여기에 모입니다. 서버(파이어베이스)에 함께 저장돼 다른 기기에서도 같이 보여요.</div>

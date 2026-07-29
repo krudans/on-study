@@ -331,6 +331,54 @@
   .lsn-empty{font-size:13px;color:var(--muted);padding:6px 0}
   .lsn-c{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.55}
 
+  /* ---- 학습 기록 시트: 수업 내용·문제 수·정답률 알약 ---- 2026-07-28v
+     원장님 지시 — 등록한 학년에 따라 교육부 수학 갈래를 알약으로 자동으로 띄운다.
+     .lsc      : 시트 안 한 덩어리(수업 내용 / 문제 수 / 정답률)
+     .lsc-chip : 고르는 알약. .on 이면 고른 것. .sw 는 과정 바꾸는 작은 알약. */
+  .lsc{margin-bottom:12px}
+  .lsc-k{font-size:13px;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;
+    flex-wrap:wrap;gap:6px;line-height:1.5}
+  .lsc-v{font-size:12.5px;font-weight:700;color:var(--ink)}
+  .lsc-src{font-size:11.5px;font-weight:600;color:var(--green);background:var(--green-soft);
+    border-radius:999px;padding:2px 9px}
+  .lsc-src.warn{background:var(--clay-soft);color:var(--clay);font-weight:600;line-height:1.5}
+  .lsc-sw{border:1px solid var(--line);background:#fff;border-radius:999px;padding:2px 9px;
+    font-family:inherit;font-size:11.5px;color:var(--muted);cursor:pointer}
+  .lsc-sw:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .lsc-pick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .lsc-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .lsc-chip{border:1px solid var(--line);background:#F7F6F1;border-radius:999px;padding:6px 11px;
+    font-family:inherit;font-size:12.5px;font-weight:500;color:var(--ink);cursor:pointer;line-height:1.2}
+  .lsc-chip.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .lsc-chip.sw{font-size:12px;padding:5px 10px;background:#fff;color:var(--muted)}
+  .lsc-chip.sw.on{background:var(--amber);color:#fff;border-color:var(--amber)}
+  .lsc-chips.sm .lsc-chip{padding:6px 9px;font-size:12px;min-width:34px;text-align:center}
+  .lsc-chip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .lsc-hid{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.5}
+  .lsc-etc{margin-top:8px}
+
+  /* ---- 학습 결과 그래프 (직접 그리는 SVG · 바깥 그림 도구 없음) ---- 2026-07-28v */
+  .lsn-ch{margin:12px 0 14px}
+  .lsn-ch-h{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px}
+  .lsn-ch-h span{font-weight:500;color:var(--muted)}
+  .lsn-svg{width:100%;height:auto;display:block;background:#FBFAF6;border:1px solid var(--line);
+    border-radius:12px}
+  .lsn-g{stroke:var(--line);stroke-width:1}
+  .lsn-yl{font-size:9px;fill:var(--muted);text-anchor:end}
+  .lsn-xl{font-size:9px;fill:var(--muted)}
+  .lsn-line{fill:none;stroke:var(--amber);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .lsn-dot{fill:#fff;stroke:var(--amber);stroke-width:2}
+  .lsn-bar{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .lsn-bar-n{flex:0 0 84px;font-size:11.5px;color:var(--ink);line-height:1.35;word-break:keep-all}
+  .lsn-bar-t{flex:1 1 auto;height:9px;background:#F1F0EB;border-radius:999px;overflow:hidden}
+  .lsn-bar-t i{display:block;height:100%;background:var(--green);border-radius:999px}
+  .lsn-bar-v{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .lsn-cats{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 3px}
+  .lsn-cat{font-size:11px;font-weight:600;color:var(--green);background:var(--green-soft);
+    border-radius:999px;padding:1px 8px}
+  .lsn-num{display:inline-block;font-size:11.5px;font-weight:700;color:var(--amber);background:var(--amber-soft);
+    border-radius:7px;padding:1px 7px;margin-right:4px}
+
   /* ---- 시각 고르개 ㉮ (한 줄 단추 + 아래에서 올라오는 시트) ---- 2026-07-28t
      원장님 지시 — "자리만 차지하는 방식은 안 된다. ㉮ 안으로 만들어".
      평소엔 한 줄 단추 하나만 보이고, 고를 때만 시트가 올라온다. */

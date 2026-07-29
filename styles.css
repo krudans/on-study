@@ -329,6 +329,10 @@
   .lsn-m.a{background:var(--amber-soft);color:var(--amber)}   /* 과제 일부 해옴 */
   .lsn-t{font-size:14px;line-height:1.65;color:var(--ink);white-space:pre-line;word-break:break-word}
   .lsn-none{color:var(--muted);font-size:13px}
+  /* 안내사항 — 학습 내용 글과 섞이면 안 되니 옅은 칸에 따로 담는다 (2026-07-29y) */
+  .lsn-i{margin-top:6px;background:#F5F4EF;border-radius:9px;padding:7px 10px;
+    font-size:13px;line-height:1.55;color:var(--ink);word-break:break-word}
+  .lsn-i-k{font-size:11px;font-weight:700;color:var(--muted);margin-right:6px}
   .lsn-empty{font-size:13px;color:var(--muted);padding:6px 0}
   .lsn-c{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.55}
 

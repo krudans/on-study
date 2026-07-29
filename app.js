@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29x-homework */
+/* ONSTUDY-BUILD: 2026-07-29y-stubtn-info */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1216,6 +1216,8 @@ function openLessonSheet(id, ms){
     <div class="lsc" id="qnBox"></div>
     <div class="lsc" id="accBox"></div>
     <textarea id="lessonText" class="note-area" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
+    <div class="lsc"><div class="lsc-k">안내사항</div>
+      <input id="lsnInfo" class="note-select" autocomplete="off" autocorrect="off" spellcheck="false" value="${ls?lsnAttr(ls.info||''):''}" placeholder="예: 교재 안내 했음"></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
       ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
@@ -1246,6 +1248,8 @@ function lsnFixVals(ls){
   if(ta){ const v = (ls&&ls.text) ? ls.text : ''; if(ta.value!==v) ta.value=v; }
   const et=document.getElementById('lsnEtc');
   if(et){ const v = sheet.dataset.etc||''; if(et.value!==v) et.value=v; }
+  const inf=document.getElementById('lsnInfo');
+  if(inf){ const v = (ls&&ls.info) ? ls.info : ''; if(inf.value!==v) inf.value=v; }
 }
 /* 큰따옴표까지 막아야 값이 칸 밖으로 새지 않는다 */
 function lsnAttr(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1332,17 +1336,20 @@ function saveLesson(id, ms){
   const cats=(sheet.dataset.cats||'').split(',').filter(Boolean);
   const etcEl=document.getElementById('lsnEtc');
   const catEtc=(cats.indexOf('etc')>=0 && etcEl) ? etcEl.value.trim() : '';
+  const infoEl=document.getElementById('lsnInfo');
+  const info=infoEl?infoEl.value.trim():'';        // ★ 안내사항 — 미리 정한 보기 없이 그때그때 적으신 대로 받는다
   const hw = hwInfo(sheet.dataset.hw||'') ? sheet.dataset.hw : '';   // 아는 값일 때만 받는다
   const qn = sheet.dataset.qn==='' ? null : +sheet.dataset.qn;
   const acc = sheet.dataset.acc==='' ? null : +sheet.dataset.acc;   // 0%와 '안 고름'은 다른 값이다
-  if(!text && !mood && !hw && !cats.length && qn===null && acc===null){
-    showToast('내용을 적거나 태도·과제·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
+  if(!text && !info && !mood && !hw && !cats.length && qn===null && acc===null){
+    showToast('내용·안내사항을 적거나 태도·과제·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
   }
   const ex=lessonOn(id, dMs);
   /* 오늘이면 지금 시각까지 남기고, 지난 날이면 그날 0시로 둔다 — 없는 시각을 지어내지 않는다 */
   const rec = ex || {sid:id, date: (dLb==='오늘') ? new Date() : new Date(dMs)};
   rec.mood=mood; rec.text=text;
   /* ★ 안 고른 것은 넣지 않고 지운다 — 빈 값을 임의의 숫자로 채우지 않는다(미설정은 미설정으로 남는다) */
+  if(info) rec.info=info; else delete rec.info;
   if(hw) rec.hw=hw; else delete rec.hw;
   if(cats.length) rec.cats=cats; else delete rec.cats;
   if(catEtc) rec.catEtc=catEtc; else delete rec.catEtc;
@@ -1350,8 +1357,7 @@ function saveLesson(id, ms){
   if(acc!==null) rec.acc=acc; else delete rec.acc;
   if(!ex) lessons.push(rec);
   saveData(); closeSheet(); renderToday();
-  /* 학생 탭에서 그 학생 학습 기록을 펼쳐 두셨으면 같이 다시 그린다 — 저장했는데 옛 목록이 남아 있으면 안 된다 */
-  if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
+  lsnRefreshStuList();
   showToast(`${st(id).name} ${dLb} 학습내용 저장됨`);
 }
 function deleteLesson(id, ms){
@@ -1359,9 +1365,14 @@ function deleteLesson(id, ms){
   const i=lessons.findIndex(l=>l && l.sid===id && l.date && dayKey(l.date.getTime())===dMs);
   if(i>=0)lessons.splice(i,1);
   saveData(); closeSheet(); renderToday();
-  if(typeof stuLog!=='undefined' && stuLog.open===id) renderStudents();
+  lsnRefreshStuList();
   showToast(`${dLb} 학습내용을 삭제했어요`);
 }
+
+/* 학습내용을 저장·삭제한 뒤 학생 탭 목록을 다시 그리는 곳 — 여기 한 곳뿐이다.
+   단추 글자(＋ 오늘 학습 ↔ 오늘 학습 ✓)와 펼쳐 두신 학습 기록이 저장한 결과와 달라 보이면 안 된다.
+   목록 칸만 다시 그린다 — 검색칸까지 다시 만들면 치고 계시던 글자가 날아간다. */
+function lsnRefreshStuList(){ if(document.getElementById('stuList')) renderStudentsList(); }
 
 // 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
 function refreshOpenCal(sid){
@@ -2054,12 +2065,14 @@ function lessonLogHtml(s){
     if(l.qn>0) num.push(meter('문제 수', l.qn, `${l.qn}문제`, 'q'));
     if(typeof l.acc==='number') num.push(meter('정답률', l.acc, `${l.acc}%`, 'a'));
     const numHtml = num.length ? `<div class="lsn-num">${num.join('')}</div>` : '';
-    /* 과제만 고르신 날도 '비어 있어요'가 뜨면 안 된다 — 적어 두신 것이 있는 날이다 */
-    const body = lsnEsc(l.text) || (catHtml||numHtml||l.mood||hwInfo(l.hw) ? '' : '<span class="lsn-none">비어 있어요</span>');
+    /* ★ 안내사항 — 적어 두신 날만 한 줄로 보인다(없으면 줄 자체가 없다) */
+    const infoHtml = l.info ? `<div class="lsn-i"><span class="lsn-i-k">안내사항</span>${lsnEsc(l.info)}</div>` : '';
+    /* 과제·안내사항만 남기신 날도 '비어 있어요'가 뜨면 안 된다 — 적어 두신 것이 있는 날이다 */
+    const body = lsnEsc(l.text) || (catHtml||numHtml||infoHtml||l.mood||hwInfo(l.hw) ? '' : '<span class="lsn-none">비어 있어요</span>');
     return `<div class="lsn-row">
       <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}${hwInfo(l.hw)?` <span class="lsn-m ${hwCls(l.hw)}">과제 ${hwName(l.hw)}</span>`:''}</div>
       ${catHtml}${numHtml}
-      ${body?`<div class="lsn-t">${body}</div>`:''}</div>`;
+      ${body?`<div class="lsn-t">${body}</div>`:''}${infoHtml}</div>`;
   }).join('');
   return `<div class="lsn-wrap">
     ${lsnRangeBar()}
@@ -2085,10 +2098,15 @@ function studentCard(s, forDay){
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
-  /* 달력 · 학습 기록 두 단추를 한 줄에 나란히 (2026-07-28u 원장님 지시 — "달력 옆에 학습기록") */
+  /* 달력 · 학습 기록 두 단추를 한 줄에 나란히 (2026-07-28u 원장님 지시 — "달력 옆에 학습기록")
+     ★ 2026-07-29y 원장님 지시 — "여기도 학습메모 넣어줘"
+     세 번째 자리에 오늘 학습내용을 적는 단추를 둔다. 여는 곳은 출석부와 같은 한 곳(openLessonSheet)이고
+     날짜를 안 넘겨 오늘로 둔다. 단추 글자·색은 오늘 기록이 있는지(todayLesson)만 보고 정한다. */
+  const lsToday = todayLesson(s.id);
   const calBtn = `<div class="row-btns">
       <button class="btn ghost small" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
       <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습 기록 닫기 ▲':'학습 기록 ▾'}</button>
+      <button class="btn ${lsToday?'lsdone':'lsnew'} small" onclick="openLessonSheet(${s.id})">${lsToday?'오늘 학습 ✓':'＋ 오늘 학습'}</button>
     </div>`;
   const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '')
                 + (stuLog.open===s.id ? lessonLogHtml(s) : '');

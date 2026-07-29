@@ -1205,7 +1205,7 @@ function openLessonSheet(id, ms){
     <div class="lsc" id="catBox"></div>
     <div class="lsc" id="qnBox"></div>
     <div class="lsc" id="accBox"></div>
-    <textarea id="lessonText" class="note-area" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
+    <textarea id="lessonText" class="note-area" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
       ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
@@ -1219,7 +1219,22 @@ function openLessonSheet(id, ms){
   sheet.dataset.catset = catsetOfKeys((sheet.dataset.cats||'').split(',')) || catsetForGrade(s.grade||'');
   sheet.dataset.pick = '';
   lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
+  /* ★ 2026-07-29 원장님 지시 — "디폴트 값이 산만함으로 들어가 있으면 안됨"
+     앱이 넣은 값이 아니었다. 브라우저가 예전에 이 칸에 치셨던 글을 되살려 넣는 일이 있다
+     (폼 값 복원·입력 자동완성). 그러면 저장된 글 대신 엉뚱한 글이 보이고,
+     그대로 [저장]을 누르면 원래 글이 지워진다.
+     그리기가 끝난 뒤 저장된 값을 한 번 더 넣어 브라우저 쪽 값을 확실히 이긴다.
+     넣는 값은 위에서 쓰던 것과 같은 한 곳(ls / sheet.dataset)에서만 온다. */
+  lsnFixVals(ls);
   document.getElementById('scrim').classList.add('show');
+}
+/* 시트 안 글칸의 값을 저장된 값으로 되돌려 놓는 곳 — 여기 한 곳뿐이다 */
+function lsnFixVals(ls){
+  const sheet=document.getElementById('sheet'); if(!sheet) return;
+  const ta=document.getElementById('lessonText');
+  if(ta){ const v = (ls&&ls.text) ? ls.text : ''; if(ta.value!==v) ta.value=v; }
+  const et=document.getElementById('lsnEtc');
+  if(et){ const v = sheet.dataset.etc||''; if(et.value!==v) et.value=v; }
 }
 /* 큰따옴표까지 막아야 값이 칸 밖으로 새지 않는다 */
 function lsnAttr(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1246,7 +1261,7 @@ function lsnDrawCats(){
      문제 수·정답률과 똑같이 글자로도 몇 개 골랐는지 적는다. 복수 선택 + 기타 함께 고르기가 원래 동작이다. */
   const cnt = `<span class="lsc-v">${sel.length?sel.length+'개 고름':'안 고름'}</span>`;
   box.innerHTML = `<div class="lsc-k">수업 내용 ${cnt} ${head}</div>${pick}<div class="lsc-chips">${chips}</div>${hidHtml}
-    <input id="lsnEtc" class="note-select lsc-etc" style="display:${sel.indexOf('etc')>=0?'block':'none'}" value="${lsnAttr(sheet.dataset.etc||'')}" placeholder="직접 적기 (예: 도형 심화 프린트)">`;
+    <input id="lsnEtc" class="note-select lsc-etc" autocomplete="off" autocorrect="off" spellcheck="false" style="display:${sel.indexOf('etc')>=0?'block':'none'}" value="${lsnAttr(sheet.dataset.etc||'')}" placeholder="직접 적기 (예: 도형 심화 프린트)">`;
 }
 function lsnPickToggle(){ const sheet=document.getElementById('sheet'); lsnKeepEtc(); sheet.dataset.pick = sheet.dataset.pick==='1'?'':'1'; lsnDrawCats(); }
 function lsnSetCatset(v){ const sheet=document.getElementById('sheet'); lsnKeepEtc(); sheet.dataset.catset=v; sheet.dataset.pick=''; lsnDrawCats(); }

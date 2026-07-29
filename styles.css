@@ -325,7 +325,8 @@
   .lsn-m{display:inline-block;border-radius:7px;padding:1px 7px;font-size:11.5px;font-weight:700;margin-left:4px}
   .lsn-m.g{background:var(--green-soft);color:var(--green)}   /* 집중·열의 */
   .lsn-m.n{background:#F1F0EB;color:var(--muted)}             /* 보통 */
-  .lsn-m.w{background:var(--clay-soft);color:var(--clay)}     /* 산만·피곤 */
+  .lsn-m.w{background:var(--clay-soft);color:var(--clay)}     /* 산만·피곤 · 과제 안 해옴 */
+  .lsn-m.a{background:var(--amber-soft);color:var(--amber)}   /* 과제 일부 해옴 */
   .lsn-t{font-size:14px;line-height:1.65;color:var(--ink);white-space:pre-line;word-break:break-word}
   .lsn-none{color:var(--muted);font-size:13px}
   .lsn-empty{font-size:13px;color:var(--muted);padding:6px 0}
@@ -352,6 +353,9 @@
   .lsc-chip.on{background:var(--green);color:#fff;border-color:var(--green)}
   .lsc-chip.sw{font-size:12px;padding:5px 10px;background:#fff;color:var(--muted)}
   .lsc-chip.sw.on{background:var(--amber);color:#fff;border-color:var(--amber)}
+  /* 과제 알약 — 고른 것만 색이 붙는다. 색은 HWS 의 c 값과 짝이다(g 는 기본 초록을 그대로 쓴다) */
+  .lsc-chip.hwc-a.on{background:var(--amber);color:#fff;border-color:var(--amber)}
+  .lsc-chip.hwc-w.on{background:var(--clay);color:#fff;border-color:var(--clay)}
   .lsc-chips.sm .lsc-chip{padding:6px 9px;font-size:12px;min-width:34px;text-align:center}
   .lsc-chip:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
   .lsc-hid{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.5}

@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29w-lessonrange-pastday */
+/* ONSTUDY-BUILD: 2026-07-29x-homework */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -146,6 +146,15 @@ function catsetOfKeys(keys){
   if(!k) return '';
   return k.charAt(0)==='e' ? 'elem' : (k.charAt(0)==='m' ? 'mid' : 'pre');
 }
+/* ★ 2026-07-29 원장님 지시 — "과제 : 해옴 / 안해옴 / 일부해옴"
+   과제 값·이름·색을 만드는 곳은 여기 한 곳뿐이다. 화면·저장·분석이 모두 이것만 본다.
+   저장되는 값은 열쇠말(k)이고, 사람이 읽는 말(n)은 여기서만 만든다.
+   화면 차례는 해옴 → 일부 해옴 → 안 해옴(정도순)으로 둔다.
+   c 는 색만 정한다 — g 초록(해옴) / a 주황(일부) / w 붉은색(안 해옴). */
+const HWS=[{k:'done',n:'해옴',c:'g'},{k:'part',n:'일부 해옴',c:'a'},{k:'none',n:'안 해옴',c:'w'}];
+function hwInfo(k){ return HWS.find(h=>h.k===k)||null; }
+function hwName(k){ const h=hwInfo(k); return h?h.n:''; }
+function hwCls(k){ const h=hwInfo(k); return h?h.c:'n'; }
 const QN_STEPS=[10,20,30,40,50,60,70,80,90,100];      // 문제 수 — 10단위
 const ACC_STEPS=[0,10,20,30,40,50,60,70,80,90,100];   // 정답률 — 10단위
 /* ★ 2026-07-29 원장님 지시 — "학습내용을 전일에도 기록할 수 있게 해줘"(이전 출석부 날짜)
@@ -1202,6 +1211,7 @@ function openLessonSheet(id, ms){
   sheet.innerHTML=`<h3>${s.name} · ${dLb} 학습내용</h3>
     <div class="cap">${isTd?'오늘':'그날'} 아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.${isTd?'':`<br><b>${dLb}</b> 기록으로 저장됩니다.`}</div>
     <div class="mood-row" id="moodRow"><span class="mood-k">태도</span>${chips}</div>
+    <div class="lsc" id="hwBox"></div>
     <div class="lsc" id="catBox"></div>
     <div class="lsc" id="qnBox"></div>
     <div class="lsc" id="accBox"></div>
@@ -1212,13 +1222,14 @@ function openLessonSheet(id, ms){
   /* ★ 고르신 값은 시트가 열려 있는 동안만 여기(dataset)에 둔다. [저장]을 눌러야 기록에 들어간다. */
   sheet.dataset.cats  = (ls&&Array.isArray(ls.cats))?ls.cats.join(','):'';
   sheet.dataset.etc   = (ls&&ls.catEtc)?ls.catEtc:'';
+  sheet.dataset.hw    = (ls&&hwInfo(ls.hw))?ls.hw:'';   // 모르는 값이 들어 있으면 안 고른 것으로 둔다
   sheet.dataset.qn    = (ls&&ls.qn>0)?String(ls.qn):'';
   sheet.dataset.acc   = (ls&&typeof ls.acc==='number')?String(ls.acc):'';   // 0%도 값이므로 빈칸과 구분한다
   sheet.dataset.grade = s.grade||'';
   /* 이미 적어 둔 기록이 있으면 그 기록의 과정을, 없으면 학년으로 정한다 */
   sheet.dataset.catset = catsetOfKeys((sheet.dataset.cats||'').split(',')) || catsetForGrade(s.grade||'');
   sheet.dataset.pick = '';
-  lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
+  lsnDrawHw(); lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
   /* ★ 2026-07-29 원장님 지시 — "디폴트 값이 산만함으로 들어가 있으면 안됨"
      앱이 넣은 값이 아니었다. 브라우저가 예전에 이 칸에 치셨던 글을 되살려 넣는 일이 있다
      (폼 값 복원·입력 자동완성). 그러면 저장된 글 대신 엉뚱한 글이 보이고,
@@ -1279,6 +1290,16 @@ function pickCat(btn,k){
   if(cv) cv.textContent = sel.length ? sel.length+'개 고름' : '안 고름';
   if(k==='etc'){ const e=document.getElementById('lsnEtc'); if(e) e.style.display = sel.indexOf('etc')>=0?'block':'none'; }
 }
+/* 과제 — 고른 값이 글자로도 보이게 한다(알약 색만으로는 CSS 가 늦게 오면 표시가 안 난다) */
+function lsnDrawHw(){
+  const sheet=document.getElementById('sheet'), box=document.getElementById('hwBox');
+  if(!sheet||!box) return;
+  const v=sheet.dataset.hw||'';
+  box.innerHTML=`<div class="lsc-k">과제 <span class="lsc-v">${v?hwName(v):'안 고름'}</span></div>
+    <div class="lsc-chips">${HWS.map(h=>`<button type="button" class="lsc-chip hwc-${h.c} ${h.k===v?'on':''}" onclick="pickHw('${h.k}')">${h.n}</button>`).join('')}</div>`;
+}
+/* 같은 것을 다시 누르면 '안 고름'으로 돌아간다 — 잘못 누르셨을 때 지울 방법이 있어야 한다 */
+function pickHw(k){ const sheet=document.getElementById('sheet'); sheet.dataset.hw = (sheet.dataset.hw===k)?'':k; lsnDrawHw(); }
 function lsnDrawQn(){
   const sheet=document.getElementById('sheet'), box=document.getElementById('qnBox');
   if(!sheet||!box) return;
@@ -1311,16 +1332,18 @@ function saveLesson(id, ms){
   const cats=(sheet.dataset.cats||'').split(',').filter(Boolean);
   const etcEl=document.getElementById('lsnEtc');
   const catEtc=(cats.indexOf('etc')>=0 && etcEl) ? etcEl.value.trim() : '';
+  const hw = hwInfo(sheet.dataset.hw||'') ? sheet.dataset.hw : '';   // 아는 값일 때만 받는다
   const qn = sheet.dataset.qn==='' ? null : +sheet.dataset.qn;
   const acc = sheet.dataset.acc==='' ? null : +sheet.dataset.acc;   // 0%와 '안 고름'은 다른 값이다
-  if(!text && !mood && !cats.length && qn===null && acc===null){
-    showToast('내용을 적거나 태도·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
+  if(!text && !mood && !hw && !cats.length && qn===null && acc===null){
+    showToast('내용을 적거나 태도·과제·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
   }
   const ex=lessonOn(id, dMs);
   /* 오늘이면 지금 시각까지 남기고, 지난 날이면 그날 0시로 둔다 — 없는 시각을 지어내지 않는다 */
   const rec = ex || {sid:id, date: (dLb==='오늘') ? new Date() : new Date(dMs)};
   rec.mood=mood; rec.text=text;
   /* ★ 안 고른 것은 넣지 않고 지운다 — 빈 값을 임의의 숫자로 채우지 않는다(미설정은 미설정으로 남는다) */
+  if(hw) rec.hw=hw; else delete rec.hw;
   if(cats.length) rec.cats=cats; else delete rec.cats;
   if(catEtc) rec.catEtc=catEtc; else delete rec.catEtc;
   if(qn!==null) rec.qn=qn; else delete rec.qn;
@@ -1924,6 +1947,13 @@ function lessonAnalysis(s, lsIn){
   } else {
     lines.push('태도를 고르신 기록이 아직 없어요. 태도를 같이 고르시면 흐름을 볼 수 있어요.');
   }
+  /* ★ 과제 — 고르신 기록만 센다. 0번인 항목은 적지 않는다(없는 말을 적지 않는다).
+     세는 값·이름은 HWS 한 곳에서만 온다. */
+  const hc={}; let hwN=0;
+  ls.forEach(l=>{ if(hwInfo(l.hw)){ hc[l.hw]=(hc[l.hw]||0)+1; hwN++; } });
+  if(hwN){
+    lines.push(`과제는 ${HWS.filter(h=>hc[h.k]>0).map(h=>`${h.n} ${hc[h.k]}번`).join(' · ')} 입니다.`);
+  }
   // ② 수업 내용 갈래 — 고르신 기록만 센다
   const cs=lsnCatStats(ls);
   if(cs.length){
@@ -2024,9 +2054,10 @@ function lessonLogHtml(s){
     if(l.qn>0) num.push(meter('문제 수', l.qn, `${l.qn}문제`, 'q'));
     if(typeof l.acc==='number') num.push(meter('정답률', l.acc, `${l.acc}%`, 'a'));
     const numHtml = num.length ? `<div class="lsn-num">${num.join('')}</div>` : '';
-    const body = lsnEsc(l.text) || (catHtml||numHtml||l.mood ? '' : '<span class="lsn-none">비어 있어요</span>');
+    /* 과제만 고르신 날도 '비어 있어요'가 뜨면 안 된다 — 적어 두신 것이 있는 날이다 */
+    const body = lsnEsc(l.text) || (catHtml||numHtml||l.mood||hwInfo(l.hw) ? '' : '<span class="lsn-none">비어 있어요</span>');
     return `<div class="lsn-row">
-      <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}</div>
+      <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}${hwInfo(l.hw)?` <span class="lsn-m ${hwCls(l.hw)}">과제 ${hwName(l.hw)}</span>`:''}</div>
       ${catHtml}${numHtml}
       ${body?`<div class="lsn-t">${body}</div>`:''}</div>`;
   }).join('');

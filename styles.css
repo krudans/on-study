@@ -313,6 +313,26 @@
   .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .row-btns .btn{width:auto;padding:8px 14px;margin-top:0}
   .lsn-wrap{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+  /* ★ 2026-07-29z — 학습 시트 맨 위 날짜 줄. 기본은 오늘, 누르면 달력이 열린다 */
+  .lsd{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:2px 0 10px}
+  .lsd-btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 12px;
+    font-family:inherit;font-size:14.5px;font-weight:700;color:var(--ink);cursor:pointer}
+  .lsd-ar{color:var(--muted);font-weight:600;margin-left:5px}
+  .lsd-s{font-size:12px;color:var(--muted)}
+  .lsd-s.on{color:var(--green);font-weight:700}
+  .lsd-cal{display:none}
+  .lsd-cal.open{display:block;border:1px solid var(--line);border-radius:12px;
+    padding:10px 10px 8px;margin-bottom:12px;background:#FCFBF7}
+  .lsd-nav{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:7px}
+  .lsd-nav .lsn-nav-b.off{opacity:.25;cursor:default}
+  .cal-d.lsd-d{cursor:pointer}
+  .cal-d.lsd-d.has{background:var(--green-soft);color:var(--green);font-weight:700}
+  .cal-d.lsd-d.sel{outline:2px solid var(--ink);outline-offset:-2px;font-weight:800}
+  .cal-d.lsd-d.off{opacity:.3;cursor:default}
+  .lsd-lg{display:flex;gap:14px;justify-content:center;margin-top:8px;font-size:11px;color:var(--muted)}
+  .lsd-lg i.lg{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:4px;vertical-align:-1px}
+  .lsd-lg i.lg.has{background:var(--green-soft);border:1px solid var(--green)}
+  .lsd-lg i.lg.tod{background:#fff;border:1.6px solid var(--clay)}
   .lsn-ai{background:var(--amber-soft);border-radius:12px;padding:12px 14px;margin-bottom:12px}
   .lsn-ai.none{background:#F1F0EB;color:var(--muted);font-size:13px;line-height:1.6}
   .lsn-ai-h{font-size:13px;font-weight:700;color:var(--amber);margin-bottom:6px}

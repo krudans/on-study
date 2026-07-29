@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29y-stubtn-info */
+/* ONSTUDY-BUILD: 2026-07-29z-onebtn-datepick */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -161,10 +161,21 @@ const ACC_STEPS=[0,10,20,30,40,50,60,70,80,90,100];   // 정답률 — 10단위
    그날 기록을 찾는 곳은 여기 한 곳뿐이다. 오늘도 지난 날도 이 함수를 쓴다. */
 function lessonOn(sid, ms){ const k=dayKey(ms); return lessons.find(l=>l && l.sid===sid && l.date && dayKey(l.date.getTime())===k); }
 function todayLesson(sid){ return lessonOn(sid, now.getTime()); }
-/* 시트 제목·안내글에 쓰는 날짜 이름도 한 곳에서만 만든다 */
+/* 날짜 글자를 만드는 곳은 여기 한 곳뿐이다 — 시트 날짜 줄·기록 목록·저장 알림이 모두 이것만 쓴다 */
+function lsnDateFull(ms){ const d=new Date(dayKey(ms));
+  return `${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})`; }
+/* 저장 알림처럼 짧게 부를 때 — 오늘이면 '오늘', 아니면 위와 같은 날짜 글자 */
 function lsnDayLabel(ms){ const k=dayKey(ms);
-  if(k===dayKey(now.getTime())) return '오늘';
-  const d=new Date(k); return `${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}.(${WD[d.getDay()]})`; }
+  return (k===dayKey(now.getTime())) ? '오늘' : lsnDateFull(k); }
+/* ★ 2026-07-29z 원장님 지시 — "학습 버튼이 왜 2개임? 그냥 하나로 학습 이라고 하고"
+   "모든 학습메모 기능을 기능이 같음"
+   학습 단추(글자·색·눌렀을 때 여는 곳)를 만드는 곳은 여기 한 곳뿐이다.
+   출석부 오늘 카드·지난 날 카드·학생 탭이 모두 이 함수만 쓴다 — 문을 여럿 만들지 않는다.
+   ms 를 안 주시면 오늘이다. 적어 두신 날은 「학습 ✓」(초록), 아직 안 적은 날은 「학습」(주황 점선). */
+function lsnBtn(sid, ms, cls){
+  const has = lessonOn(sid, ms==null ? now.getTime() : ms);
+  return `<button class="btn ${has?'lsdone':'lsnew'}${cls?' '+cls:''}" onclick="openLessonSheet(${sid}${ms==null?'':','+ms})">${has?'학습 ✓':'학습'}</button>`;
+}
 
 // 보호자 목록 (신규 모델 guardians[] 우선, 없으면 구 필드에서 구성)
 function guardiansOf(s){
@@ -945,8 +956,7 @@ function renderToday(){
       /* ★ 2026-07-29 원장님 지시 — 지난 날 출석부에서도 학습내용을 적을 수 있어야 한다.
          결석이든 완료든 미확정이든 그날이 이미 지났으면 붙인다. 아직 오지 않은 날은 적을 것이 없으니 안 붙인다.
          여는 곳은 오늘 카드와 똑같은 한 곳(openLessonSheet)이고, 날짜만 그날(aMs)로 넘긴다. */
-      if(isPast){ const lsD=lessonOn(s.id, aMs);
-        btns += `<button class="btn ${lsD?'lsdone':'lsnew'} small" onclick="openLessonSheet(${s.id},${aMs})">${lsD?'학습 ✓':'＋ 학습'}</button>`; }
+      if(isPast){ btns += lsnBtn(s.id, aMs, 'small'); }
       let inlineBtn='';
       if(!abs && !done && !isPast){ stx = `예정 ${hm12(timeFor(s,dowA))}`; sc='var(--muted)';   // 회차는 cycBadge로 이름 옆 표기
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
@@ -981,13 +991,13 @@ function renderToday(){
 
     /* ★ 2026-07-28p ★ 원장님 지시 — "여기다 넣어주세요"
        오늘 학습내용 단추를 카드 위쪽(자세히 펼침 속)에서 [수정] 오른쪽 네 번째 자리로 옮겼다.
-       · 아직 안 적은 날은 「＋ 학습」(주황 점선), 적어 둔 날은 「학습 ✓」(초록)으로만 바뀐다.
-         눌렀을 때 여는 곳은 전과 똑같은 한 곳(openLessonSheet)이다 — 문을 둘로 만들지 않았다.
+       · 2026-07-29z 부터 단추 글자·색은 lsnBtn 한 곳에서만 만든다 —
+         아직 안 적은 날은 「학습」(주황 점선), 적어 둔 날은 「학습 ✓」(초록)이다.
+         눌렀을 때 여는 곳도 전과 똑같은 한 곳(openLessonSheet)이다 — 문을 둘로 만들지 않았다.
        · 하원 완료·결석 카드에도 같은 단추를 붙인다. 학습내용은 수업이 끝난 뒤에 적는 것이니
          '오늘 완료 취소'만 있던 줄에서 적을 길이 막히면 안 된다.
        · 글자 크기·칸 나누기는 styles.css 의 .attn-btns.four / .btn.lsnew / .btn.lsdone 한 곳에서만 정한다. */
-    const lsToday = todayLesson(s.id);
-    const lsBtn = `<button class="btn ${lsToday?'lsdone':'lsnew'}" onclick="openLessonSheet(${s.id})">${lsToday?'학습 ✓':'＋ 학습'}</button>`;
+    const lsBtn = lsnBtn(s.id);
     // 액션 버튼 (등원↔하원 토글 + 결석 + 완료 + 학습내용)
     let action;
     if(done){
@@ -1208,8 +1218,13 @@ function openLessonSheet(id, ms){
   const s=st(id); const ls=lessonOn(id, dMs);
   const chips=MOODS.map(m=>`<button type="button" class="mood-chip ${ls&&ls.mood===m?'on':''}" data-m="${m}" onclick="pickMood(this)">${m}</button>`).join('');
   const sheet=document.getElementById('sheet');
-  sheet.innerHTML=`<h3>${s.name} · ${dLb} 학습내용</h3>
-    <div class="cap">${isTd?'오늘':'그날'} 아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.${isTd?'':`<br><b>${dLb}</b> 기록으로 저장됩니다.`}</div>
+  sheet.innerHTML=`<h3>${s.name} · 학습</h3>
+    <div class="lsd">
+      <button type="button" class="lsd-btn" onclick="lsnCalToggle()">${lsnDateFull(dMs)}${isTd?' · 오늘':''}<span class="lsd-ar">▾</span></button>
+      <span class="lsd-s ${ls?'on':''}">${ls?'적어 두셨어요':'아직 안 적었어요'}</span>
+    </div>
+    <div class="lsd-cal" id="lsnCal"></div>
+    <div class="cap">아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.<br>날짜를 누르면 달력에서 다른 날을 고를 수 있어요. <b>${dLb}</b> 기록으로 저장됩니다.</div>
     <div class="mood-row" id="moodRow"><span class="mood-k">태도</span>${chips}</div>
     <div class="lsc" id="hwBox"></div>
     <div class="lsc" id="catBox"></div>
@@ -1219,7 +1234,8 @@ function openLessonSheet(id, ms){
     <div class="lsc"><div class="lsc-k">안내사항</div>
       <input id="lsnInfo" class="note-select" autocomplete="off" autocorrect="off" spellcheck="false" value="${ls?lsnAttr(ls.info||''):''}" placeholder="예: 교재 안내 했음"></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
-      ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
+      ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>
+    <div id="lsnLog">${lessonLogHtml(s)}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
   /* ★ 고르신 값은 시트가 열려 있는 동안만 여기(dataset)에 둔다. [저장]을 눌러야 기록에 들어간다. */
   sheet.dataset.cats  = (ls&&Array.isArray(ls.cats))?ls.cats.join(','):'';
@@ -1231,7 +1247,13 @@ function openLessonSheet(id, ms){
   /* 이미 적어 둔 기록이 있으면 그 기록의 과정을, 없으면 학년으로 정한다 */
   sheet.dataset.catset = catsetOfKeys((sheet.dataset.cats||'').split(',')) || catsetForGrade(s.grade||'');
   sheet.dataset.pick = '';
-  lsnDrawHw(); lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
+  /* ★ 지금 보고 있는 학생·날짜와 달력이 펼쳐진 달 — 시트가 열려 있는 동안만 여기 둔다(서버에 저장하지 않는다) */
+  sheet.dataset.lsid  = String(id);
+  sheet.dataset.lsms  = String(dMs);
+  sheet.dataset.caly  = String(new Date(dMs).getFullYear());
+  sheet.dataset.calm  = String(new Date(dMs).getMonth());
+  sheet.dataset.calopen = '';
+  lsnDrawCal(); lsnDrawHw(); lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
   /* ★ 2026-07-29 원장님 지시 — "디폴트 값이 산만함으로 들어가 있으면 안됨"
      앱이 넣은 값이 아니었다. 브라우저가 예전에 이 칸에 치셨던 글을 되살려 넣는 일이 있다
      (폼 값 복원·입력 자동완성). 그러면 저장된 글 대신 엉뚱한 글이 보이고,
@@ -1240,6 +1262,58 @@ function openLessonSheet(id, ms){
      넣는 값은 위에서 쓰던 것과 같은 한 곳(ls / sheet.dataset)에서만 온다. */
   lsnFixVals(ls);
   document.getElementById('scrim').classList.add('show');
+  /* 시트가 길어졌다 — 열 때마다 맨 위 날짜 줄부터 보여야 한다.
+     숨어 있는 동안에는 자리를 옮겨도 먹지 않으므로 화면에 띄운 바로 뒤에 되돌린다. */
+  sheet.scrollTop = 0;
+}
+/* ★ 2026-07-29z 원장님 지시 — "기본은 오늘날짜가 뜨고, 아닌 것은 그 날짜 클릭하면 달력이 나오게"
+   시트 맨 위 날짜를 누르면 여기 달력이 열린다. 여닫기·달 넘기기·날짜 고르기가 모두 이 세 함수뿐이다.
+   보고 있는 달은 시트가 열려 있는 동안만 sheet.dataset 에 둔다 — 서버에 저장하지 않는다. */
+function lsnCalToggle(){
+  const sh=document.getElementById('sheet'); if(!sh) return;
+  sh.dataset.calopen = (sh.dataset.calopen==='1') ? '' : '1';
+  lsnDrawCal();
+}
+function lsnCalNav(step){
+  const sh=document.getElementById('sheet'); if(!sh) return;
+  let y=+sh.dataset.caly, m=+sh.dataset.calm+step;
+  if(m<0){ m=11; y--; } if(m>11){ m=0; y++; }
+  sh.dataset.caly=String(y); sh.dataset.calm=String(m);
+  lsnDrawCal();
+}
+function lsnDrawCal(){
+  const sh=document.getElementById('sheet'), box=document.getElementById('lsnCal');
+  if(!sh||!box) return;
+  if(sh.dataset.calopen!=='1'){ box.innerHTML=''; box.classList.remove('open'); return; }
+  box.classList.add('open');
+  const sid=+sh.dataset.lsid, sel=+sh.dataset.lsms;
+  const y=+sh.dataset.caly, m=+sh.dataset.calm, todayT=dayKey(now.getTime());
+  const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+  let g='';
+  WD.forEach(w=>g+=`<div class="cal-wd">${w}</div>`);
+  for(let i=0;i<first;i++) g+='<div></div>';
+  for(let dd=1;dd<=days;dd++){
+    const t=dayKey(new Date(y,m,dd).getTime());
+    /* 아직 오지 않은 날은 적어 둘 것이 없으니 고를 수 없다 */
+    const off = t>todayT;
+    const c='cal-d lsd-d'+(lessonOn(sid,t)?' has':'')+(t===sel?' sel':'')+(t===todayT?' tod':'')+(off?' off':'');
+    g+=`<div class="${c}" ${off?'':`onclick="lsnPickDate(${t})"`}>${dd}</div>`;
+  }
+  /* 다음 달에 오늘까지의 날이 하나도 없으면 앞으로 넘기지 않는다 */
+  const canNext = new Date(y,m+1,1).getTime() <= todayT;
+  box.innerHTML=`<div class="lsd-nav">
+      <button type="button" class="lsn-nav-b" onclick="lsnCalNav(-1)" aria-label="이전 달">‹</button>
+      <span class="lsn-nav-t">${y}년 ${m+1}월</span>
+      ${canNext?`<button type="button" class="lsn-nav-b" onclick="lsnCalNav(1)" aria-label="다음 달">›</button>`
+               :`<span class="lsn-nav-b off">›</span>`}
+    </div>
+    <div class="cal-grid">${g}</div>
+    <div class="lsd-lg"><span><i class="lg has"></i>적어 둔 날</span><span><i class="lg tod"></i>오늘</span></div>`;
+}
+/* 날짜를 고르면 그 날 기록으로 시트를 다시 연다 — 여는 곳은 여전히 한 곳(openLessonSheet)이다 */
+function lsnPickDate(ms){
+  const sh=document.getElementById('sheet'); if(!sh) return;
+  openLessonSheet(+sh.dataset.lsid, ms);
 }
 /* 시트 안 글칸의 값을 저장된 값으로 되돌려 놓는 곳 — 여기 한 곳뿐이다 */
 function lsnFixVals(ls){
@@ -1370,7 +1444,7 @@ function deleteLesson(id, ms){
 }
 
 /* 학습내용을 저장·삭제한 뒤 학생 탭 목록을 다시 그리는 곳 — 여기 한 곳뿐이다.
-   단추 글자(＋ 오늘 학습 ↔ 오늘 학습 ✓)와 펼쳐 두신 학습 기록이 저장한 결과와 달라 보이면 안 된다.
+   단추 글자(학습 ↔ 학습 ✓)가 저장한 결과와 달라 보이면 안 된다.
    목록 칸만 다시 그린다 — 검색칸까지 다시 만들면 치고 계시던 글자가 날아간다. */
 function lsnRefreshStuList(){ if(document.getElementById('stuList')) renderStudentsList(); }
 
@@ -1808,8 +1882,8 @@ function schedText(s){
      올리는 곳은 snapshot(), 내려받는 곳은 applyState() 하나씩뿐이다(단일 소스).
    ★ 분석은 앱이 이 기록만 세어서 만든다. 바깥으로 아무것도 보내지 않고 요금도 들지 않는다.
      기록이 없으면 아무 말도 지어내지 않고 '아직 없어요'라고만 한다. */
-let stuLog={open:null};                 // 지금 펼쳐 둔 학생 번호 (달력의 stuCal 과 같은 방식)
-function toggleStuLog(id){ stuLog.open = (stuLog.open===id) ? null : id; renderStudents(); }
+/* ★ 2026-07-29z — 학생 탭에서 기록을 따로 펼치던 단추(toggleStuLog)와 그 상태(stuLog)를 없앴다.
+   기록을 보는 곳은 학습 시트 안 한 곳뿐이다. */
 function lessonsOf(sid){ return lessons.filter(l=>l && l.sid===sid && l.date).slice().sort((a,b)=>b.date-a.date); }
 /* ★ 2026-07-29w — 학습 결과를 주 / 달 / 해 / 전체로 나눠 본다.
      원장님 지시 — "결과를 주단위 / 월단위 / 년 / 전체 로 볼수 있는 기능도 넣어줘
@@ -1864,7 +1938,7 @@ function lsnRangeAtNow(){
 function lsnRangeSet(m){
   lsnRange.mode=m;
   lsnRange.ref = (m==='all') ? null : dayKey(now.getTime());   // 고를 때마다 오늘이 든 기간부터 본다
-  renderStudents();
+  lsnLogRedraw();
 }
 function lsnRangeNav(step){
   if(lsnRange.mode==='all') return;
@@ -1877,9 +1951,16 @@ function lsnRangeNav(step){
   if(step>0 && dayKey(now.getTime())<lsnRangeBounds().from){
     lsnRange.ref=save; showToast('아직 오지 않은 기간이에요'); return;   // 앞으로는 오늘이 든 기간까지만
   }
-  renderStudents();
+  lsnLogRedraw();
 }
-function lsnRangeToNow(){ if(lsnRange.mode!=='all'){ lsnRange.ref=dayKey(now.getTime()); renderStudents(); } }
+function lsnRangeToNow(){ if(lsnRange.mode!=='all'){ lsnRange.ref=dayKey(now.getTime()); lsnLogRedraw(); } }
+/* 기간을 바꾸면 시트 안 기록 칸만 다시 그린다 — 위에 적고 계시던 글칸은 건드리지 않는다. 여기 한 곳뿐이다. */
+function lsnLogRedraw(){
+  const sh=document.getElementById('sheet'), box=document.getElementById('lsnLog');
+  if(!sh||!box) return;
+  const s=st(+sh.dataset.lsid); if(!s) return;
+  box.innerHTML=lessonLogHtml(s);
+}
 function lsnRangeBar(){
   const tabs=LSN_MODES.map(m=>`<button type="button" class="lsc-chip ${lsnRange.mode===m[0]?'on':''}" onclick="lsnRangeSet('${m[0]}')">${m[1]}</button>`).join('');
   const nav = lsnRange.mode==='all' ? '' : `<div class="lsn-nav">
@@ -2070,7 +2151,7 @@ function lessonLogHtml(s){
     /* 과제·안내사항만 남기신 날도 '비어 있어요'가 뜨면 안 된다 — 적어 두신 것이 있는 날이다 */
     const body = lsnEsc(l.text) || (catHtml||numHtml||infoHtml||l.mood||hwInfo(l.hw) ? '' : '<span class="lsn-none">비어 있어요</span>');
     return `<div class="lsn-row">
-      <div class="lsn-d">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}. (${WD[d.getDay()]})${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}${hwInfo(l.hw)?` <span class="lsn-m ${hwCls(l.hw)}">과제 ${hwName(l.hw)}</span>`:''}</div>
+      <div class="lsn-d">${lsnDateFull(d.getTime())}${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}${hwInfo(l.hw)?` <span class="lsn-m ${hwCls(l.hw)}">과제 ${hwName(l.hw)}</span>`:''}</div>
       ${catHtml}${numHtml}
       ${body?`<div class="lsn-t">${body}</div>`:''}${infoHtml}</div>`;
   }).join('');
@@ -2098,18 +2179,15 @@ function studentCard(s, forDay){
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
-  /* 달력 · 학습 기록 두 단추를 한 줄에 나란히 (2026-07-28u 원장님 지시 — "달력 옆에 학습기록")
-     ★ 2026-07-29y 원장님 지시 — "여기도 학습메모 넣어줘"
-     세 번째 자리에 오늘 학습내용을 적는 단추를 둔다. 여는 곳은 출석부와 같은 한 곳(openLessonSheet)이고
-     날짜를 안 넘겨 오늘로 둔다. 단추 글자·색은 오늘 기록이 있는지(todayLesson)만 보고 정한다. */
-  const lsToday = todayLesson(s.id);
+  /* ★ 2026-07-29z 원장님 지시 — "학습 버튼이 왜 2개임? 그냥 하나로 학습 이라고 하고"
+     학습 단추를 하나로 줄였다. 지난 기록을 따로 펼치던 [학습 기록 ▾]는 없앴다 —
+     기록은 이제 학습 시트 안에서만 보인다(같은 것을 두 곳에서 열지 않는다).
+     출결 달력은 성격이 다른 것이라 그대로 둔다. 단추 글자·색은 lsnBtn 한 곳에서만 만든다. */
   const calBtn = `<div class="row-btns">
       <button class="btn ghost small" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
-      <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습 기록 닫기 ▲':'학습 기록 ▾'}</button>
-      <button class="btn ${lsToday?'lsdone':'lsnew'} small" onclick="openLessonSheet(${s.id})">${lsToday?'오늘 학습 ✓':'＋ 오늘 학습'}</button>
+      ${lsnBtn(s.id, null, 'small')}
     </div>`;
-  const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '')
-                + (stuLog.open===s.id ? lessonLogHtml(s) : '');
+  const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '');
   return `<div class="row">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>

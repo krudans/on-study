@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29z-onebtn-datepick */
+/* ONSTUDY-BUILD: 2026-07-29aa-loglist-back */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1234,8 +1234,7 @@ function openLessonSheet(id, ms){
     <div class="lsc"><div class="lsc-k">안내사항</div>
       <input id="lsnInfo" class="note-select" autocomplete="off" autocorrect="off" spellcheck="false" value="${ls?lsnAttr(ls.info||''):''}" placeholder="예: 교재 안내 했음"></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
-      ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>
-    <div id="lsnLog">${lessonLogHtml(s)}</div>`;
+      ${ls?`<button class="btn sms" onclick="deleteLesson(${id},${dMs})">삭제</button>`:`<button class="btn sms" onclick="closeSheet()">취소</button>`}</div>`;
   sheet.dataset.mood = ls&&ls.mood?ls.mood:'';
   /* ★ 고르신 값은 시트가 열려 있는 동안만 여기(dataset)에 둔다. [저장]을 눌러야 기록에 들어간다. */
   sheet.dataset.cats  = (ls&&Array.isArray(ls.cats))?ls.cats.join(','):'';
@@ -1882,8 +1881,11 @@ function schedText(s){
      올리는 곳은 snapshot(), 내려받는 곳은 applyState() 하나씩뿐이다(단일 소스).
    ★ 분석은 앱이 이 기록만 세어서 만든다. 바깥으로 아무것도 보내지 않고 요금도 들지 않는다.
      기록이 없으면 아무 말도 지어내지 않고 '아직 없어요'라고만 한다. */
-/* ★ 2026-07-29z — 학생 탭에서 기록을 따로 펼치던 단추(toggleStuLog)와 그 상태(stuLog)를 없앴다.
-   기록을 보는 곳은 학습 시트 안 한 곳뿐이다. */
+/* ★ 2026-07-29aa — 원장님 지시로 학생 카드의 [학습 기록 ▾] 를 되살렸다.
+   기록을 보는 곳은 학생 카드 한 곳뿐이다(시트 안에는 넣지 않는다).
+   펼쳐 둔 학생 번호는 달력(stuCal)과 같은 방식으로 화면에서만 든다 — 서버에 저장하지 않는다. */
+let stuLog={open:null};                 // 지금 펼쳐 둔 학생 번호
+function toggleStuLog(id){ stuLog.open = (stuLog.open===id) ? null : id; renderStudents(); }
 function lessonsOf(sid){ return lessons.filter(l=>l && l.sid===sid && l.date).slice().sort((a,b)=>b.date-a.date); }
 /* ★ 2026-07-29w — 학습 결과를 주 / 달 / 해 / 전체로 나눠 본다.
      원장님 지시 — "결과를 주단위 / 월단위 / 년 / 전체 로 볼수 있는 기능도 넣어줘
@@ -1938,7 +1940,7 @@ function lsnRangeAtNow(){
 function lsnRangeSet(m){
   lsnRange.mode=m;
   lsnRange.ref = (m==='all') ? null : dayKey(now.getTime());   // 고를 때마다 오늘이 든 기간부터 본다
-  lsnLogRedraw();
+  renderStudents();
 }
 function lsnRangeNav(step){
   if(lsnRange.mode==='all') return;
@@ -1951,16 +1953,9 @@ function lsnRangeNav(step){
   if(step>0 && dayKey(now.getTime())<lsnRangeBounds().from){
     lsnRange.ref=save; showToast('아직 오지 않은 기간이에요'); return;   // 앞으로는 오늘이 든 기간까지만
   }
-  lsnLogRedraw();
+  renderStudents();
 }
-function lsnRangeToNow(){ if(lsnRange.mode!=='all'){ lsnRange.ref=dayKey(now.getTime()); lsnLogRedraw(); } }
-/* 기간을 바꾸면 시트 안 기록 칸만 다시 그린다 — 위에 적고 계시던 글칸은 건드리지 않는다. 여기 한 곳뿐이다. */
-function lsnLogRedraw(){
-  const sh=document.getElementById('sheet'), box=document.getElementById('lsnLog');
-  if(!sh||!box) return;
-  const s=st(+sh.dataset.lsid); if(!s) return;
-  box.innerHTML=lessonLogHtml(s);
-}
+function lsnRangeToNow(){ if(lsnRange.mode!=='all'){ lsnRange.ref=dayKey(now.getTime()); renderStudents(); } }
 function lsnRangeBar(){
   const tabs=LSN_MODES.map(m=>`<button type="button" class="lsc-chip ${lsnRange.mode===m[0]?'on':''}" onclick="lsnRangeSet('${m[0]}')">${m[1]}</button>`).join('');
   const nav = lsnRange.mode==='all' ? '' : `<div class="lsn-nav">
@@ -2179,15 +2174,18 @@ function studentCard(s, forDay){
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
   const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
   const pastHtml = pastClassesHtml(s);
-  /* ★ 2026-07-29z 원장님 지시 — "학습 버튼이 왜 2개임? 그냥 하나로 학습 이라고 하고"
-     학습 단추를 하나로 줄였다. 지난 기록을 따로 펼치던 [학습 기록 ▾]는 없앴다 —
-     기록은 이제 학습 시트 안에서만 보인다(같은 것을 두 곳에서 열지 않는다).
-     출결 달력은 성격이 다른 것이라 그대로 둔다. 단추 글자·색은 lsnBtn 한 곳에서만 만든다. */
+  /* ★ 2026-07-29aa 원장님 지시 — "학습메모를 메뉴를 넣어달라는 거고,
+     기존에 있던 학습기록은 있어야 할 것 아니냐"
+     → 적는 곳([학습])과 보는 곳([학습 기록 ▾])을 다시 나눔다.
+     앞서 줄인 것은 오늘용·지난날용 학습 단추 둘이며, 그것은 그대로 하나(lsnBtn)로 둔다.
+     단추 글자·색을 만드는 곳은 lsnBtn 한 곳뿐이다. */
   const calBtn = `<div class="row-btns">
       <button class="btn ghost small" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+      <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습 기록 닫기 ▲':'학습 기록 ▾'}</button>
       ${lsnBtn(s.id, null, 'small')}
     </div>`;
-  const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '');
+  const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '')
+                + (stuLog.open===s.id ? lessonLogHtml(s) : '');
   return `<div class="row">
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>

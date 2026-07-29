@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29aa-loglist-back */
+/* ONSTUDY-BUILD: 2026-07-29ad-btnname3 */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -172,9 +172,16 @@ function lsnDayLabel(ms){ const k=dayKey(ms);
    학습 단추(글자·색·눌렀을 때 여는 곳)를 만드는 곳은 여기 한 곳뿐이다.
    출석부 오늘 카드·지난 날 카드·학생 탭이 모두 이 함수만 쓴다 — 문을 여럿 만들지 않는다.
    ms 를 안 주시면 오늘이다. 적어 두신 날은 「학습 ✓」(초록), 아직 안 적은 날은 「학습」(주황 점선). */
+/* ★ 2026-07-29ab 원장님 지시 — "학습 -> 학습기록하기 로 바꿔줘 제목이 너무 모호해"
+   단추 글자를 만드는 곳은 여전히 여기 한 곳뿐이다. 자리에 따라 긴 이름/짧은 이름만 고른다.
+   2026-07-29ad 원장님 지시 — "출석부도 학습+로 할 수 있죠?"
+   → 자리마다 다른 이름을 두지 않는다. 학생 탭·출석부 오늘 줄·출석부 지난 날 줄 모두 같은 글자다.
+     아직 안 적은 날 「학습+」(적으러 가기) · 적어 둔 날 「학습 ✓」(적어 둠).
+     「학습+」는 짧아서 출석부 4칸(칸 77.5px)에 그대로 들어간다. */
 function lsnBtn(sid, ms, cls){
   const has = lessonOn(sid, ms==null ? now.getTime() : ms);
-  return `<button class="btn ${has?'lsdone':'lsnew'}${cls?' '+cls:''}" onclick="openLessonSheet(${sid}${ms==null?'':','+ms})">${has?'학습 ✓':'학습'}</button>`;
+  const tx = has ? '학습 ✓' : '학습+';
+  return `<button class="btn ${has?'lsdone':'lsnew'}${cls?' '+cls:''}" onclick="openLessonSheet(${sid}${ms==null?'':','+ms})">${tx}</button>`;
 }
 
 // 보호자 목록 (신규 모델 guardians[] 우선, 없으면 구 필드에서 구성)
@@ -2181,7 +2188,7 @@ function studentCard(s, forDay){
      단추 글자·색을 만드는 곳은 lsnBtn 한 곳뿐이다. */
   const calBtn = `<div class="row-btns">
       <button class="btn ghost small" onclick="toggleStuCal(${s.id})">${stuCal.open===s.id?'달력 닫기 ▲':'달력 보기 ▾'}</button>
-      <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습 기록 닫기 ▲':'학습 기록 ▾'}</button>
+      <button class="btn ghost small" onclick="toggleStuLog(${s.id})">${stuLog.open===s.id?'학습통계 닫기 ▲':'학습통계 ▾'}</button>
       ${lsnBtn(s.id, null, 'small')}
     </div>`;
   const calHtml = (stuCal.open===s.id ? buildCalendar(s, stuCal, `stuCalNav(${s.id},-1)`, `stuCalNav(${s.id},1)`) : '')

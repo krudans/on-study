@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-07-29ad-btnname3 */
+/* ONSTUDY-BUILD: 2026-08-15af-leavedate */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -706,12 +706,12 @@ function missingSettings(){
   if(!academy.name)  out.push({tx:'학원 이름이 비어 있어요', v:'academy'});
   if(!academy.owner) out.push({tx:'원장님 이름이 비어 있어요', v:'academy'});
   if(!closeTime)     out.push({tx:'마감 시각이 비어 있어요 (설정 > 수업 기본 설정)', v:'admin'});
-  [...new Set(students.map(s=>s.plan).filter(p=>+p>0))].sort((a,b)=>a-b)
+  [...new Set(activeStudents().map(s=>s.plan).filter(p=>+p>0))].sort((a,b)=>a-b)
     .forEach(p=>{ if(priceOfPlan(p)==null) out.push({tx:`${p}회 수업료가 비어 있어요 (설정 > 수업 기본 설정)`, v:'admin'}); });
   /* ★ 2026-07-27h: 켜 둔 알림의 문구가 비면 알린다 — 발송도 같은 규칙으로 막힌다 */
   MSG_KINDS.forEach(([k,label])=>{ if(sendOn(k) && !String((msgTemplates[k]&&msgTemplates[k].sms)||'').trim())
     out.push({tx:`${label} 문구가 비어 있어요 (설정 > 알림 문구)`, v:'send'}); });
-  students.forEach(s=>{
+  activeStudents().forEach(s=>{   // ★ 퇴원한 학생은 챙길 일에 올리지 않는다
     /* ★ 2026-07-28s: 공통 s.time 을 따로 보지 않는다(timeFor 하나만 본다).
        요일마다 다르게인 학생은 수업 요일 중 한 칸이라도 비면 알린다. */
     const _dchk=(s.days&&s.days.length)?s.days:[todayIdx];
@@ -777,7 +777,7 @@ let absentToday=new Set();   // (호환용) markAbsent/clearAbsent에서 갱신
 function isAbsentToday(sid){ const t=dayKey(now.getTime()); return (absentLog[sid]||[]).some(x=>dayKey(x)===t); }
 const isTodayStudent=(x)=>{ const k=dayKey(now.getTime());
   return (isClassDay(x,k) && !beforeStart(x,k)) || hasRecordOn(x.id,k); };   // ★ 마지막 회차 하원 직후에도(다음 클래스가 미래로 잡혀도) 오늘 기록 있으면 명단 유지
-const todayRoster=()=>students.filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));
+const todayRoster=()=>activeStudents().filter(isTodayStudent).sort((a,b)=>a.time.localeCompare(b.time));   // ★ 퇴원한 학생은 명단에서 뺀다
 
 // 학생의 지난 출석일(요일표 기준, 오늘 이전) — 달력 표시용
 function pastAttendDates(sid){
@@ -1086,7 +1086,7 @@ function renderToday(){
     cards+=cardOf(s);
   });
   const empty=list.length?'':`<div class="empty">이 날은 예정된 학생이 없어요. 아래에서 보강을 넣을 수 있어요.</div>`;
-  const cand=students.filter(x=>!list.some(y=>y.id===x.id))       // 그 날 명단에 없는 학생
+  const cand=students.filter(x=>!isLeftOn(x, dayKey(aMs)) && !list.some(y=>y.id===x.id))   // 그 날 명단에 없는 학생 (그 날 기준 퇴원 제외)
     .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순
   const added=students.filter(x=>makeupOn(x.id, aMs));            // 그 날 보강인 학생 (단일 소스)
   const addedBox = added.length ? `<div style="margin-bottom:10px">
@@ -2201,7 +2201,7 @@ function studentCard(s, forDay){
       <div class="stat"><div class="k">이번 클래스</div><div class="v">${doneN}/${s.plan}회</div></div>
       <div class="stat"><div class="k">남은 횟수</div><div class="v">${Math.max(0,s.plan-doneN)}회</div></div>
     </div>
-    <span class="flag ${need?'need':'ok'}">${need?'정산 필요':'진행 중'}</span>
+    <span class="flag ${(hasLeaveSet(s)||need)?'need':'ok'}">${hasLeaveSet(s)?leaveLabel(s):(need?'정산 필요':'진행 중')}</span>
     ${pastHtml}
     ${calBtn}${calHtml}
   </div>`;
@@ -2209,11 +2209,15 @@ function studentCard(s, forDay){
 /* 앱 학생 탭 목록 (검색 반영) — 입력창은 다시 그리지 않아 한글 조합이 안 깨짐 */
 function studentListHtml(){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const pool=students.filter(x=>matchStu(x, stuQuery));
+  /* ★ 2026-08-15 퇴원한 학생은 다니는 학생 사이에 섞지 않고 맨 아래 묶음으로 모은다(자료는 그대로 볼 수 있다) */
+  const poolAll=students.filter(x=>matchStu(x, stuQuery));
+  const pool=poolAll.filter(x=>!isLeft(x));
+  const gone=poolAll.filter(isLeft);
   const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
     <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
     ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;
-  const count=`전체 <b style="color:var(--ink)">${students.length}명</b>${stuQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}`;
+  const _left=students.filter(isLeft).length;
+  const count=`전체 <b style="color:var(--ink)">${students.length-_left}명</b>${_left?` · 퇴원 <b style="color:var(--muted)">${_left}명</b>`:''}${stuQuery?` · 검색 결과 <b style="color:var(--amber)">${poolAll.length}명</b>`:''}`;
 
   let body='';
   if(studentSort==='name'){
@@ -2242,8 +2246,11 @@ function studentListHtml(){
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
+  const goneHtml = gone.length ? grpH('퇴원한 학생', gone.length)
+      + gone.slice().sort(byName).map(s=>studentCard(s)).join('') : '';
   if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
-  else if(!pool.length) body='<div class="muted-card">검색 결과가 없어요.</div>';
+  else if(!poolAll.length) body='<div class="muted-card">검색 결과가 없어요.</div>';
+  else { if(!pool.length) body='<div class="muted-card">다니는 학생 중에는 없어요.</div>'; body+=goneHtml; }
   return {count, body};
 }
 function renderStudentsList(){
@@ -2311,7 +2318,10 @@ function backfillHistStart(s, h){
 /* 지난 회차(클래스) 이력 표시 상태 */
 let histAllOpen=new Set(), histRowOpen=new Set(), histCalOpen=new Set();
 function toggleHistCal(key){ if(histCalOpen.has(key))histCalOpen.delete(key); else histCalOpen.add(key);
-  renderStudents(); if(document.getElementById('v-manage')) renderManage(); }
+  renderStudents(); if(document.getElementById('v-manage')) renderManage(); redrawSettleIfOpen(); }
+/* 정산 화면을 보고 있을 때만 다시 그린다 — 안 보이는 화면까지 그리면 정산 정리(normalizeBills)가 괜히 돈다 */
+function redrawSettleIfOpen(){ const sv=document.getElementById('v-settle');
+  if(sv && sv.classList.contains('active')) renderSettle(); }
 /* 지난 클래스 달력 — 그 기간이 걸친 달을 모두 표시, 그 회차 날짜를 출석으로 색칠 */
 function histCalendar(s, h, list){
   const c_=histClassOf(s,h);                                                   // ★ 카드 기간과 반드시 같은 계산기를 쓴다
@@ -2325,10 +2335,39 @@ function histCalendar(s, h, list){
   return `<div class="cal" style="margin-top:8px">${grids}
     <div class="cal-legend"><span><i class="lg att"></i>수업</span><span><i class="lg" style="background:#EAE3F7"></i>보강</span>
       <span><i class="lg ab"></i>결석</span></div>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.</div></div>`;
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">${(h&&h.no!=null)?`이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.`:'이 달력은 이 정산 건의 기간만 표시해요.'}</div></div>`;
+}
+/* ★ 2026-08-15 회차별 날짜 목록 — 지난 클래스 카드·정산 카드·확정 시트가 같은 것을 쓴다.
+   예전엔 같은 목록을 세 곳에서 따로 그려서 글자 크기·문구가 서로 달랐다. */
+function classSessionsHtml(list, big){
+  const fs=big?'13px':'12.5px', pv=big?'3px':'2px';
+  return `<div style="background:var(--bg);border-radius:${big?'10px':'9px'};padding:${big?'10px 12px':'9px 11px'};margin-top:${big?'9px':'7px'}">
+    ${(list&&list.length) ? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:${fs};padding:${pv} 0;color:var(--ink)">
+        <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
+      : `<div style="font-size:${fs};color:var(--muted)">회차별 날짜 기록이 없어요.</div>`}
+  </div>`;
+}
+/* ★ 2026-08-15 원장님 지시 — 정산 카드의 [자세히 ▾] 를 지난 클래스와 같은 단추 줄로 바꾼다.
+   [회차 보기 ▾] [달력 보기 ▾] [날짜 수정 / 이 기간 확정] 을 만드는 곳은 여기 한 곳뿐이다.
+   펼침 상태(histRowOpen·histCalOpen)도 열쇠(key)가 같으면 두 화면이 같이 움직인다 — 같은 클래스이기 때문이다. */
+function classRowBtns(s, h, key){
+  const bs='width:auto;padding:5px 10px;font-size:12px';
+  const open=histRowOpen.has(key), calOpen=histCalOpen.has(key);
+  let third='';
+  if(s && h && h.no!=null){
+    const c_=histClassOf(s,h);
+    const ended = h.confirmed || (c_.end!=null && c_.end < dayKey(now.getTime()));
+    third = ended
+      ? `<button class="btn ghost small" style="${bs}" onclick="editHistDates(${s.id},${h.no})">날짜 수정</button>`
+      : `<button class="btn settle small" style="${bs}" onclick="askConfirmHist(${s.id},${h.no})">이 기간 확정</button>`;
+  }
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
+      <button class="btn ghost small" style="${bs}" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
+      <button class="btn ghost small" style="${bs}" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
+      ${third}</div>`;
 }
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
-function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
+function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); redrawSettleIfOpen(); }
 /* 지난 회차 블록 HTML (최근 3개, 나머지는 '전체 보기') */
 /* ===== 지난 클래스 확정 — 이미 끝난 클래스의 날짜를 고정한다 (이번 클래스와 무관) ===== */
 /* 지난 클래스: 계산된 회차 날짜를 확정(고정)해서 다시 계산되지 않게 함 */
@@ -2342,11 +2381,8 @@ function askConfirmHist(sid, no){
   sheet.innerHTML=`<h3>${s.name} ${no}차 확정</h3>
     <div class="cap">프로그램이 계산한 <b>${cnt}회</b> 일정이에요. 실제와 맞으면 확정하세요.
       확정하면 이 날짜로 <b>고정</b>되고 다시 계산되지 않아요.</div>
-    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;max-height:230px;overflow-y:auto">
-      ${list.length? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0">
-        <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
-        : '<div style="font-size:13px;color:var(--muted)">계산된 날짜가 없어요. 학생 수정에서 시작일을 넣어주세요.</div>'}
-    </div>
+    <div style="max-height:230px;overflow-y:auto">${list.length? classSessionsHtml(list, true)
+      : '<div style="background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:9px;font-size:13px;color:var(--muted)">계산된 날짜가 없어요. 학생 수정에서 시작일을 넣어주세요.</div>'}</div>
     <div class="cap" style="margin-top:10px">📅 ${list.length?`${fmtMD(list[0])} ~ ${fmtMD(list[list.length-1])}`:'기간 미상'}</div>
     <div class="sheet-btns" style="margin-top:12px">
       <button class="btn settle" ${list.length?'':'disabled'} onclick="confirmHist(${sid},${no})">맞아요 · 확정</button>
@@ -2451,27 +2487,15 @@ function pastClassesHtml(s){
     const c_=histClassOf(s,h);
     const list=c_.sessions, st_=c_.start, en=c_.end;
     const period=(st_&&en)?`${fmtMD(st_)} ~ ${fmtMD(en)}`:(en?`~ ${fmtMD(en)}`:'기간 미상');
-    const open=histRowOpen.has(key);
-    const calOpen=histCalOpen.has(key);
-    const detail=open?`<div style="background:var(--bg);border-radius:9px;padding:9px 11px;margin-top:7px">
-      ${list.length?list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0">
-          <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
-        :'<div style="font-size:12.5px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
-    </div>`:'';
-    const calHtml=calOpen? histCalendar(s, h, list) : '';
+    const detail=histRowOpen.has(key)?classSessionsHtml(list, false):'';
+    const calHtml=histCalOpen.has(key)? histCalendar(s, h, list) : '';
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px;background:var(--card)">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <span style="font-weight:600;font-size:13.5px">${h.no}차 · ${h.done||h.plan}/${h.plan}회
           ${(h.confirmed || (en && en < dayKey(now.getTime())))?'<span style="font-size:10.5px;font-weight:600;color:#2F7A4F;background:#E7F1EA;border-radius:5px;padding:1px 5px;margin-left:4px">확정</span>':'<span style="font-size:10.5px;font-weight:600;color:#854F0B;background:#FAEEDA;border-radius:5px;padding:1px 5px;margin-left:4px">예상</span>'}</span>
         <span style="font-size:12.5px;color:var(--muted)">${won(histAmount(s.id,h))}</span></div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
-      <div style="display:flex;gap:6px;margin-top:7px">
-        <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
-        <button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
-        ${(h.confirmed || (en && en < dayKey(now.getTime())))
-          ? `<button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px" onclick="editHistDates(${s.id},${h.no})">날짜 수정</button>`
-          : `<button class="btn settle small" style="width:auto;padding:5px 10px;font-size:12px" onclick="askConfirmHist(${s.id},${h.no})">이 기간 확정</button>`}
-      </div>
+      ${classRowBtns(s, h, key)}
       ${detail}${calHtml}</div>`;
   }).join('');
   const more = all.length>3 ? `<button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="toggleHistAll(${s.id})">${openAll?'접기 ▲':`전체 보기 (${all.length}개) ▾`}</button>` : '';
@@ -2480,12 +2504,22 @@ function pastClassesHtml(s){
     ${rows}${more}</div>`;
 }
 
-/* 정산 건 '자세히' 펼침 상태 */
-let billOpen=new Set();
-function toggleBill(id){ if(billOpen.has(id))billOpen.delete(id); else billOpen.add(id); renderSettle(); }
+/* ★ 2026-08-15 원장님 지시 — 정산 카드의 [자세히 ▾] 를 없애고 지난 클래스와 같은 단추 줄을 쓴다.
+   펼침 상태도 지난 클래스와 같은 것(histRowOpen·histCalOpen)을 쓴다 — 같은 클래스가 두 상태를 갖지 않게. */
 /* 정산 건의 회차 날짜 목록 (없으면 실제 출결 기록에서 복원) */
 /* 정산 건의 회차 날짜 — 반드시 단일 계산기(billClassOf)를 통과한다.
    예전엔 여기서 따로 역산해서, 카드 헤더 기간과 펼친 회차 날짜가 서로 달랐다. */
+/* ★ 2026-08-15 정산 건과 짝이 되는 지난 클래스 기록 — 짝을 정하는 곳은 여기 한 곳뿐.
+   syncBillsOfHist 가 날짜를 맞출 때 쓰는 기준(종료일, 없으면 시작일)과 같은 규칙이다. */
+function histOfBill(b){
+  if(!b) return null;
+  const list=packHistory[b.sid]||[];
+  if(b.endDate!=null){ const k=dayKey(b.endDate);
+    const f=list.find(h=>h.end!=null && dayKey(h.end)===k); if(f) return f; }
+  if(b.startDate!=null){ const k=dayKey(b.startDate);
+    const f=list.find(h=>h.start!=null && dayKey(h.start)===k); if(f) return f; }
+  return null;
+}
 function billSessions(b){
   const c=billClassOf(b);
   if(c.sessions.length) return c.sessions;
@@ -2522,17 +2556,17 @@ function renderSettle(){
     const startMs = c_.start || (list.length?list[0]:null);
     const endMs_ = c_.end || (list.length?list[list.length-1]:b.endDate);
     const period = startMs ? `${fmtMD(startMs)} ~ ${fmtMD(endMs_)}` : (endMs_?`~ ${fmtMD(endMs_)}`:'기간 미상');
-    const open = billOpen.has(b.id);
-    const detail = open ? `<div style="background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:9px">
-        ${list.length ? list.map((t,i)=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:var(--ink)">
-            <span style="color:var(--muted)">${i+1}회차</span><span>${fmtMD(t)}</span></div>`).join('')
-          : '<div style="font-size:13px;color:var(--muted)">회차별 날짜 기록이 없어요.</div>'}
-      </div>` : '';
+    /* ★ 정산 건 = 지난 클래스 한 건이다. 그래서 단추 줄·회차 목록·달력을 지난 클래스와 똑같이 쓴다.
+         짝이 되는 기록이 없는 옛 정산 건은 [날짜 수정] 없이 보기만 된다(고칠 대상이 없기 때문). */
+    const bh = histOfBill(b);
+    const bhLike = bh || {no:null, plan:b.plan, done:b.plan, start:b.startDate, end:b.endDate,
+                          sessions:b.sessions, confirmed:b.confirmed};
+    const bKey = bh ? (b.sid+'-'+bh.no) : ('b'+b.id);
+    const detail = histRowOpen.has(bKey) ? classSessionsHtml(list, true) : '';
+    const bCal = (s && histCalOpen.has(bKey)) ? histCalendar(s, bhLike, list) : '';
     const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
       <div class="mg-line">📅 <b>${period}</b> · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
-      <div class="row-btns" style="margin-top:8px">
-        <button class="btn ghost small" onclick="toggleBill(${b.id})">${open?'접기 ▲':'자세히 ▾'}</button>
-      </div>${detail}`;
+      ${classRowBtns(s, bh, bKey)}${detail}${bCal}`;
     if(!b.paid){
       return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">
@@ -2548,7 +2582,7 @@ function renderSettle(){
 
   // 진행 중 학생 → 곧 끝남(2주 이내) / 수업 중
   const todayK=dayKey(now.getTime());
-  const prog = students.slice().map(s=>{
+  const prog = activeStudents().map(s=>{      // ★ 퇴원한 학생은 '진행 중'이 아니다 (못 받은 정산 건은 위에 그대로 남는다)
     const endMs=cycleEndOf(s);
     const days = endMs ? Math.round((dayKey(endMs)-todayK)/86400000) : null;
     return {s, endMs, days};
@@ -3044,10 +3078,15 @@ function manageCard(s, forDay){
   const eduTxt = [s.grade?gradeLabel(s.grade):'', s.school||''].filter(Boolean).join(' · ');
   const eduLine = eduTxt ? `<div class="mg-line">🎓 ${eduTxt}</div>` : '';
   const dayTime = (forDay!=null) ? `<div class="mg-line">⏰ ${WD[forDay]} ${rng12(timeFor(s,forDay), endTimeOf(timeFor(s,forDay),durOf(s)))}</div>` : '';
-  return `<div class="row" id="mng-${s.id}">
+  /* ★ 2026-08-15 퇴원한 학생은 흐리게 + 한 줄로 알려 준다. 자료는 그대로 보인다. */
+  const leftLine = !hasLeaveSet(s) ? ''
+    : isLeft(s)
+      ? `<div class="mg-line" style="color:var(--clay);font-weight:600">🚪 ${leaveLabel(s)} · 출석부·일정에서 빠져 있어요 (자료는 그대로)</div>`
+      : `<div class="mg-line" style="color:var(--amber);font-weight:600">🚪 ${leaveLabel(s)} · 그날까지는 출석부에 나와요</div>`;
+  return `<div class="row" id="mng-${s.id}"${isLeft(s)?' style="opacity:.72"':''}>
     <div class="row-top"><span class="name">${s.name}</span>
       <span class="contract">${s.plan}회 · ${won(priceOf(s))}</span></div>
-    ${eduLine}${dayTime}
+    ${leftLine}${eduLine}${dayTime}
     <div class="mg-line">🗓 ${days}요일 · ${timeTxt} · <b>${durLabel(durOf(s))}</b></div>
     <div class="mg-line">🏫 학원 등록일(첫 수업일) : ${startTxt}</div>
     <div class="mg-line">🔄 이번 계약 : ${fmtD(cycleStartOf(s))} ~ ${fmtD(cycleEndOf(s))} · ${doneCountOf(s)}/${s.plan}회 끝남</div>
@@ -3058,6 +3097,7 @@ function manageCard(s, forDay){
       <button class="btn ghost small" onclick="toggleMngCal(${s.id})">${mngCal.open===s.id?'달력 닫기':'달력 보기'}</button>
       <button class="btn pay small" onclick="openNoticeSheet(${s.id})">안내문</button>
       <button class="btn ghost small" onclick="askDeleteStudent(${s.id})">삭제</button>
+      <button class="btn ${hasLeaveSet(s)?'settle':'ghost'} small" onclick="askLeaveStudent(${s.id})">${hasLeaveSet(s)?'퇴원일 고치기':'퇴원'}</button>
     </div>
     ${mngCal.open===s.id ? buildCalendar(s, mngCal, `mngCalNav(${s.id},-1)`, `mngCalNav(${s.id},1)`) : ''}
     </div>`;
@@ -3065,11 +3105,15 @@ function manageCard(s, forDay){
 /* 목록(검색결과)만 만들기 — 입력창은 다시 그리지 않아 한글 조합이 깨지지 않음 */
 function manageListHtml(){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ko');
-  const pool=students.filter(x=>matchStu(x, mngQuery));
+  /* ★ 2026-08-15 퇴원한 학생은 맨 아래 '퇴원한 학생' 묶음으로 — 여기서 [퇴원 취소]를 누른다 */
+  const poolAll=students.filter(x=>matchStu(x, mngQuery));
+  const pool=poolAll.filter(x=>!isLeft(x));
+  const gone=poolAll.filter(isLeft);
   const grpH=(t,n)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;margin:20px 2px 9px;padding-bottom:5px;border-bottom:1px solid var(--line)">
     <span style="font-size:12.5px;font-weight:700;color:var(--ink)">${t}</span>
     ${n!=null?`<span style="font-size:12px;color:var(--muted)">${n}명</span>`:''}</div>`;
-  const count=`전체 <b style="color:var(--ink)">${students.length}명</b>${mngQuery?` · 검색 결과 <b style="color:var(--amber)">${pool.length}명</b>`:''}`;
+  const _left=students.filter(isLeft).length;
+  const count=`전체 <b style="color:var(--ink)">${students.length-_left}명</b>${_left?` · 퇴원 <b style="color:var(--muted)">${_left}명</b>`:''}${mngQuery?` · 검색 결과 <b style="color:var(--amber)">${poolAll.length}명</b>`:''}`;
 
   let body='';
   if(manageSort==='name'){
@@ -3099,8 +3143,11 @@ function manageListHtml(){
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
+  const goneHtml = gone.length ? grpH('퇴원한 학생', gone.length)
+      + gone.slice().sort(byName).map(s=>manageCard(s)).join('') : '';
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
-  else if(!pool.length) body=`<div class="muted-card">검색 결과가 없어요.</div>`;
+  else if(!poolAll.length) body=`<div class="muted-card">검색 결과가 없어요.</div>`;
+  else { if(!pool.length) body='<div class="muted-card">다니는 학생 중에는 없어요.</div>'; body+=goneHtml; }
   return {count, body};
 }
 /* 검색 입력: 목록만 교체 (입력창은 그대로 → 한글 조합 정상) */
@@ -3870,6 +3917,72 @@ function sendNotice(id){
   openMsgWith(id, text, kakao);
 }
 
+/* ===== 퇴원 ===== 2026-08-15 원장님 지시
+   "퇴원 버튼 누르면 데이터는 남아있지만 출석부에선 안보이도록"
+   → 지우는 것이 아니다. 학생 자료·출결·학습 기록·정산 건은 그대로 두고
+     '지금 다니는 학생' 명단에서만 뺀다.
+   저장 키 : students[].leftAt (퇴원 처리한 날 ms). 없으면 다니는 중.
+   ★ 다니는 중인지 판정하는 곳은 isLeft / activeStudents 두 함수뿐이다(단일 소스).
+   ★ 삭제(deleteStudent)와 다르다 — 삭제는 정산 건·기록까지 지운다. */
+/* 퇴원일 = 마지막으로 다닌 날. 그 다음 날부터 명단에서 빠진다.
+   ★ 지난 날짜 출석부는 그대로다 — 퇴원일 이전 기록을 보러 갔을 때 학생이 사라지면 안 된다.
+   ★ 앞날로 정해 두면 그날까지는 계속 나온다(퇴원 예정). */
+function hasLeaveSet(s){ return !!(s && s.leftAt!=null); }
+function isLeftOn(s, k){ return hasLeaveSet(s) && k > dayKey(s.leftAt); }
+function isLeft(s){ return isLeftOn(s, dayKey(now.getTime())); }     // 오늘 기준 이미 나갔는지
+function activeStudents(){ return students.filter(x=>!isLeft(x)); }
+/* 퇴원 상태 한 줄 말 — 만드는 곳은 여기 한 곳뿐 */
+function leaveLabel(s){
+  if(!hasLeaveSet(s)) return '';
+  return isLeft(s) ? `퇴원 ${fmtD(s.leftAt)}` : `퇴원 예정 ${fmtD(s.leftAt)}`;
+}
+
+function askLeaveStudent(id){
+  const s=st(id); if(!s) return;
+  const has=hasLeaveSet(s);
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${s.name} 퇴원</h3>
+    <div class="cap"><b>마지막으로 다닌 날</b>을 골라 주세요. 그 다음 날부터 출석부·전체 일정·
+      정산 「수업 중」에서 빠집니다. 고른 날 이전의 지난 출석부는 그대로 보여요.
+      <b>자료는 지워지지 않아요</b> — 지난 클래스·학습 기록·못 받은 정산 건은 그대로 남습니다.</div>
+    <div class="fld"><label>퇴원일 (마지막 수업일)</label>
+      <input type="date" id="lvDate" class="note-select" value="${has?dateInputValue(dayKey(s.leftAt)):''}"></div>
+    <div style="display:flex;gap:6px;margin:-4px 0 10px">
+      <button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="lvPick(0)">오늘</button>
+      <button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="lvPick(${id})">마지막 수업일</button>
+    </div>
+    <div class="sheet-btns"><button class="btn pay" onclick="leaveStudent(${id})">${has?'퇴원일 저장':'퇴원 처리'}</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>
+    ${has?`<button class="btn ghost small" style="width:100%;margin-top:8px" onclick="unleaveStudent(${id})">퇴원 취소 (다시 다니는 학생으로)</button>`:''}`;
+  document.getElementById('scrim').classList.add('show');
+}
+/* 시트 안 날짜 칸 채우기 — 0 이면 오늘, 학생 번호면 그 학생의 마지막 수업 기록일 */
+function lvPick(id){
+  const el=document.getElementById('lvDate'); if(!el) return;
+  let ms=dayKey(now.getTime());
+  if(id){
+    const mine=sessions.filter(r=>r.sid===id).map(r=>dayKey(r.date)).sort((a,b)=>a-b);
+    if(!mine.length){ showToast('수업 기록이 없어서 마지막 수업일을 알 수 없어요'); return; }
+    ms=mine[mine.length-1];
+  }
+  el.value=dateInputValue(ms);
+}
+function leaveStudent(id){
+  const s=st(id); if(!s) return;
+  const el=document.getElementById('lvDate');
+  const v=el?el.value:'';
+  if(!v){ showToast('퇴원일을 골라 주세요'); return; }     // ★ 코드가 날짜를 대신 정하지 않는다
+  s.leftAt=dayKey(new Date(v+'T00:00:00').getTime());
+  saveData(); closeSheet(); renderManage();
+  showToast(`${s.name} ${leaveLabel(s)} · 자료는 그대로 남아 있어요`);
+}
+function unleaveStudent(id){
+  const s=st(id); if(!s) return;
+  delete s.leftAt;
+  saveData(); closeSheet(); renderManage();
+  showToast(`${s.name} 퇴원을 취소했어요`);
+}
+
 function askDeleteStudent(id){
   const s=st(id);
   const sheet=document.getElementById('sheet');
@@ -3894,7 +4007,8 @@ let schedCur=null, schedSel=null;
 function isTempOn(s, ms){ return isMakeupDay(s, dayKey(ms)); }   // 호환용 별칭
 function studentsOnDate(ms){
   const d=new Date(ms), dow=d.getDay(), k=dayKey(ms);
-  return students.filter(s=> (isClassDay(s,k) && !beforeStart(s,ms)) || hasRecordOn(s.id,k))   // 기록 있는 날은 클래스 경계와 무관하게 표시
+  return students.filter(s=> !isLeftOn(s,k))                                                        // ★ 퇴원일 다음 날부터만 뺀다(지난 출석부는 그대로)
+    .filter(s=> (isClassDay(s,k) && !beforeStart(s,ms)) || hasRecordOn(s.id,k))   // 기록 있는 날은 클래스 경계와 무관하게 표시
     .sort((a,b)=> (todayTimeOf(a,k)||'').localeCompare(todayTimeOf(b,k)||''));
 }
 function schedNav(delta){ schedCur.setMonth(schedCur.getMonth()+delta); schedSel=null; renderSchedule(); }
@@ -3973,8 +4087,8 @@ function schedMakeupBox(selMs){
   const k=dayKey(selMs);
   const onDate=studentsOnDate(k);
   const mkList=students.filter(x=>makeupOn(x.id,k));
-  const cand=students.filter(x=>!onDate.some(y=>y.id===x.id))
-    .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순
+  const cand=students.filter(x=>!isLeftOn(x,k) && !onDate.some(y=>y.id===x.id))
+    .slice().sort((a,b)=>a.name.localeCompare(b.name,'ko'));      // 가나다순 (그 날 기준 퇴원 제외)
   const mkHtml = mkList.length ? mkList.map(x=>{ const mk=makeupOn(x.id,k)||{};
       return `<div style="display:flex;justify-content:space-between;align-items:center;background:#EAE3F7;border-radius:9px;padding:8px 10px;margin-bottom:6px">
         <span style="font-size:13px;color:#4A3690"><b>${x.name}</b> · ${mk.time?rng12(mk.time, endTimeOf(mk.time, mk.dur||durOf(x))):'-'} · ${durLabel(mk.dur||durOf(x))}</span>

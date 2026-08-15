@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-15ah-boxlog */
+/* ONSTUDY-BUILD: 2026-08-15ai-classlearn */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -164,7 +164,8 @@ function catsetOfKeys(keys){
    저장되는 값은 열쇠말(k)이고, 사람이 읽는 말(n)은 여기서만 만든다.
    화면 차례는 해옴 → 일부 해옴 → 안 해옴(정도순)으로 둔다.
    c 는 색만 정한다 — g 초록(해옴) / a 주황(일부) / w 붉은색(안 해옴). */
-const HWS=[{k:'done',n:'해옴',c:'g'},{k:'part',n:'일부 해옴',c:'a'},{k:'none',n:'안 해옴',c:'w'}];
+/* p = 과제 성실도 점수(%). ★ 점수를 적어 두는 곳은 여기 하나뿐이다 — 셈도 화면도 이 표만 본다. */
+const HWS=[{k:'done',n:'해옴',c:'g',p:100},{k:'part',n:'일부 해옴',c:'a',p:50},{k:'none',n:'안 해옴',c:'w',p:0}];
 function hwInfo(k){ return HWS.find(h=>h.k===k)||null; }
 function hwName(k){ const h=hwInfo(k); return h?h.n:''; }
 function hwCls(k){ const h=hwInfo(k); return h?h.c:'n'; }
@@ -1350,16 +1351,29 @@ function lsnClassRange(s, k){
   if(ci.start!=null) return {start:ci.start, end:(ci.end!=null?ci.end:null), no:null};
   return null;
 }
-/* 그 클래스 기간에 적어 두신 기록 (오래된 것부터). 지금 열어 둔 날은 빼고 — 그 날은 칸 안에 있다. */
-function lsnClassLessons(s, k){
-  const r=lsnClassRange(s,k); if(!r) return [];
-  return lessonsOf(s.id).filter(l=>{
+/* ★ 어떤 기간의 기록을 골라내는 곳은 여기 한 곳뿐이다 (오래된 것부터) */
+function lessonsInRange(sid, start, end){
+  return lessonsOf(sid).filter(l=>{
     const t=dayKey(l.date.getTime());
-    if(t===k) return false;
-    if(t<r.start) return false;
-    if(r.end!=null && t>r.end) return false;
+    if(start!=null && t<start) return false;
+    if(end!=null && t>end) return false;
     return true;
   }).sort((a,b)=>a.date-b.date);
+}
+/* 그 클래스 기간에 적어 두신 기록. 지금 열어 둔 날은 빼고 — 그 날은 칸 안에 있다. */
+function lsnClassLessons(s, k){
+  const r=lsnClassRange(s,k); if(!r) return [];
+  return lessonsInRange(s.id, r.start, r.end).filter(l=>dayKey(l.date.getTime())!==k);
+}
+/* ★ 2026-08-15 원장님 지시 — "과제를 매 수업때 선택하면 이번 클래스 마감때 통계내서 과제성실도 %로"
+   ★ 셈하는 곳은 여기 한 곳뿐이다. 값을 따로 저장하지 않는다 — 기록을 고치면 바로 따라온다.
+   ★ 과제를 안 고르신 날은 세지 않는다(0점으로 지어내지 않는다). 고르신 날이 없으면 null. */
+function hwRate(ls){
+  const got=(ls||[]).filter(l=>hwInfo(l.hw));
+  if(!got.length) return null;
+  const sum=got.reduce((a,l)=>a+hwInfo(l.hw).p, 0);
+  return { n:got.length, pct:Math.round(sum/got.length),
+    cnt:HWS.map(h=>({n:h.n, c:h.c, v:got.filter(l=>l.hw===h.k).length})) };
 }
 /* 칸 하나의 누적 목록 HTML — 만드는 곳은 여기 한 곳뿐. 적어 두신 날만 나온다. */
 function lsnAccHtml(s, k, key){
@@ -1373,6 +1387,41 @@ function lsnAccHtml(s, k, key){
   return `<div style="background:var(--bg);border-radius:9px;padding:7px 10px;margin-bottom:6px;max-height:104px;overflow-y:auto">
       <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">${ttl}에 적으신 것 · ${ls.length}건</div>
       ${rows}</div>`;
+}
+/* ★ 2026-08-15 지난 클래스 [학습도] 판.
+   원장님이 적어 주신 차례 그대로 : 1) 과제 성실도 % 2) 교과 3) 심화 4) 연산.
+   ★ 칸 이름은 LSN_BOXES 에서만 가져온다(여기에 다시 적지 않는다). */
+const LRN_KEYS=['text','deep','calc'];
+let histLrnOpen=new Set();
+function toggleHistLrn(key){ if(histLrnOpen.has(key))histLrnOpen.delete(key); else histLrnOpen.add(key);
+  renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage();
+  redrawSettleIfOpen(); }
+function classLearnHtml(s, h){
+  if(!s || !h) return '';
+  const c=histClassOf(s,h);
+  const ls=lessonsInRange(s.id, c.start, c.end);
+  const r=hwRate(ls);
+  const hwHtml = r
+    ? `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+         <span style="font-size:13px;font-weight:700;color:var(--ink)">과제 성실도</span>
+         <span class="num" style="font-size:19px;font-weight:700;color:var(--green)">${r.pct}%</span></div>
+       <div class="lsn-mt a" style="margin-top:5px"><span class="lsn-mt-bar"><i style="width:${Math.max(0,Math.min(100,r.pct))}%"></i></span></div>
+       <div style="font-size:11.5px;color:var(--muted);margin-top:5px">${
+         r.cnt.filter(x=>x.v).map(x=>`${x.n} ${x.v}번`).join(' · ')} · 과제를 고르신 ${r.n}번 기준</div>`
+    : `<div style="font-size:13px;font-weight:700;color:var(--ink)">과제 성실도</div>
+       <div style="font-size:12.5px;color:var(--muted);margin-top:3px">과제를 고르신 날이 아직 없어요.</div>`;
+  const boxes = LRN_KEYS.map(k=>{
+    const b=LSN_BOXES.find(x=>x.k===k); if(!b) return '';
+    const mine=ls.filter(l=>lsnBoxVal(l,k));
+    const rows=mine.map(l=>`<div style="display:flex;gap:7px;padding:2px 0;font-size:12.5px;line-height:1.5">
+        <span style="color:var(--muted);white-space:nowrap;font-weight:600">${fmtMD(dayKey(l.date.getTime()))}</span>
+        <span style="color:var(--ink);white-space:pre-line;word-break:break-word">${lsnEsc(lsnBoxVal(l,k))}</span></div>`).join('');
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:7px;background:var(--card)">
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:3px">${b.n}${mine.length?` <span style="color:var(--muted);font-weight:600">${mine.length}건</span>`:''}</div>
+        ${rows||'<div style="font-size:12.5px;color:var(--muted)">적어 두신 것이 없어요.</div>'}</div>`;
+  }).join('');
+  return `<div style="background:var(--bg);border-radius:10px;padding:10px 11px;margin-top:8px">
+      ${hwHtml}${boxes}</div>`;
 }
 function lsnPickDate(ms){
   const sh=document.getElementById('sheet'); if(!sh) return;
@@ -2430,10 +2479,14 @@ function classRowBtns(s, h, key){
       ? `<button class="btn ghost small" style="${bs}" onclick="editHistDates(${s.id},${h.no})">날짜 수정</button>`
       : `<button class="btn settle small" style="${bs}" onclick="askConfirmHist(${s.id},${h.no})">이 기간 확정</button>`;
   }
+  /* ★ 2026-08-15 원장님 지시 — 끝난 클래스의 [학습도]. 차수를 아는 기록이 있을 때만 만든다. */
+  const lrn = (s && h && h.no!=null)
+    ? `<button class="btn ghost small" style="${bs}" onclick="toggleHistLrn('${key}')">${histLrnOpen.has(key)?'학습도 닫기 ▲':'학습도 ▾'}</button>`
+    : '';
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
       <button class="btn ghost small" style="${bs}" onclick="toggleHistRow('${key}')">${open?'접기 ▲':'회차 보기 ▾'}</button>
       <button class="btn ghost small" style="${bs}" onclick="toggleHistCal('${key}')">${calOpen?'달력 닫기 ▲':'달력 보기 ▾'}</button>
-      ${third}</div>`;
+      ${third}${lrn}</div>`;
 }
 function toggleHistAll(sid){ if(histAllOpen.has(sid))histAllOpen.delete(sid); else histAllOpen.add(sid); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); }
 function toggleHistRow(key){ if(histRowOpen.has(key))histRowOpen.delete(key); else histRowOpen.add(key); renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage(); redrawSettleIfOpen(); }
@@ -2565,7 +2618,7 @@ function pastClassesHtml(s){
         <span style="font-size:12.5px;color:var(--muted)">${won(histAmount(s.id,h))}</span></div>
       <div style="font-size:12.5px;color:var(--muted);margin-top:2px">📅 ${period}</div>
       ${classRowBtns(s, h, key)}
-      ${detail}${calHtml}</div>`;
+      ${detail}${calHtml}${histLrnOpen.has(key)?classLearnHtml(s,h):''}</div>`;
   }).join('');
   const more = all.length>3 ? `<button class="btn ghost small" style="width:auto;padding:6px 12px;font-size:12px" onclick="toggleHistAll(${s.id})">${openAll?'접기 ▲':`전체 보기 (${all.length}개) ▾`}</button>` : '';
   return `<div style="margin-top:10px">
@@ -2635,7 +2688,7 @@ function renderSettle(){
     const bCal = (s && histCalOpen.has(bKey)) ? histCalendar(s, bhLike, list) : '';
     const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
       <div class="mg-line">📅 <b>${period}</b> · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
-      ${classRowBtns(s, bh, bKey)}${detail}${bCal}`;
+      ${classRowBtns(s, bh, bKey)}${detail}${bCal}${(bh&&histLrnOpen.has(bKey))?classLearnHtml(s,bh):''}`;
     if(!b.paid){
       return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">

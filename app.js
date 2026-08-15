@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-15af-leavedate */
+/* ONSTUDY-BUILD: 2026-08-15ah-boxlog */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -79,6 +79,19 @@ let packView={};
 // 오늘 학습내용(학습일지) {sid,date,mood,text}
 let lessons=[];
 const MOODS=['집중','보통','산만','피곤','열의'];
+/* ★ 2026-08-15 원장님 지시 — 학습 글칸을 넷으로 나눈다.
+   ★ 칸 이름·저장 키·안내 글을 적어 두는 곳은 여기 하나뿐이다(단일 소스).
+     시트·기록 목록·학습 안내문이 모두 이 표만 본다.
+   ★ 교과는 예전 글칸(text)을 그대로 쓴다 — 이미 적어 두신 기록이 하나도 안 없어진다. */
+const LSN_BOXES=[
+  {k:'text', id:'lsnBoxText', n:'교과',   ph:'예: 분수 나눗셈 3단원 끝'},
+  {k:'deep', id:'lsnBoxDeep', n:'심화',   ph:'예: 응용문제 프린트 2장'},
+  {k:'calc', id:'lsnBoxCalc', n:'연산',   ph:'예: 곱셈 연산 100문제'},
+  {k:'test', id:'lsnBoxTest', n:'테스트', ph:'예: 3단원 단원평가'},
+];
+/* 그 기록에 적어 두신 글이 하나라도 있나 */
+function lsnBoxVal(l,k){ return String((l&&l[k])||'').trim(); }
+function lsnHasBox(l){ return LSN_BOXES.some(b=>lsnBoxVal(l,b.k)); }
 
 /* ===== 수업 내용 갈래 · 문제 수 · 정답률 ===== 2026-07-28v
    원장님 지시 — "등록한 정보에 따라 교육부 수학 학습 카테고리를 알약으로, 기타는 직접 쓰게.
@@ -1223,7 +1236,6 @@ function openLessonSheet(id, ms){
   const dMs = dayKey(ms==null ? now.getTime() : ms);
   const dLb = lsnDayLabel(dMs), isTd = (dLb==='오늘');
   const s=st(id); const ls=lessonOn(id, dMs);
-  const chips=MOODS.map(m=>`<button type="button" class="mood-chip ${ls&&ls.mood===m?'on':''}" data-m="${m}" onclick="pickMood(this)">${m}</button>`).join('');
   const sheet=document.getElementById('sheet');
   sheet.innerHTML=`<h3>${s.name} · 학습</h3>
     <div class="lsd">
@@ -1231,13 +1243,15 @@ function openLessonSheet(id, ms){
       <span class="lsd-s ${ls?'on':''}">${ls?'적어 두셨어요':'아직 안 적었어요'}</span>
     </div>
     <div class="lsd-cal" id="lsnCal"></div>
-    <div class="cap">아이의 수업·태도·주의사항을 간단히 남겨요. 알림장에 쌓여요.<br>날짜를 누르면 달력에서 다른 날을 고를 수 있어요. <b>${dLb}</b> 기록으로 저장됩니다.</div>
-    <div class="mood-row" id="moodRow"><span class="mood-k">태도</span>${chips}</div>
+    <div class="cap">오늘 한 것을 갈래별로 간단히 남겨요. 칸 위에 <b>이번 클래스에 적으신 것</b>이 날짜와 함께 쌓입니다(읽기만 됩니다).<br>날짜를 누르면 달력에서 다른 날을 고를 수 있어요. <b>${dLb}</b> 기록으로 저장됩니다.</div>
     <div class="lsc" id="hwBox"></div>
-    <div class="lsc" id="catBox"></div>
-    <div class="lsc" id="qnBox"></div>
-    <div class="lsc" id="accBox"></div>
-    <textarea id="lessonText" class="note-area" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="예: 분수 나눗셈 완료. 응용문제 어려워함. 다음 시간 지난 프린트 챙겨오기.">${ls?ls.text:''}</textarea>
+    ${LSN_BOXES.map(b=>`<div class="lsc"><div class="lsc-k">${b.n}</div>
+      ${lsnAccHtml(s, dMs, b.k)}
+      <textarea id="${b.id}" class="note-area" style="min-height:66px;margin-bottom:0" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${b.ph}">${ls?lsnEsc(ls[b.k]||''):''}</textarea></div>`).join('')}
+    <!-- ★ 2026-08-15 원장님 지시로 태도·수업 내용·문제 수·정답률 칸을 숨겼다.
+         지운 것이 아니다 — 이미 저장된 값은 그대로 남고, 저장할 때도 그대로 다시 저장된다.
+         되살리려면 mood-row 한 줄과 lsc 빈 칸 셋(cat·qn·acc)을 이 자리에 다시 넣고
+         openLessonSheet 끝의 lsnDrawCats·lsnDrawQn·lsnDrawAcc 호출을 되돌리면 된다. -->
     <div class="lsc"><div class="lsc-k">안내사항</div>
       <input id="lsnInfo" class="note-select" autocomplete="off" autocorrect="off" spellcheck="false" value="${ls?lsnAttr(ls.info||''):''}" placeholder="예: 교재 안내 했음"></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveLesson(${id},${dMs})">저장</button>
@@ -1259,7 +1273,8 @@ function openLessonSheet(id, ms){
   sheet.dataset.caly  = String(new Date(dMs).getFullYear());
   sheet.dataset.calm  = String(new Date(dMs).getMonth());
   sheet.dataset.calopen = '';
-  lsnDrawCal(); lsnDrawHw(); lsnDrawCats(); lsnDrawQn(); lsnDrawAcc();
+  /* 숨긴 칸(catBox·qnBox·accBox)은 그리지 않는다. 그리는 함수는 그대로 남겨 두었다. */
+  lsnDrawCal(); lsnDrawHw();
   /* ★ 2026-07-29 원장님 지시 — "디폴트 값이 산만함으로 들어가 있으면 안됨"
      앱이 넣은 값이 아니었다. 브라우저가 예전에 이 칸에 치셨던 글을 되살려 넣는 일이 있다
      (폼 값 복원·입력 자동완성). 그러면 저장된 글 대신 엉뚱한 글이 보이고,
@@ -1317,6 +1332,48 @@ function lsnDrawCal(){
     <div class="lsd-lg"><span><i class="lg has"></i>적어 둔 날</span><span><i class="lg tod"></i>오늘</span></div>`;
 }
 /* 날짜를 고르면 그 날 기록으로 시트를 다시 연다 — 여는 곳은 여전히 한 곳(openLessonSheet)이다 */
+/* ★ 2026-08-15 원장님 지시 — "그 텍스트 박스 안에 이번 클래스 기록들을 누적해서 보여지도록"
+   고르신 방법 : 칸 바로 위에 쌓아 보여 주고, 칸에는 그날 것만 적는다.
+   저장은 지금까지와 똑같이 그날 기록 하나만 건드린다 — 지난 기록이 실수로 지워질 일이 없다.
+
+   ★ 그 날짜가 어느 클래스에 드는지 정하는 곳은 여기 한 곳뿐이다(단일 소스).
+     지난 클래스는 histClassOf, 진행 중 클래스는 currentClassInfo — 다른 화면과 같은 계산기를 쓴다. */
+function lsnClassRange(s, k){
+  if(!s) return null;
+  const hs=packHistory[s.id]||[];
+  for(let i=0;i<hs.length;i++){
+    const c=histClassOf(s, hs[i]);
+    if(c.start!=null && c.end!=null && k>=c.start && k<=c.end)
+      return {start:c.start, end:c.end, no:hs[i].no};
+  }
+  const ci=currentClassInfo(s);
+  if(ci.start!=null) return {start:ci.start, end:(ci.end!=null?ci.end:null), no:null};
+  return null;
+}
+/* 그 클래스 기간에 적어 두신 기록 (오래된 것부터). 지금 열어 둔 날은 빼고 — 그 날은 칸 안에 있다. */
+function lsnClassLessons(s, k){
+  const r=lsnClassRange(s,k); if(!r) return [];
+  return lessonsOf(s.id).filter(l=>{
+    const t=dayKey(l.date.getTime());
+    if(t===k) return false;
+    if(t<r.start) return false;
+    if(r.end!=null && t>r.end) return false;
+    return true;
+  }).sort((a,b)=>a.date-b.date);
+}
+/* 칸 하나의 누적 목록 HTML — 만드는 곳은 여기 한 곳뿐. 적어 두신 날만 나온다. */
+function lsnAccHtml(s, k, key){
+  const ls=lsnClassLessons(s,k).filter(l=>lsnBoxVal(l,key));
+  if(!ls.length) return '';
+  const r=lsnClassRange(s,k);
+  const ttl=(r&&r.no!=null)?`${r.no}차 클래스`:'이번 클래스';
+  const rows=ls.map(l=>`<div style="display:flex;gap:7px;padding:2px 0;font-size:12.5px;line-height:1.5">
+      <span style="color:var(--muted);white-space:nowrap;font-weight:600">${fmtMD(dayKey(l.date.getTime()))}</span>
+      <span style="color:var(--ink);white-space:pre-line;word-break:break-word">${lsnEsc(lsnBoxVal(l,key))}</span></div>`).join('');
+  return `<div style="background:var(--bg);border-radius:9px;padding:7px 10px;margin-bottom:6px;max-height:104px;overflow-y:auto">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px">${ttl}에 적으신 것 · ${ls.length}건</div>
+      ${rows}</div>`;
+}
 function lsnPickDate(ms){
   const sh=document.getElementById('sheet'); if(!sh) return;
   openLessonSheet(+sh.dataset.lsid, ms);
@@ -1324,8 +1381,11 @@ function lsnPickDate(ms){
 /* 시트 안 글칸의 값을 저장된 값으로 되돌려 놓는 곳 — 여기 한 곳뿐이다 */
 function lsnFixVals(ls){
   const sheet=document.getElementById('sheet'); if(!sheet) return;
-  const ta=document.getElementById('lessonText');
-  if(ta){ const v = (ls&&ls.text) ? ls.text : ''; if(ta.value!==v) ta.value=v; }
+  LSN_BOXES.forEach(b=>{
+    const ta=document.getElementById(b.id); if(!ta) return;
+    const v = ls ? String(ls[b.k]||'') : '';
+    if(ta.value!==v) ta.value=v;
+  });
   const et=document.getElementById('lsnEtc');
   if(et){ const v = sheet.dataset.etc||''; if(et.value!==v) et.value=v; }
   const inf=document.getElementById('lsnInfo');
@@ -1411,7 +1471,10 @@ function saveLesson(id, ms){
   const dMs = dayKey(ms==null ? now.getTime() : ms);
   const dLb = lsnDayLabel(dMs);
   const sheet=document.getElementById('sheet');
-  const text=document.getElementById('lessonText').value.trim();
+  /* ★ 네 글칸을 읽는 곳은 여기 한 곳뿐. 숨긴 값(태도·수업 내용·문제 수·정답률)은
+       시트를 열 때 담아 둔 값(sheet.dataset)을 그대로 다시 저장한다 — 없어지지 않는다. */
+  const box={}; LSN_BOXES.forEach(b=>{ const el=document.getElementById(b.id); box[b.k]= el?el.value.trim():''; });
+  const anyBox = LSN_BOXES.some(b=>box[b.k]);
   const mood=sheet.dataset.mood||'';
   const cats=(sheet.dataset.cats||'').split(',').filter(Boolean);
   const etcEl=document.getElementById('lsnEtc');
@@ -1421,13 +1484,15 @@ function saveLesson(id, ms){
   const hw = hwInfo(sheet.dataset.hw||'') ? sheet.dataset.hw : '';   // 아는 값일 때만 받는다
   const qn = sheet.dataset.qn==='' ? null : +sheet.dataset.qn;
   const acc = sheet.dataset.acc==='' ? null : +sheet.dataset.acc;   // 0%와 '안 고름'은 다른 값이다
-  if(!text && !info && !mood && !hw && !cats.length && qn===null && acc===null){
-    showToast('내용·안내사항을 적거나 태도·과제·수업 내용·문제 수·정답률 중 하나를 골라주세요'); return;
+  if(!anyBox && !info && !mood && !hw && !cats.length && qn===null && acc===null){
+    showToast('교과·심화·연산·테스트·안내사항을 적거나 과제를 골라주세요'); return;
   }
   const ex=lessonOn(id, dMs);
   /* 오늘이면 지금 시각까지 남기고, 지난 날이면 그날 0시로 둔다 — 없는 시각을 지어내지 않는다 */
   const rec = ex || {sid:id, date: (dLb==='오늘') ? new Date() : new Date(dMs)};
-  rec.mood=mood; rec.text=text;
+  rec.mood=mood;
+  /* ★ 빈 칸은 넣지 않고 지운다 — 빈 글로 채워 두지 않는다(안 적으신 것은 안 적으신 대로 남는다) */
+  LSN_BOXES.forEach(b=>{ if(box[b.k]) rec[b.k]=box[b.k]; else delete rec[b.k]; });
   /* ★ 안 고른 것은 넣지 않고 지운다 — 빈 값을 임의의 숫자로 채우지 않는다(미설정은 미설정으로 남는다) */
   if(info) rec.info=info; else delete rec.info;
   if(hw) rec.hw=hw; else delete rec.hw;
@@ -2150,12 +2215,16 @@ function lessonLogHtml(s){
     const numHtml = num.length ? `<div class="lsn-num">${num.join('')}</div>` : '';
     /* ★ 안내사항 — 적어 두신 날만 한 줄로 보인다(없으면 줄 자체가 없다) */
     const infoHtml = l.info ? `<div class="lsn-i"><span class="lsn-i-k">안내사항</span>${lsnEsc(l.info)}</div>` : '';
+    /* ★ 2026-08-15 네 글칸을 갈래 이름과 함께 보여 준다. 적어 두신 칸만 나온다.
+         부모님께 그대로 나갈 수 있는 화면이라 안에서만 쓰는 말은 넣지 않는다. */
+    const boxHtml = LSN_BOXES.map(b=>{ const v=lsnBoxVal(l,b.k);
+      return v ? `<div class="lsn-i" style="white-space:pre-line"><span class="lsn-i-k">${b.n}</span>${lsnEsc(v)}</div>` : ''; }).join('');
     /* 과제·안내사항만 남기신 날도 '비어 있어요'가 뜨면 안 된다 — 적어 두신 것이 있는 날이다 */
-    const body = lsnEsc(l.text) || (catHtml||numHtml||infoHtml||l.mood||hwInfo(l.hw) ? '' : '<span class="lsn-none">비어 있어요</span>');
+    const noneHtml = (lsnHasBox(l)||catHtml||numHtml||infoHtml||l.mood||hwInfo(l.hw))
+      ? '' : '<div class="lsn-t"><span class="lsn-none">비어 있어요</span></div>';
     return `<div class="lsn-row">
       <div class="lsn-d">${lsnDateFull(d.getTime())}${l.mood?` <span class="lsn-m ${lsnMoodCls(l.mood)}">${lsnEsc(l.mood)}</span>`:''}${hwInfo(l.hw)?` <span class="lsn-m ${hwCls(l.hw)}">과제 ${hwName(l.hw)}</span>`:''}</div>
-      ${catHtml}${numHtml}
-      ${body?`<div class="lsn-t">${body}</div>`:''}${infoHtml}</div>`;
+      ${catHtml}${numHtml}${boxHtml}${noneHtml}${infoHtml}</div>`;
   }).join('');
   return `<div class="lsn-wrap">
     ${lsnRangeBar()}
@@ -4417,7 +4486,10 @@ function composeGuide(sid,mode){
   const cnt = mode==='week' ? ls.length : monthCount(sid);
   let body=`[On-study 학습 안내]\n${s.name} 학생 · ${period}\n\n○ 출석 ${cnt}회`;
   if(ls.length){ body+=`\n\n○ 학습 내용`;
-    ls.forEach(l=>{ body+=`\n· ${l.date.getMonth()+1}.${l.date.getDate()}${l.mood?` [${l.mood}]`:''} ${l.text}`; }); }
+    ls.forEach(l=>{
+      const parts=LSN_BOXES.map(b=>{ const v=lsnBoxVal(l,b.k); return v?`${b.n}: ${v}`:''; }).filter(Boolean);
+      body+=`\n· ${l.date.getMonth()+1}.${l.date.getDate()}${l.mood?` [${l.mood}]`:''} ${parts.join(' / ')}`;
+    }); }
   const mks=(makeupLog[sid]||[]).filter(m=>!m.done);
   if(mks.length){ body+=`\n\n○ 보강 예정 ${mks.map(m=>{const d=new Date(m.t);return `${d.getMonth()+1}.${d.getDate()}${m.time?' '+hm12(m.time):''}`;}).join(', ')}`; }
   if(mode==='pack' && needSettle(s)){ body+=`\n\n○ ${s.plan}회 수업이 마무리되어 다음 회차(${won(priceOf(s))}) 안내드립니다.`; }

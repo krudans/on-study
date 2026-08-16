@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-16al-billrow */
+/* ONSTUDY-BUILD: 2026-08-16am-caltarget */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2475,7 +2475,7 @@ function histCalendar(s, h, list){
   return `<div class="cal" style="margin-top:8px">${grids}
     <div class="cal-legend"><span><i class="lg att"></i>수업</span><span><i class="lg" style="background:#EAE3F7"></i>보강</span>
       <span><i class="lg ab"></i>결석</span></div>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">${(h&&h.no!=null)?`이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.`:'이 달력은 이 정산 건의 기간만 표시해요.'}</div></div>`;
+    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">${(h&&h.no!=null)?`이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.`:'이 달력은 그 클래스 기간만 표시해요.'}</div></div>`;
 }
 /* ★ 2026-08-15 회차별 날짜 목록 — 지난 클래스 카드·정산 카드·확정 시트가 같은 것을 쓴다.
    예전엔 같은 목록을 세 곳에서 따로 그려서 글자 크기·문구가 서로 달랐다. */
@@ -2662,6 +2662,27 @@ function lastHistOf(sid){
   if(!list.length) return null;
   return list.slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)))[list.length-1];
 }
+/* ★ 2026-08-16 정산 카드에서 열어 볼 달력 한 건 — 고르는 곳은 여기 한 곳뿐.
+     · 다니는 중  → 가장 최근 **지난 클래스** ([지난클래스 달력보기])
+     · 퇴원(예정 포함) → **마지막으로 다닌 클래스** ([종료클래스 달력보기])
+       퇴원일이 든 클래스를 lsnClassRange 로 찾는다 — 지난 클래스면 그 기록,
+       진행 중이던 클래스면 그 기간으로 달력을 만든다(기록이 아직 없기 때문). */
+function billCalTarget(b){
+  const s=b?st(b.sid):null; if(!s) return null;
+  if(hasLeaveSet(s)){
+    const r=lsnClassRange(s, dayKey(s.leftAt));
+    if(r && r.no!=null){
+      const h=(packHistory[s.id]||[]).find(x=>x.no===r.no);
+      if(h) return {h:h, label:'종료클래스', key:s.id+'-'+h.no};
+    }
+    if(r){
+      return {h:{no:null, plan:s.plan, done:s.plan, start:r.start, end:r.end, sessions:null, confirmed:false},
+              label:'종료클래스', key:'lv'+s.id};
+    }
+  }
+  const lh=lastHistOf(b.sid);
+  return lh ? {h:lh, label:'지난클래스', key:b.sid+'-'+lh.no} : null;
+}
 function billSessions(b){
   const c=billClassOf(b);
   if(c.sessions.length) return c.sessions;
@@ -2689,6 +2710,8 @@ function renderSettle(){
     new Date(b.paidDate).getMonth()===vM && new Date(b.paidDate).getFullYear()===vY)
     .sort((a,b)=>b.paidDate-a.paidDate);
   const monthPaidAmt = paidMonth.reduce((a,b)=>a+(billAmount(b)||0),0);
+  /* 아직 옛 기준(지난 클래스 기간)으로 남아 있는 정산 건 — 한 번만 셈해서 카드에 알린다 */
+  const oldBillIds = new Set(prepayPlan().map(x=>x.id));
   const unpaidAmt = unpaid.reduce((a,b)=>a+(billAmount(b)||0),0);
 
   const billRow=(b)=>{
@@ -2705,18 +2728,22 @@ function renderSettle(){
          [회차 보기]·[날짜 수정]·[학습도] 는 여기 두지 않는다 — 아직 안 한 수업이라 볼 것이 없다.
          대신 방금 끝난 클래스를 확인하실 수 있게 [지난클래스 달력보기] 하나만 둔다.
          그 달력의 여닫는 상태는 지난 클래스 카드와 같은 것을 쓴다(같은 클래스이므로 열쇠도 같다). */
-    const lastH = lastHistOf(b.sid);
-    const lastKey = lastH ? (b.sid+'-'+lastH.no) : null;
-    const lastOpen = lastKey ? histCalOpen.has(lastKey) : false;
-    const lastCal = (s && lastH && lastOpen)
-      ? histCalendar(s, lastH, histClassOf(s,lastH).sessions) : '';
-    const lastBtn = lastH
+    const tg = billCalTarget(b);
+    const tgOpen = tg ? histCalOpen.has(tg.key) : false;
+    const tgCal = (s && tg && tgOpen)
+      ? histCalendar(s, tg.h, histClassOf(s, tg.h).sessions) : '';
+    const tgBtn = tg
       ? `<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px"
-           onclick="toggleHistCal('${lastKey}')">${lastOpen?'지난클래스 달력 닫기 ▲':'지난클래스 달력보기 ▾'}</button></div>`
+           onclick="toggleHistCal('${tg.key}')">${tgOpen?tg.label+' 달력 닫기 ▲':tg.label+' 달력보기 ▾'}</button></div>`
+      : '';
+    /* ★ 2026-08-16 아직 선불 기준으로 안 옮긴 정산 건은 학생 카드와 날짜가 다르게 보인다.
+         저절로 고치지 않고(돈 기록) 여기서 알려만 드린다. */
+    const oldWay = oldBillIds.has(b.id)
+      ? `<div class="mg-line" style="color:var(--clay);font-weight:600">⚠ 아직 선불 기준으로 안 옮긴 정산 건이에요 — 위 <b>설정 &gt; 데이터 점검</b>에서 옮기면 학생 카드와 날짜가 같아집니다</div>`
       : '';
     const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
       <div class="mg-line">📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
-      ${lastBtn}${lastCal}`;
+      ${oldWay}${tgBtn}${tgCal}`;
     if(!b.paid){
       return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">

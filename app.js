@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-15ai-classlearn */
+/* ONSTUDY-BUILD: 2026-08-15aj-refund */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -751,12 +751,29 @@ const fmtDur=(min)=>{const h=Math.floor(min/60),m=Math.round(min%60);
    → 정산 건·지난 클래스에 금액을 굳혀 두지 않으므로, 요금표를 고치면 미납·미입금 건이 전부 따라온다. */
 const priceOfPlan=(plan)=>{ const v=packages[plan]; return (typeof v==='number'&&isFinite(v)&&v>0)?v:null; };
 const priceOf=(st)=> st?priceOfPlan(st.plan):null;
-const billAmount=(b)=>{ if(!b) return null;
+/* ★ 2026-08-15 환불 (원장님 지시)
+     저장 키 : bills[].refund = {n:수업한 회차, amt:돌려드린 금액, date:처리한 날 ms}
+     ★ 고르는 n 은 '수업한 회차' 다. 그만큼만 받은 것으로 치고 나머지를 돌려드린다.
+       예) 180,000원 12회에서 3회 수업 → 받은 돈 45,000원 · 돌려드릴 돈 135,000원.
+     ★ 환불 전 원금 = billBase(b) · 돌려드릴 금액 = refundAmt(b,n) · 남는 돈 = billAmount(b)
+       — 셋 다 여기 한 곳에서만 정한다. 화면·합계·결산·안내문이 전부 billAmount 만 본다. */
+const billBase=(b)=>{ if(!b) return null;
   if(b.paid && typeof b.amount==='number' && b.amount>0) return b.amount;   // 입금 완료 = 실제 입금액 보존
   return priceOfPlan(b.plan); };                                            // 미납 = 요금표 참조
+const refundOf=(b)=>(b && b.refund && typeof b.refund.amt==='number' && b.refund.amt>0) ? b.refund.amt : 0;
+/* n 회 수업했을 때 받은 것으로 칠 금액 — 회당 값을 따로 굳히지 않고 한 번에 셈해 원 단위로 반올림한다 */
+const keepAmt=(b,n)=>{ const base=billBase(b);
+  if(base==null || !b || !b.plan) return 0;
+  const k=Math.max(0, Math.min(isFinite(n)?n:0, b.plan));
+  return Math.min(base, Math.round(base*k/b.plan)); };
+/* 돌려드릴 금액 = 원금 − 받은 것으로 칠 금액 */
+const refundAmt=(b,n)=>{ const base=billBase(b);
+  return (base==null) ? 0 : Math.max(0, base - keepAmt(b,n)); };
+const billAmount=(b)=>{ const base=billBase(b);
+  return (base==null) ? null : Math.max(0, base - refundOf(b)); };
 const histAmount=(sid,h)=>{ if(!h) return null;
   const pb=bills.find(b=>b.sid===sid && b.endDate===h.end && b.paid && typeof b.amount==='number' && b.amount>0);
-  return pb?pb.amount:priceOfPlan(h.plan); };
+  return pb?billAmount(pb):priceOfPlan(h.plan); };
 const remainOf=(st)=>Math.max(0, st.plan-doneCountOf(st));
 const needSettle=(st)=>doneCountOf(st)>=st.plan;
 const doneToday=(sid)=>sessions.find(s=>s.sid===sid && s.date.toDateString()===now.toDateString());
@@ -2696,9 +2713,14 @@ function renderSettle(){
           <button class="btn settle small" onclick="settleBill(${b.id})">받았어요</button>
         </div></div>`;
     }
-    return `<div class="row" style="opacity:.75">${head}
+    /* ★ 2026-08-15 환불 — 돌려드린 건은 카드에 한 줄로 남긴다(무엇이 얼마나 빠졌는지 보이게) */
+    const rfLine = b.refund
+      ? `<div class="mg-line" style="color:var(--clay);font-weight:600">↩ 환불 ${fmtMD(b.refund.date)} · ${b.refund.n}/${b.plan}회 수업 · ${won(b.refund.amt)} 돌려드림</div>`
+      : '';
+    return `<div class="row" style="opacity:.75">${head}${rfLine}
         <div class="row-btns" style="margin-top:10px">
           <button class="btn ghost small" onclick="unsettleBill(${b.id})">받음 취소</button>
+          <button class="btn ${b.refund?'settle':'pay'} small" onclick="openRefundSheet(${b.id})">${b.refund?'환불 고치기':'환불'}</button>
         </div></div>`;
   };
 
@@ -2939,6 +2961,82 @@ function normalizeBills(){
   if(ch) saveData();
   return ch;
 }
+/* ===== 환불 ===== 2026-08-15 원장님 지시
+   "[받은돈]에서 [환불] 클릭 → 회차 리스트에서 고르면 그 회차만큼 차감한 금액을 보여 주고,
+    [확정]하면 그 금액으로 표시"
+   예) 180,000원 12회에서 3 을 고르면 → 3회분 45,000원을 돌려드리고 받은 돈은 135,000원.
+   ★ 돌려드린 금액을 따로 저장하지 않고 회차(n)와 금액(amt)만 남긴다 — 화면은 언제나 billAmount 를 읽는다. */
+/* ★ 그 정산 건의 클래스에서 실제로 수업한 회차 — 정하는 곳은 여기 한 곳뿐 */
+function billDoneCount(b){
+  if(!b || !b.plan) return 0;
+  const c=billClassOf(b);
+  if(c.start==null) { const s2=st(b.sid); return Math.max(0, Math.min(b.plan, s2?doneCountOf(s2):0)); }
+  const en = (c.end!=null) ? c.end : dayKey(now.getTime());
+  const n = sessions.filter(r=>r.sid===b.sid && dayKey(r.date)>=c.start && dayKey(r.date)<=en).length;
+  return Math.max(0, Math.min(b.plan, n));
+}
+function rfLines(b, n){
+  const base=billBase(b), keep=keepAmt(b,n), amt=refundAmt(b,n);
+  const row=(k,v,cls)=>`<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px">
+      <span style="color:var(--muted)">${k}</span><span style="${cls||''}">${v}</span></div>`;
+  return row('원래 받은 돈', `${won(base)} · ${b.plan}회`)
+       + row('수업한 회차', `${n}회 (${b.plan}회 중)`)
+       + `<div style="border-top:1px solid var(--line);margin:5px 0"></div>`
+       + row('돌려드릴 돈', `−${won(amt)}`, 'color:var(--clay);font-weight:700;font-size:15px')
+       + row('받은 것으로 남길 돈', won(keep), 'font-weight:700;font-size:15px');
+}
+function rfCalc(bid){
+  const b=bills.find(x=>x.id===bid); if(!b) return;
+  const el=document.getElementById('rfN'), out=document.getElementById('rfOut');
+  if(!el||!out) return;
+  out.innerHTML=rfLines(b, parseInt(el.value,10)||0);
+}
+function openRefundSheet(bid){
+  const b=bills.find(x=>x.id===bid); if(!b) return;
+  const s=st(b.sid); const nm=s?s.name:'(삭제된 학생)';
+  if(billBase(b)==null){ showToast(`${b.plan}회 금액이 요금표에 없어요 — 설정 > 수업 기본 설정에서 먼저 넣어주세요`); return; }
+  /* 기본값 = 그 정산 건의 클래스에서 실제로 수업한 회차 (원장님 지시 「이번 클래스 현재 수업 회차」).
+     정산 건이 진행 중 클래스면 doneCountOf 와 같은 값이 되고, 이미 끝난 클래스면 계약 회차가 된다. */
+  const def = (b.refund && b.refund.n!=null) ? b.refund.n : billDoneCount(b);
+  const opts=Array.from({length:b.plan+1},(_,i)=>`<option value="${i}" ${i===def?'selected':''}>${i}회</option>`).join('');
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${nm} 환불</h3>
+    <div class="cap"><b>수업한 회차</b>를 고르면 그만큼만 받은 것으로 치고, 나머지를 돌려드리는 것으로 셈해요.
+      [확정]을 누르면 정산 카드·<b>이 달에 받은 돈 합계·결산 매출</b>이 모두 남는 금액으로 바뀝니다.</div>
+    <div class="fld"><label>수업한 회차 (이만큼만 받은 것으로 셈해요)</label>
+      <select id="rfN" class="note-select" onchange="rfCalc(${bid})">${opts}</select></div>
+    <div id="rfOut" style="background:var(--bg);border-radius:10px;padding:10px 12px">${rfLines(b,def)}</div>
+    <div class="sheet-btns" style="margin-top:12px">
+      <button class="btn settle" onclick="saveRefund(${bid})">확정</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>
+    ${b.refund?`<button class="btn ghost small" style="width:100%;margin-top:8px" onclick="cancelRefund(${bid})">환불 취소 (원래 금액으로)</button>`:''}`;
+  document.getElementById('scrim').classList.add('show');
+}
+/* 결산·정산 내역이 보는 payments 도 같은 값으로 맞춘다 — 장부가 갈라지지 않게 */
+function syncPaymentOf(b){
+  const p=payments.find(x=>x.billId===b.id);
+  if(p) p.amount=billAmount(b);
+}
+function saveRefund(bid){
+  const b=bills.find(x=>x.id===bid); if(!b) return;
+  const el=document.getElementById('rfN');
+  const n=el?parseInt(el.value,10):NaN;
+  if(!isFinite(n) || n<0 || n>b.plan){ showToast('수업한 회차를 골라주세요'); return; }
+  const s=st(b.sid); const nm=s?s.name:'학생';
+  /* 계약 회차를 다 수업했으면 돌려드릴 것이 없다 = 환불 없음 */
+  if(n>=b.plan){ delete b.refund; }
+  else b.refund={n:n, amt:refundAmt(b,n), date:dayKey(now.getTime())};
+  syncPaymentOf(b);
+  saveData(); closeSheet(); renderSettle();
+  showToast(b.refund ? `${nm} ${n}회 수업 · ${won(b.refund.amt)} 환불 · 받은 돈 ${won(billAmount(b))}`
+                     : `${nm} 환불을 취소했어요 (${won(billAmount(b))})`);
+}
+function cancelRefund(bid){
+  const b=bills.find(x=>x.id===bid); if(!b) return;
+  delete b.refund; syncPaymentOf(b);
+  saveData(); closeSheet(); renderSettle();
+  showToast('환불을 취소했어요 (원래 금액으로)');
+}
 function settleBill(bid){
   const b=bills.find(x=>x.id===bid); if(!b||b.paid) return;
   const amt=billAmount(b);
@@ -2949,6 +3047,7 @@ function settleBill(bid){
 }
 function unsettleBill(bid){
   const b=bills.find(x=>x.id===bid); if(!b||!b.paid) return;
+  if(b.refund){ showToast('환불이 걸려 있어요 — [환불 고치기]에서 환불을 먼저 취소해주세요'); return; }
   b.paid=false; b.paidDate=null;
   const pi=payments.findIndex(p=>p.billId===bid); if(pi>=0) payments.splice(pi,1);
   saveData(); renderSettle(); showToast('정산을 취소했어요 (미납으로 되돌림)');

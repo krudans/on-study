@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-16ak-prepaid */
+/* ONSTUDY-BUILD: 2026-08-16al-billrow */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2655,6 +2655,13 @@ function pastClassesHtml(s){
    예전엔 여기서 따로 역산해서, 카드 헤더 기간과 펼친 회차 날짜가 서로 달랐다. */
 /* ★ 2026-08-16 — 정산 건은 이제 '지난 클래스'가 아니라 '시작하는 클래스'를 가리킨다.
    둘을 짝지어 주던 함수를 지웠다. 금액만 histAmount 가 '시작일이 같은 정산 건'으로 찾는다. */
+/* ★ 2026-08-16 그 학생의 가장 최근 '지난 클래스' 기록 — 찾는 곳은 여기 한 곳뿐.
+   정산 카드의 [지난클래스 달력보기] 가 이 기록의 달력을 연다. */
+function lastHistOf(sid){
+  const list=(packHistory[sid]||[]).filter(h=>h && h.end!=null);
+  if(!list.length) return null;
+  return list.slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)))[list.length-1];
+}
 function billSessions(b){
   const c=billClassOf(b);
   if(c.sessions.length) return c.sessions;
@@ -2690,21 +2697,26 @@ function renderSettle(){
     const list=c_.sessions.length?c_.sessions:billSessions(b);
     const startMs = c_.start || (list.length?list[0]:null);
     const endMs_ = c_.end || (list.length?list[list.length-1]:b.endDate);
-    const period = startMs ? `${fmtMD(startMs)} ~ ${fmtMD(endMs_)}` : (endMs_?`~ ${fmtMD(endMs_)}`:'기간 미상');
+    /* 기간 글자는 아래 head 에서 학생 카드와 같은 말(fmtD)로 만든다 — 여기서 따로 만들지 않는다. */
     /* ★ 정산 건 = 지난 클래스 한 건이다. 그래서 단추 줄·회차 목록·달력을 지난 클래스와 똑같이 쓴다.
          짝이 되는 기록이 없는 옛 정산 건은 [날짜 수정] 없이 보기만 된다(고칠 대상이 없기 때문). */
     /* ★ 2026-08-16 원장님 지시 — 정산 카드가 가리키는 것은 **이제 시작하는 클래스**다.
-         그래서 [날짜 수정]·[학습도]는 여기 두지 않는다(아직 안 한 수업이라 고칠 날짜도 쌓인 학습도 없다).
-         그 둘은 지난 클래스 카드에만 남는다. 여기는 [회차 보기]·[달력 보기] 둘뿐이고,
-         둘 다 시작하는 클래스의 회차·달력을 보여 준다. */
-    const bhLike = {no:null, plan:b.plan, done:b.plan, start:b.startDate, end:b.endDate,
-                    sessions:b.sessions, confirmed:b.confirmed};
-    const bKey = 'b'+b.id;
-    const detail = histRowOpen.has(bKey) ? classSessionsHtml(list, true) : '';
-    const bCal = (s && histCalOpen.has(bKey)) ? histCalendar(s, bhLike, list) : '';
+         날짜 줄은 학생 카드와 같은 말로 「이번 클래스 … (예상 종료)」.
+         [회차 보기]·[날짜 수정]·[학습도] 는 여기 두지 않는다 — 아직 안 한 수업이라 볼 것이 없다.
+         대신 방금 끝난 클래스를 확인하실 수 있게 [지난클래스 달력보기] 하나만 둔다.
+         그 달력의 여닫는 상태는 지난 클래스 카드와 같은 것을 쓴다(같은 클래스이므로 열쇠도 같다). */
+    const lastH = lastHistOf(b.sid);
+    const lastKey = lastH ? (b.sid+'-'+lastH.no) : null;
+    const lastOpen = lastKey ? histCalOpen.has(lastKey) : false;
+    const lastCal = (s && lastH && lastOpen)
+      ? histCalendar(s, lastH, histClassOf(s,lastH).sessions) : '';
+    const lastBtn = lastH
+      ? `<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px"
+           onclick="toggleHistCal('${lastKey}')">${lastOpen?'지난클래스 달력 닫기 ▲':'지난클래스 달력보기 ▾'}</button></div>`
+      : '';
     const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
-      <div class="mg-line">📅 <b>${period}</b> · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
-      ${classRowBtns(s, null, bKey)}${detail}${bCal}`;
+      <div class="mg-line">📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
+      ${lastBtn}${lastCal}`;
     if(!b.paid){
       return `<div class="row">${head}
         <div class="row-btns" style="margin-top:10px">

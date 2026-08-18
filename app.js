@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-18ao-holiday-name */
+/* ONSTUDY-BUILD: 2026-08-18ap-calrow */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -4307,13 +4307,14 @@ function renderSchedule(){
   const y=schedCur.getFullYear(), m=schedCur.getMonth();
   const first=new Date(y,m,1), startDow=first.getDay(), dim=new Date(y,m+1,0).getDate();
   let cells='';
-  for(let i=0;i<startDow;i++) cells+=`<div class="sc-cell empty"></div>`;
+  /* ★ 2026-08-18 첫 줄 간격 고침 — 휴일 관리 달력과 같은 이유(빈 칸 대신 grid-column-start) */
   for(let dd=1;dd<=dim;dd++){
     const ms=new Date(y,m,dd).getTime();
+    const pos = dd===1 && startDow ? `grid-column-start:${startDow+1}` : '';
     const n=studentsOnDate(ms).length;
     const nm=holidayNameOf(ms);                    // 휴일명 — 만드는 곳은 holidayNameOf 하나뿐
     const cls=[ms===todayMs?'today':'', ms===schedSel?'sel':'', n?'has':''].join(' ');
-    cells+=`<div class="sc-cell ${cls}" onclick="pickSchedDay(${ms})">
+    cells+=`<div class="sc-cell ${cls}"${pos?` style="${pos}"`:''} onclick="pickSchedDay(${ms})">
       <span class="sc-d">${dd}</span>${n?`<span class="sc-n">${n}</span>`:''}${
         nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}</div>`;
   }
@@ -4489,13 +4490,16 @@ function renderClassMgmt(){
   const todayK=dayKey(now.getTime());
   const dows=['일','월','화','수','목','금','토'].map(w=>`<div class="sc-dow">${w}</div>`).join('');
   let cells='';
-  for(let i=0;i<first;i++) cells+=`<div class="sc-cell empty"></div>`;
+  /* ★ 2026-08-18 첫 줄 간격 고침 ★ 예전에는 1일 앞을 <div class="sc-cell empty"> 로 채웠는데,
+     그 빈 칸이 aspect-ratio:1 때문에 제 열보다 넓게 잡혀 첫 줄만 68px(다른 줄 50px)로 부풀었다.
+     빈 칸을 아예 만들지 않고 1일을 제 요일 칸에서 시작시킨다(grid-column-start). */
   for(let dd=1;dd<=dim;dd++){
     const ms=new Date(y,m,dd).getTime(), k=dayKey(ms);
+    const pos = dd===1 && first ? `grid-column-start:${first+1};` : '';
     const hol=isHoliday(k), wk=!!workdaysExtra[k];
     const nm=holidayNameOf(k);                       // 직접 적은 이름 우선, 없으면 공휴일 이름
     const bg = hol ? 'background:#F6E3DE;' : (wk?'background:#E7F1EA;':'');
-    cells+=`<div class="sc-cell${k===todayK?' today':''}" style="cursor:pointer;${bg}" onclick="clickHoliday(${ms})">
+    cells+=`<div class="sc-cell${k===todayK?' today':''}" style="${pos}cursor:pointer;${bg}" onclick="clickHoliday(${ms})">
       <span class="sc-d" style="${hol?'color:var(--clay);font-weight:700':(wk?'color:var(--green);font-weight:700':'')}">${dd}</span>
       ${nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}
       ${wk?`<span style="font-size:9px;line-height:1;color:var(--green)">수업</span>`:''}</div>`;

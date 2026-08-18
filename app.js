@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-16am-caltarget */
+/* ONSTUDY-BUILD: 2026-08-18ao-holiday-name */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -43,6 +43,9 @@ let billSeq=1000;
 // 휴일: 원장이 추가 지정한 휴일 / 공휴일이지만 수업일로 지정 (dayKey→true)
 let holidaysExtra={};
 let workdaysExtra={};
+/* 휴일명: 원장님이 직접 적은 그 날의 이름 (dayKey→'대체휴무일' 같은 글자).
+   코드가 이름을 지어내지 않는다 — 적은 것만 들어간다. */
+let holidayNames={};
 // 학원 기본 정보
 let academy={name:'', owner:'', phone:''};
 // 알림톡 자동발송 사용 여부 (템플릿 승인·서버 배포 전엔 false = 열어주기)
@@ -466,6 +469,17 @@ function toggleHoliday(ms){
   if(isHoliday(k)){ delete holidaysExtra[k]; if(isDefaultHoliday(k)) workdaysExtra[k]=true; }
   else { delete workdaysExtra[k]; holidaysExtra[k]=true; }
   saveData();
+}
+/* ★ 휴일 이름을 만드는 단 하나의 자리 ★
+   원장님이 직접 적은 이름이 있으면 그것, 없으면 달력에 박힌 공휴일 이름(광복절 등).
+   달력·목록 어디서든 이 함수만 부른다. 다른 곳에서 이름을 따로 만들지 말 것. */
+function holidayNameOf(ms){ const k=dayKey(ms); return (holidayNames[k]||'').trim() || fixedHolidayName(k) || ''; }
+/* 직접 적은 이름만 (공휴일 기본 이름은 제외) */
+function customHolidayName(ms){ const k=dayKey(ms); return (holidayNames[k]||'').trim(); }
+/* 이름 저장 — 비우면 지운다(코드가 대신 채우지 않는다) */
+function setHolidayName(ms, txt){
+  const k=dayKey(ms), v=(txt||'').trim();
+  if(v) holidayNames[k]=v; else delete holidayNames[k];
 }
 
 /* ★★★ 회차·기간 단일 계산기 (2026-07-27 무결성 통일) ★★★
@@ -4297,9 +4311,11 @@ function renderSchedule(){
   for(let dd=1;dd<=dim;dd++){
     const ms=new Date(y,m,dd).getTime();
     const n=studentsOnDate(ms).length;
+    const nm=holidayNameOf(ms);                    // 휴일명 — 만드는 곳은 holidayNameOf 하나뿐
     const cls=[ms===todayMs?'today':'', ms===schedSel?'sel':'', n?'has':''].join(' ');
     cells+=`<div class="sc-cell ${cls}" onclick="pickSchedDay(${ms})">
-      <span class="sc-d">${dd}</span>${n?`<span class="sc-n">${n}</span>`:''}</div>`;
+      <span class="sc-d">${dd}</span>${n?`<span class="sc-n">${n}</span>`:''}${
+        nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}</div>`;
   }
   const dows=['일','월','화','수','목','금','토'].map(w=>`<div class="sc-dow">${w}</div>`).join('');
   let listHtml='';
@@ -4432,7 +4448,39 @@ function setAcademy(){
 /* ===== 수업 관리 (휴일 등록) ===== */
 let classCal=null;
 function classCalNav(delta){ classCal.m+=delta; if(classCal.m<0){classCal.m=11;classCal.y--;} if(classCal.m>11){classCal.m=0;classCal.y++;} renderClassMgmt(); }
-function clickHoliday(ms){ toggleHoliday(ms); renderClassMgmt(); }
+/* 날짜를 누르면 작은 창 — 휴일 ↔ 수업일 바꾸기 + 휴일명 적기 */
+function clickHoliday(ms){ openHolidaySheet(ms); }
+function openHolidaySheet(ms){
+  const k=dayKey(ms), d=new Date(k);
+  const hol=isHoliday(k), fname=fixedHolidayName(k), wk=!!workdaysExtra[k];
+  const dow=['일','월','화','수','목','금','토'][d.getDay()];
+  const cur=customHolidayName(k);
+  const sheet=document.getElementById('sheet');
+  sheet.innerHTML=`<h3>${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${dow})</h3>
+    <div class="cap">지금 <b>${hol?'휴일':'수업일'}</b>이에요.${fname?` 달력 공휴일: <b>${fname}</b>.`:''}${wk?' (공휴일이지만 수업일로 지정해 둔 날)':''}
+      <br>휴일명을 적고 아래 <b>${hol?'이름 저장':'휴일로 지정'}</b>을 누르면 달력의 그 날짜 아래에 작은 글씨로 보여요.
+      이름을 비우고 저장하면 이름만 지워집니다.</div>
+    <div class="fld"><label>휴일명</label>
+      <input type="text" id="holName" class="note-select" maxlength="12"
+        value="${lsnAttr(cur)}" placeholder="${fname?lsnAttr(fname):'예: 대체휴무일 · 설날 · 학원 휴무'}"></div>
+    <div class="sheet-btns">
+      <button class="btn pay" onclick="saveHolidaySheet(${k},1)">${hol?'이름 저장':'휴일로 지정'}</button>
+      <button class="btn sms" onclick="closeSheet()">취소</button></div>
+    ${hol?`<button class="btn ghost small" style="width:100%;margin-top:8px" onclick="saveHolidaySheet(${k},0)">이 날을 수업일로 바꾸기</button>`:''}`;
+  document.getElementById('scrim').classList.add('show');
+}
+/* toHoliday=1 → 휴일로(이름 저장) · 0 → 수업일로. 이름은 두 경우 다 적은 대로 저장된다. */
+function saveHolidaySheet(k, toHoliday){
+  const el=document.getElementById('holName');
+  setHolidayName(k, el?el.value:'');
+  const hol=isHoliday(k);
+  if(toHoliday && !hol) toggleHoliday(k);
+  else if(!toHoliday && hol) toggleHoliday(k);
+  else saveData();
+  closeSheet(); renderClassMgmt();
+  const nm=holidayNameOf(k);
+  showToast(`${fmtD(k)} ${isHoliday(k)?'휴일':'수업일'}${nm?` · ${nm}`:''}`);
+}
 function renderClassMgmt(){
   const el=document.getElementById('v-classmgmt');
   if(!classCal) classCal={y:now.getFullYear(), m:now.getMonth()};
@@ -4444,20 +4492,23 @@ function renderClassMgmt(){
   for(let i=0;i<first;i++) cells+=`<div class="sc-cell empty"></div>`;
   for(let dd=1;dd<=dim;dd++){
     const ms=new Date(y,m,dd).getTime(), k=dayKey(ms);
-    const hol=isHoliday(k), fname=fixedHolidayName(k), wk=!!workdaysExtra[k];
+    const hol=isHoliday(k), wk=!!workdaysExtra[k];
+    const nm=holidayNameOf(k);                       // 직접 적은 이름 우선, 없으면 공휴일 이름
     const bg = hol ? 'background:#F6E3DE;' : (wk?'background:#E7F1EA;':'');
     cells+=`<div class="sc-cell${k===todayK?' today':''}" style="cursor:pointer;${bg}" onclick="clickHoliday(${ms})">
       <span class="sc-d" style="${hol?'color:var(--clay);font-weight:700':(wk?'color:var(--green);font-weight:700':'')}">${dd}</span>
-      ${fname?`<span style="font-size:9px;line-height:1;color:var(--clay)">${fname}</span>`:''}
+      ${nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}
       ${wk?`<span style="font-size:9px;line-height:1;color:var(--green)">수업</span>`:''}</div>`;
   }
   const extraHolidays=Object.keys(holidaysExtra).map(Number).filter(k=>holidaysExtra[k]).sort((a,b)=>a-b);
   const extraTxt = extraHolidays.length
-    ? extraHolidays.map(k=>{const d=new Date(k);return `${d.getMonth()+1}.${d.getDate()}`;}).join(', ')
+    ? extraHolidays.map(k=>{const d=new Date(k); const nm=holidayNameOf(k);
+        return `${d.getMonth()+1}.${d.getDate()}${nm?` ${lsnAttr(nm)}`:''}`;}).join(', ')
     : '없음';
   el.innerHTML=`<button class="back" onclick="goTab('admin')">‹ 설정</button>
     <h2 class="page-h">휴일 관리</h2>
-    <p class="page-cap">날짜를 눌러 <b>휴일 ↔ 수업일</b>을 지정해요. 토·일·공휴일은 기본 휴일이고, 누르면 '수업일'로 바꿀 수 있어요.
+    <p class="page-cap">날짜를 누르면 <b>휴일 ↔ 수업일</b>을 바꾸고 <b>휴일명</b>을 적을 수 있어요. 토·일·공휴일은 기본 휴일입니다.
+      적은 이름은 달력의 그 날짜 아래에 작은 글씨로 보여요.
       휴일은 <b>모든 학생 회차 계산에서 제외</b>돼 그날을 건너뛰고 종료일이 밀립니다.
       설날·추석·석가탄신일 등 음력 명절은 자동이 아니라 직접 휴일로 지정하세요.</p>
     <div class="sc-cal">
@@ -4981,7 +5032,7 @@ function snapshot(){
   return {
     packages, cycleDone, closeTime, nextId,
     students, sessions, payments, notes, lessons,
-    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
+    absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, holidayNames, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
     live, logbook, seedUntil, histFixV, billFixV,   // 등원중 · 오늘 알림 · 확정 기준일 · 지난기록/정산 정리버전
   };
 }
@@ -5004,6 +5055,7 @@ function applyState(d){
   if(typeof d.billSeq==='number') billSeq=d.billSeq;
   if(d.holidaysExtra) holidaysExtra=d.holidaysExtra;
   if(d.workdaysExtra) workdaysExtra=d.workdaysExtra;
+  if(d.holidayNames) holidayNames=d.holidayNames;
   if(d.skipLog) skipLog=d.skipLog;
   if(d.academy) academy=Object.assign({name:'',owner:'',phone:''}, d.academy);
   if(typeof d.autoSend==='boolean') autoSend=d.autoSend;

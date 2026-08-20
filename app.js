@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-18ap-calrow */
+/* ONSTUDY-BUILD: 2026-08-18ar-mngpage */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1019,7 +1019,7 @@ function renderToday(){
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">
           <div class="who" style="${inlineBtn?'display:flex;align-items:baseline;gap:9px;min-width:0':''}">
-            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${s.name}${cycBadge(s)}</div>
+            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${stuNameBtn(s.id, s.name)}${cycBadge(s)}</div>
             <div class="plan" style="color:${sc};${inlineBtn?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis':''}">${stx}</div>
           </div>${inlineBtn}
         </div>
@@ -1112,7 +1112,7 @@ function renderToday(){
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
         <div class="who">
-          <div class="name">${s.name}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
+          <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
           <div class="plan" style="color:${statusColor}">${statusText}</div>
         </div>
         ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
@@ -1601,7 +1601,7 @@ function deleteLesson(id, ms){
 /* 학습내용을 저장·삭제한 뒤 학생 탭 목록을 다시 그리는 곳 — 여기 한 곳뿐이다.
    단추 글자(학습 ↔ 학습 ✓)가 저장한 결과와 달라 보이면 안 된다.
    목록 칸만 다시 그린다 — 검색칸까지 다시 만들면 치고 계시던 글자가 날아간다. */
-function lsnRefreshStuList(){ if(document.getElementById('stuList')) renderStudentsList(); }
+function lsnRefreshStuList(){ if(document.getElementById('stuList')) renderStudentsList(); renderStuPageIfOpen(); }
 
 // 열려있는 달력 갱신 (출석부/학생탭/학생관리 어디서든)
 function refreshOpenCal(sid){
@@ -2017,17 +2017,22 @@ function toggleMngCal(id){ if(mngCal.open===id)mngCal.open=null; else {mngCal.op
 // 전체 일정 등에서 학생 클릭 → 학생 관리로 이동 + 그 학생 달력 펼침 + 스크롤
 function openStudentCalendar(sid){
   mngCal.open=sid; mngCal.y=now.getFullYear(); mngCal.m=now.getMonth();
-  manageSort='name';   // 이름순으로(카드 1개만 보이게)
-  if(document.body.dataset.mode==='admin' && typeof adminNav==='function') adminNav('manage');
-  else goTab('manage');
-  setTimeout(()=>{ const el=document.getElementById('mng-'+sid); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); }, 80);
+  /* ★ 2026-08-18ar 목록이 이름 줄로 바뀌어 '카드까지 굴려 내리기'가 없어졌다.
+     그 학생의 학생 관리 페이지를 바로 연다 — 달력은 이미 펼친 상태다. */
+  goManageStudent(sid);
 }
 function mngCalNav(id,delta){ mngCal.m+=delta; if(mngCal.m<0){mngCal.m=11;mngCal.y--;} if(mngCal.m>11){mngCal.m=0;mngCal.y++;} renderManage(); }
+/* ★ 2026-08-18aq 수업 요일만 적는 곳 — 만드는 곳은 여기 한 곳뿐이다.
+   학생 탭 목록 줄과 schedText 가 반드시 같은 글자를 쓰게 한다. */
+function dayText(s){
+  if(!s || !s.days || !s.days.length) return '요일 미설정';
+  return s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
+}
 function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
   return perDayOn(s)
     ? s.days.slice().sort((a,b)=>a-b).map(d=>`${WD[d]} ${hm12(timeFor(s,d))}`).join(' / ')
-    : `${s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·')} · ${hm12(s.time)||'시각 미설정'}`;
+    : `${dayText(s)} · ${hm12(s.time)||'시각 미설정'}`;
 }
 /* ===== 학습 기록 보기 · 학습 분석 ===== 2026-07-28u
    원장님 지시 — "달력 옆에 '학습기록' 버튼 만들고 누르면 날짜별로 볼 수 있게.
@@ -2325,6 +2330,108 @@ let studentSort='name';
 function setStudentSort(m){ studentSort=m; renderStudents(); }
 let stuDayFilter=null;
 function setStuDay(v){ stuDayFilter=v; renderStudents(); }
+/* ★ 2026-08-18aq 원장님 지시 —
+     "학생탭에서 ㄱㄴㄷ 순으로 학생 이름과 수업 요일만 나오게 해 주고,
+      학생명을 클릭했을 때 지금의 화면이 보이도록 바꿔줘.
+      출석부탭에서 학생명을 클릭하면 학생탭에서 클릭한 것과 같은 화면이 보이도록 링크 걸어줘."
+   → 학생 카드(studentCard)는 손대지 않았다. 그 카드 하나만 담는 **학생 페이지**(v-stu)를
+     새로 만들고, 목록은 이름+요일 한 줄로 줄였다.
+     카드를 그리는 곳은 여전히 studentCard 한 곳뿐 — 목록과 페이지가 서로 달라질 수 없다.
+   → 화면 칸(section)은 app.js 가 만든다. index.html·admin.html 을 안 고쳐도 되게 한 것이다. */
+let stuPageId=null;
+function ensureStuView(){
+  let el=document.getElementById('v-stu');
+  if(el) return el;
+  const main=document.querySelector('main'); if(!main) return null;
+  el=document.createElement('section'); el.className='view'; el.id='v-stu';
+  main.appendChild(el); return el;
+}
+/* 학생 페이지로 간다 — 들어가는 문은 여기 한 곳뿐이다(학생 탭 줄·출석부 이름 모두 이것을 부른다) */
+function goStudent(sid){
+  if(!ensureStuView()) return;
+  stuPageId=sid;
+  goTab('stu');
+}
+/* 뒤로 — 왔던 화면(학생 탭·출석부)으로 돌아간다. 발자국이 없으면 학생 탭으로. */
+function stuBack(){ if(!navBack()) goTab('students'); }
+/* ★ 2026-08-18ar 페이지 전용 뒤로 단추 — 만드는 곳은 여기 한 곳뿐이다.
+   사무실(admin.css)은 `body[data-mode="admin"] .back{display:none}` 으로 .back 을 숨긴다.
+   옆 차림표에 자리가 있는 화면은 그래도 되지만, 학생 한 명 페이지는 돌아갈 길이 없어지므로
+   사무실에서는 인라인으로 다시 보이게 한다(css 는 고치지 않는다). */
+function pageBackBtn(label, call){
+  const hid = (document.body.dataset.mode==='admin');
+  return `<button class="back" ${hid?'style="display:block"':''} onclick="${call}">‹ ${label}</button>`;
+}
+function renderStuPage(){
+  const el=ensureStuView(); if(!el) return;
+  const s=st(stuPageId);
+  const tl=document.getElementById('todayLine');
+  if(tl){ tl.textContent = s ? s.name : '학생'; tl.style.display='block'; }
+  el.innerHTML=pageBackBtn('뒤로','stuBack()')
+    + (s ? studentCard(s) : '<div class="empty">학생을 찾을 수 없어요.</div>');
+}
+/* 학생 페이지를 보고 있을 때만 다시 그린다 (정산의 redrawSettleIfOpen 과 같은 방식) */
+function renderStuPageIfOpen(){
+  const el=document.getElementById('v-stu');
+  if(el && el.classList.contains('active')) renderStuPage();
+}
+/* ★ 2026-08-18ar 이름 + 수업 요일 한 줄 — 만드는 곳은 여기 한 곳뿐이다.
+   학생 탭(goStudent)과 설정 > 학생 관리(goManageStudent)가 같은 줄을 쓴다. */
+function nameDayRow(s, fn){
+  return `<button onclick="${fn}(${s.id})" style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:7px;font-family:inherit;text-align:left;cursor:pointer${isLeft(s)?';opacity:.72':''}">
+    <span style="font-size:15.5px;font-weight:600;color:var(--ink)">${s.name}</span>
+    <span style="font-size:13px;color:var(--muted);white-space:nowrap">${dayText(s)}<span style="color:#C9C2B2;margin-left:6px">›</span></span>
+  </button>`;
+}
+/* 학생 탭 목록 한 줄 — 누르면 학생 페이지가 열린다 */
+function studentRow(s){ return nameDayRow(s, 'goStudent'); }
+/* 설정 > 학생 관리 목록 한 줄 — 누르면 학생 관리 페이지가 열린다 */
+function manageRow(s){ return nameDayRow(s, 'goManageStudent'); }
+
+/* ★ 2026-08-18ar 원장님 지시 — "설정>학생관리 화면도 같이 바꿔줘"
+   학생 탭과 똑같은 방식이다. 관리 카드(manageCard)는 손대지 않고,
+   그 카드 하나만 담는 **학생 관리 페이지**(v-mng)를 만들었다.
+   ★ 사무실(admin.html)은 아래 탭이 아니라 옆 차림표(adminNav)로 화면을 고른다.
+     adminNav('mng') 는 v-mng 를 켜고 renderManage 를 부르는데,
+     renderManage 끝에 있는 renderMngPageIfOpen 이 페이지를 그린다 — admin.js 를 안 고쳐도 된다. */
+let mngPageId=null;
+function ensureMngView(){
+  let el=document.getElementById('v-mng');
+  if(el) return el;
+  const main=document.querySelector('main'); if(!main) return null;
+  el=document.createElement('section'); el.className='view'; el.id='v-mng';
+  main.appendChild(el); return el;
+}
+/* 학생 관리 페이지로 간다 — 들어가는 문은 여기 한 곳뿐이다 */
+function goManageStudent(sid){
+  if(!ensureMngView()) return;
+  mngPageId=sid;
+  if(document.body.dataset.mode==='admin' && typeof adminNav==='function') adminNav('mng');
+  else goTab('mng');
+  window.scrollTo(0,0);
+}
+function mngBack(){
+  if(document.body.dataset.mode==='admin' && typeof adminNav==='function'){ adminNav('manage'); return; }
+  if(!navBack()) goTab('manage');
+}
+function renderMngPage(){
+  const el=ensureMngView(); if(!el) return;
+  const s=st(mngPageId);
+  const tl=document.getElementById('todayLine');
+  if(tl){ tl.textContent = s ? s.name : '학생 관리'; tl.style.display='block'; }
+  const si=document.querySelector('.side-item[data-v="manage"]'); if(si) si.classList.add('on');
+  el.innerHTML=pageBackBtn('학생 관리','mngBack()')
+    + (s ? manageCard(s) : '<div class="muted-card">학생을 찾을 수 없어요.</div>');
+}
+/* 학생 관리 페이지를 보고 있을 때만 다시 그린다 */
+function renderMngPageIfOpen(){
+  const el=document.getElementById('v-mng');
+  if(el && el.classList.contains('active')) renderMngPage();
+}
+/* 이름을 눌러 학생 페이지로 가는 단추 — 만드는 곳은 여기 한 곳뿐이다 */
+function stuNameBtn(sid, txt){
+  return `<button onclick="event.stopPropagation();goStudent(${sid})" title="학생 화면 열기" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer">${txt}</button>`;
+}
 function studentCard(s, forDay){
   const ci=currentClassInfo(s);
   const doneN=doneCountOf(s);
@@ -2375,13 +2482,13 @@ function studentListHtml(){
 
   let body='';
   if(studentSort==='name'){
-    body = pool.slice().sort(byName).map(s=>studentCard(s)).join('');
+    body = pool.slice().sort(byName).map(s=>studentRow(s)).join('');
   } else if(studentSort==='grade'){
     const groups={}; pool.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
     const order=[...GRADES.map(g=>g[0]),'none'];
     body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
-      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>studentCard(s)).join('');
+      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>studentRow(s)).join('');
     }).join('');
   } else {
     const dayOrder=[1,2,3,4,5];
@@ -2395,13 +2502,13 @@ function studentListHtml(){
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
       let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
-      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=studentCard(s,d); });
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=studentRow(s); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   const goneHtml = gone.length ? grpH('퇴원한 학생', gone.length)
-      + gone.slice().sort(byName).map(s=>studentCard(s)).join('') : '';
+      + gone.slice().sort(byName).map(s=>studentRow(s)).join('') : '';
   if(!students.length) body='<div class="empty">등록된 학생이 없어요.</div>';
   else if(!poolAll.length) body='<div class="muted-card">검색 결과가 없어요.</div>';
   else { if(!pool.length) body='<div class="muted-card">다니는 학생 중에는 없어요.</div>'; body+=goneHtml; }
@@ -2426,6 +2533,10 @@ function renderStudents(){
     <div style="display:flex;gap:8px;margin-bottom:12px">${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>
     <div id="stuCount" style="font-size:13px;color:var(--muted);margin:0 2px 12px">${r.count}</div>
     <div id="stuList">${r.body}</div>`;
+  /* ★ 2026-08-18aq 학생 카드가 그려지는 곳이 목록에서 페이지로 옮겨 갔다.
+     펼침 단추(달력·회차·학습도 …)들이 부르는 renderStudents 를 하나하나 고치지 않고
+     여기 한 곳에서 학생 페이지도 같이 다시 그린다 — 둘이 어긋날 수 없다. */
+  renderStuPageIfOpen();
 }
 
 /* ===== 정산 ===== */
@@ -3403,13 +3514,13 @@ function manageListHtml(){
 
   let body='';
   if(manageSort==='name'){
-    body = pool.slice().sort(byName).map(s=>manageCard(s)).join('');
+    body = pool.slice().sort(byName).map(s=>manageRow(s)).join('');
   } else if(manageSort==='grade'){
     const groups={}; pool.forEach(s=>{ const k=s.grade||'none'; (groups[k]=groups[k]||[]).push(s); });
     const order=[...GRADES.map(g=>g[0]),'none'];
     body = order.filter(k=>groups[k]&&groups[k].length).map(k=>{
       const label = k==='none' ? '학년 미입력' : gradeLabel(k);
-      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>manageCard(s)).join('');
+      return grpH(label, groups[k].length) + groups[k].sort(byName).map(s=>manageRow(s)).join('');
     }).join('');
   } else { // 요일별
     const dayOrder=[1,2,3,4,5];
@@ -3424,13 +3535,13 @@ function manageListHtml(){
         .sort((a,b)=>(timeFor(a,d)||'').localeCompare(timeFor(b,d)||'') || byName(a,b));
       if(!list.length) return '';
       let html=grpH(`${WD[d]}요일`, list.length); let curT=null;
-      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=manageCard(s,d); });
+      list.forEach(s=>{ const t=timeFor(s,d); if(t!==curT){ curT=t; html+=timeH(hm12(t)); } html+=manageRow(s); });
       return html;
     }).join('');
     body = tabBar + (groups || '<div class="muted-card">해당 요일에 수업이 없어요.</div>');
   }
   const goneHtml = gone.length ? grpH('퇴원한 학생', gone.length)
-      + gone.slice().sort(byName).map(s=>manageCard(s)).join('') : '';
+      + gone.slice().sort(byName).map(s=>manageRow(s)).join('') : '';
   if(!students.length) body='<div class="muted-card">아직 등록된 학생이 없어요. 위 ‘＋ 학생 추가’로 시작하세요.</div>';
   else if(!poolAll.length) body=`<div class="muted-card">검색 결과가 없어요.</div>`;
   else { if(!pool.length) body='<div class="muted-card">다니는 학생 중에는 없어요.</div>'; body+=goneHtml; }
@@ -3460,6 +3571,11 @@ function renderManage(){
     <div style="display:flex;gap:8px;margin-bottom:12px">${sortBtn('name','전체 (가나다)')}${sortBtn('day','요일별')}${sortBtn('grade','학년별')}</div>
     <div id="mngCount" style="font-size:13px;color:var(--muted);margin:0 2px 12px">${r.count}</div>
     <div id="mngList">${r.body}</div>`;
+  /* ★ 2026-08-18ar 관리 카드가 그려지는 곳이 목록에서 페이지로 옮겨 갔다.
+     펼침 단추(달력·회차·학습도 …)들이 부르는 renderManage 를 하나하나 고치지 않고
+     여기 한 곳에서 학생 관리 페이지도 같이 다시 그린다 — 둘이 어긋날 수 없다.
+     사무실(admin.js)의 adminNav('mng')·refreshCurrentView 도 이 길을 지나간다. */
+  renderMngPageIfOpen();
 }
 /* ===== 달력 클릭으로 기간(시작일~종료일) 고르기 ===== */
 /* ★ 2026-07-28m ★ 원장님 지시 — "종료일은 자동 계산 해주세요"
@@ -4283,7 +4399,9 @@ function deleteStudent(id){
   delete cycleDone[id];
   bills = bills.filter(b=>b.sid!==id);            // 정산 건 정리
   delete packHistory[id]; delete absentLog[id]; delete makeupLog[id]; delete skipLog[id];
-  saveData(); closeSheet(); renderManage(); showToast('학생을 삭제했어요');
+  saveData(); closeSheet();
+  if(mngPageId===id) mngBack(); else renderManage();   /* ★ 2026-08-18ar 지운 학생 페이지에 머무르지 않는다 */
+  showToast('학생을 삭제했어요');
 }
 
 /* ===== 전체 일정 (모든 학생 스케줄) ===== */
@@ -4972,7 +5090,7 @@ function navBack(){
     navGoingBack=true;
     try{
       if(p.v==='admin'){ adminSection=p.sec||null; goTab('admin'); }
-      else goTab(p.v);
+      else goTab(p.v, true);   /* ★ 2026-08-18aq 뒤로 올 때는 보던 날짜를 그대로 (출석부) */
     } finally { navGoingBack=false; }
     return true;
   }
@@ -5008,12 +5126,13 @@ function goTab(v,keepDate){
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
-  const labels={home:'', today:'출석부', students:'학생', settle:'정산',
+  const labels={home:'', today:'출석부', students:'학생', stu:'학생', settle:'정산',
+    mng:'학생 관리',
     counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'알림 문구', payhist:'정산 내역', datacheck:'데이터 점검', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
-  ({home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
-    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy,datacheck:renderDataCheck}[v])();
+  ({home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,
+    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,mng:renderMngPage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy,datacheck:renderDataCheck}[v])();
   window.scrollTo(0,0);
 }
 document.querySelectorAll('.bt').forEach(t=>t.addEventListener('click',()=>goTab(t.dataset.v)));
@@ -5106,8 +5225,8 @@ function refreshCurrentView(){
   /* ★ 2026-07-28u: 아래 탭 표시(.bt.active)에서 되짚던 것을 navView 하나로 바꿨다.
      하위 화면에서는 아래 탭이 하나도 안 켜져 있어 늘 '홈'으로 잘못 읽히던 오류를 고친 것이다. */
   const v=navView;
-  const map={home:renderHome,today:renderToday,students:renderStudents,settle:renderSettle,
-    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,
+  const map={home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,
+    counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,mng:renderMngPage,
     send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,
     academy:renderAcademy,datacheck:renderDataCheck};
   (map[v]||renderHome)();

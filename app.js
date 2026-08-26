@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-18ar-mngpage */
+/* ONSTUDY-BUILD: 2026-08-26at-chkfold */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -806,6 +806,12 @@ function isMakeupDay(s, k){ return !!makeupOn(s.id, k); }
 let seedUntil=null;      // 이 날짜 이전의 지난 수업일은 '확정'으로 인정(과거 기록 일괄 확정 시점)
 let histFixV=0;          // 지난 기록 정리 버전 (1 = 2026-07-27 회차·기간 단일화 정리 완료)
 let billFixV=0;          // 정산 건 선불 기준 옮기기 (1 = 2026-08-16 원장님이 직접 실행함)
+/* ★ 2026-08-26as 원장님 지시 — 홈 [원장확인].
+   원장님이 직접 적어 두시는 챙길 거리 목록이다. 학생과는 아무 상관이 없다 — 이름도 날짜 조건도 없다.
+   한 건 = {id, tx, at, done} · done 은 [확인]을 누른 시각(ms), 안 누르면 0.
+   ★ 지우는 것과 숨기는 것은 다른 기능이다(절대규칙 20) — [확인]은 가운뎃줄을 긋는 것이지 지우는 것이 아니다. */
+let checks=[];           // 원장확인 목록
+let chkSeq=1;            // 원장확인 건 번호를 만드는 유일한 곳
 let tempTimes={};        // 오늘만 추가한 학생의 시각·수업시간 {id:{time:'15:00',dur:60}}
 /* 오늘 이 학생의 시각 (임시 추가 > 보강 > 요일표) — 단일 소스 */
 function todayTimeOf(s, k){
@@ -909,6 +915,9 @@ function renderHome(){
 
   let todos=[];
   openList.forEach(x=>todos.push({ic:'amber',tx:`${x.name} 수업 진행 중 — 끝나면 종료를 눌러주세요`,v:'today'}));
+  /* ★ 2026-08-26at 원장님 지시 — 원장확인에 적어 두신 것 중 아직 [확인]을 안 누른 것.
+     학생 이름은 붙이지 않는다. 적으신 내용만 그대로 보여 드리고, 누르면 원장확인 화면으로 간다. */
+  chkOpenList().forEach(c=>todos.push({ic:'amber',icStyle:'background:var(--green)',tx:lsnEsc(c.tx),go:'goChk()'}));
   unpaidBills.forEach(b=>{ const bs=st(b.sid); todos.push({ic:'clay',tx:`${bs?bs.name:'학생'} ${billMonthTxt(b)} 정산 필요 (${won(billAmount(b))})`,v:'settle'}); });
   missingSettings().forEach(m=>todos.push({ic:'clay',tx:`⚠ ${m.tx} — 채워주세요`, v:m.v}));
 
@@ -936,13 +945,14 @@ function renderHome(){
       <button class="act primary" onclick="goAttnFromHome()"><div class="t">출석체크</div><div class="d">${isToday?`오늘 ${todayRemain}명 남음`:`${hDate.getMonth()+1}/${hDate.getDate()} ${remain}명 예정`}</div></button>
     </div>
     <div class="actions" style="margin-top:-12px">
-      <button class="act" onclick="goTab('counsel')"><div class="t">학부모 상담</div><div class="d">상담 메모·카톡</div></button>
-      <button class="act" onclick="goTab('schedule')"><div class="t">전체 일정</div><div class="d">날짜별 수업 예정</div></button>
+      <button class="act" style="padding:14px 11px" onclick="goTab('counsel')"><div class="t" style="font-size:13.5px">학부모 상담</div><div class="d" style="font-size:11.5px">상담 메모·카톡</div></button>
+      <button class="act" style="padding:14px 11px" onclick="goChk()"><div class="t" style="font-size:13.5px">원장확인</div><div class="d" style="font-size:11.5px">${chkOpenCount()?`안 한 일 ${chkOpenCount()}개`:'적어 두기'}</div></button>
+      <button class="act" style="padding:14px 11px" onclick="goTab('schedule')"><div class="t" style="font-size:13.5px">전체 일정</div><div class="d" style="font-size:11.5px">날짜별 예정</div></button>
     </div>
     <div class="block">
       <div class="block-h"><span class="h">챙길 일</span>${todos.length?`<span class="cnt">${todos.length}</span>`:''}</div>
       ${todos.length?`<div class="todo">`+todos.map(t=>`
-        <button class="todo-item" onclick="goTab('${t.v}')"><span class="ic ${t.ic}"></span>
+        <button class="todo-item" onclick="${t.go||`goTab('${t.v}')`}"><span class="ic ${t.ic}"${t.icStyle?` style="${t.icStyle}"`:''}></span>
           <span class="tx">${t.tx}</span><span class="go">›</span></button>`).join('')+`</div>`
        :`<div class="muted-card">지금은 챙길 일이 없어요.</div>`}
     </div>
@@ -954,6 +964,79 @@ function renderHome(){
           <span class="tx">${l.text}</span><span class="tm">${hm12(l.time)}</span></div>`;}).join('')+`</div>`
        :`<div class="muted-card">아직 오늘 보낸 알림이 없어요.</div>`}
     </div>`;
+}
+
+
+/* ===== 원장확인 ===== 2026-08-26as
+   ★ 원장님 지시 — "홈에 [원장확인] 단추 하나. 누르면 글칸에 적을 수 있고,
+     적은 것은 같은 화면 위쪽에 목록으로 보이고, 목록 옆 [확인]을 누르면 그 줄에 가운뎃줄."
+   ★ 학생과 이어 붙이지 않는다. 원장님 혼자 보시는 목록이다 — 부모님께 나가는 곳에는 한 글자도 안 나간다.
+   ★ 화면 칸(v-chk)도 app.js 가 main 에 붙인다(index.html·admin.html 을 안 고쳐도 되게).
+   ★ 만드는 곳은 여기 한 곳뿐이다. */
+function ensureChkView(){
+  let el=document.getElementById('v-chk');
+  if(el) return el;
+  const main=document.querySelector('main'); if(!main) return null;
+  el=document.createElement('section'); el.className='view'; el.id='v-chk';
+  main.appendChild(el); return el;
+}
+/* 아직 [확인]을 안 누른 건 수 — 홈 단추와 화면 머리글이 같은 곳을 본다(단일 소스) */
+function chkOpenCount(){ return chkOpenList().length; }
+/* 원장확인 화면으로 들어가는 문은 여기 한 곳뿐이다 */
+function goChk(){ if(!ensureChkView()) return; goTab('chk'); }
+function chkBack(){ if(!navBack()) goTab('home'); }
+/* 글칸에 적으신 것을 목록에 담는다 — 빈 칸이면 아무 일도 일어나지 않는다 */
+function chkAdd(){
+  const ta=document.getElementById('chkInput'); if(!ta) return;
+  const tx=String(ta.value||'').trim();
+  if(!tx){ showToast('적을 내용을 먼저 넣어 주세요'); return; }
+  checks.push({id:chkSeq++, tx:tx, at:Date.now(), done:0});
+  ta.value='';
+  saveData(); renderChk(); showToast('담았어요');
+}
+/* [확인] — 가운뎃줄을 긋는다. 한 번 더 누르면 되돌아온다. 지우는 것이 아니다. */
+function chkToggle(id){
+  const c=checks.find(x=>x.id===id); if(!c) return;
+  c.done = c.done ? 0 : Date.now();
+  saveData(); renderChk();
+}
+/* ★ 2026-08-26at 「확인한 것」 접힘 — 화면 상태라 저장하지 않는다(펼침 상태는 기록이 아니다) */
+let chkFoldOpen=false;
+function chkFold(){ chkFoldOpen=!chkFoldOpen; renderChk(); }
+/* 목록 한 줄을 만드는 곳은 여기 한 곳뿐이다 — 안 한 줄과 확인한 줄이 같은 함수를 쓴다 */
+function chkRow(c){
+  return `<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 13px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(30,25,15,.03)">
+      <span style="flex:1;font-size:14px;line-height:1.45;white-space:pre-line;word-break:break-word;${c.done?'text-decoration:line-through;color:var(--muted)':'color:var(--ink)'}">${lsnEsc(c.tx)}</span>
+      <button class="btn ${c.done?'sms':'start'}" style="flex:none;width:auto;margin-top:0;padding:7px 12px;font-size:12.5px;border-radius:10px" onclick="chkToggle(${c.id})">${c.done?'되돌리기':'확인'}</button>
+    </div>`;
+}
+/* 안 한 것 — 새로 적으신 것이 맨 위. 목록을 만드는 차례는 여기 한 곳뿐이다(홈 [챙길 일]도 이것을 쓴다) */
+function chkOpenList(){ return checks.filter(c=>!c.done).sort((a,b)=>b.at-a.at); }
+/* 확인한 것 — 방금 확인한 것이 맨 위 */
+function chkDoneList(){ return checks.filter(c=>c.done).sort((a,b)=>b.done-a.done); }
+function renderChk(){
+  const el=ensureChkView(); if(!el) return;
+  /* 한글을 적는 도중에 다시 그려도 글이 날아가지 않게, 적고 계시던 값을 들고 있다가 되돌려 놓는다 */
+  const ta0=document.getElementById('chkInput');
+  const keep = ta0 ? ta0.value : '';
+  const open=chkOpenList(), done=chkDoneList();
+  el.innerHTML = pageBackBtn('홈','chkBack()') + `
+    <div class="block">
+      <div class="block-h"><span class="h">원장확인</span>${open.length?`<span class="cnt">${open.length}</span>`:''}</div>
+      ${open.length?`<div class="todo">${open.map(chkRow).join('')}</div>`
+        :`<div class="muted-card">${checks.length?'다 확인하셨어요.':'아직 적어 두신 것이 없어요.'}</div>`}
+      ${done.length?`
+      <button class="todo-item" id="chkFoldBtn" style="margin-top:8px;background:transparent;box-shadow:none" onclick="chkFold()">
+        <span class="tx" style="color:var(--muted);font-size:13.5px">확인한 것 ${done.length}개</span>
+        <span class="go">${chkFoldOpen?'⌃':'⌄'}</span></button>
+      ${chkFoldOpen?`<div class="todo" style="margin-top:8px">${done.map(chkRow).join('')}</div>`:''}`:''}
+    </div>
+    <div class="block">
+      <div class="block-h"><span class="h">새로 적기</span></div>
+      <textarea id="chkInput" class="note-area" style="min-height:80px" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="예: 3층 프린터 토너 주문"></textarea>
+      <div class="sheet-btns"><button class="btn start" onclick="chkAdd()">담기</button></div>
+    </div>`;
+  const ta=document.getElementById('chkInput'); if(ta && keep) ta.value=keep;
 }
 
 /* ===== 출석부 ===== */
@@ -5127,11 +5210,11 @@ function goTab(v,keepDate){
   document.getElementById('v-'+v).classList.add('active');
   const dateStr=`${WD[todayIdx]}요일 ${now.getMonth()+1}월 ${now.getDate()}일`;
   const labels={home:'', today:'출석부', students:'학생', stu:'학생', settle:'정산',
-    mng:'학생 관리',
+    mng:'학생 관리', chk:'원장확인',
     counsel:'학부모 상담', report:'결산', admin:'설정', manage:'학생 관리', send:'발송 · 상담', guide:'알림 문구', payhist:'정산 내역', datacheck:'데이터 점검', schedule:'전체 일정', classmgmt:'휴일 관리', academy:'학원 관리'};
   const tl=document.getElementById('todayLine');
   tl.textContent=labels[v]||''; tl.style.display=labels[v]?'block':'none';
-  ({home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,
+  ({home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,chk:renderChk,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,mng:renderMngPage,send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,academy:renderAcademy,datacheck:renderDataCheck}[v])();
   window.scrollTo(0,0);
 }
@@ -5157,6 +5240,7 @@ function snapshot(){
     students, sessions, payments, notes, lessons,
     absentLog, makeupLog, packHistory, bills, billSeq, holidaysExtra, workdaysExtra, holidayNames, skipLog, academy, autoSend, autoSms, sendKinds, msgTemplates,
     live, logbook, seedUntil, histFixV, billFixV,   // 등원중 · 오늘 알림 · 확정 기준일 · 지난기록/정산 정리버전
+    checks, chkSeq,                                 // 원장확인 목록 (2026-08-26as)
   };
 }
 function reviveDates(arr){ arr.forEach(o=>{ if(o&&o.date) o.date=new Date(o.date); }); return arr; }
@@ -5198,6 +5282,8 @@ function applyState(d){
   seedUntil = (typeof d.seedUntil==='number') ? d.seedUntil : null;
   histFixV = (typeof d.histFixV==='number') ? d.histFixV : 0;   // 없으면 0 = 아직 정리 안 됨
   billFixV = (typeof d.billFixV==='number') ? d.billFixV : 0;   // 없으면 0 = 아직 안 옮김
+  if(Array.isArray(d.checks)) checks=d.checks;                  // 원장확인 목록 (2026-08-26as)
+  if(typeof d.chkSeq==='number') chkSeq=d.chkSeq;
   tempToday = (Array.isArray(d.tempToday) && tempDay===dayKey(now.getTime())) ? new Set(d.tempToday) : new Set();
   tempTimes = (d.tempTimes && tempDay===dayKey(now.getTime())) ? d.tempTimes : {};
   if(Array.isArray(d.logbook)) logbook=d.logbook.filter(l=>l && (l.d==null || l.d===dayKey(now.getTime())));
@@ -5225,7 +5311,7 @@ function refreshCurrentView(){
   /* ★ 2026-07-28u: 아래 탭 표시(.bt.active)에서 되짚던 것을 navView 하나로 바꿨다.
      하위 화면에서는 아래 탭이 하나도 안 켜져 있어 늘 '홈'으로 잘못 읽히던 오류를 고친 것이다. */
   const v=navView;
-  const map={home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,
+  const map={home:renderHome,today:renderToday,students:renderStudents,stu:renderStuPage,settle:renderSettle,chk:renderChk,
     counsel:renderCounsel,report:renderReport,admin:renderAdmin,manage:renderManage,mng:renderMngPage,
     send:renderSend,guide:renderGuide,payhist:renderPayhist,schedule:renderSchedule,classmgmt:renderClassMgmt,
     academy:renderAcademy,datacheck:renderDataCheck};

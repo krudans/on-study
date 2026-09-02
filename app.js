@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-08-26at-chkfold */
+/* ONSTUDY-BUILD: 2026-09-02au-herostat */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -936,8 +936,8 @@ function renderHome(){
       </div>
       <div class="hero-stats">
         <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 총 수업</span><span class="v">${roster.length}명</span></div>
-        <div class="hstat"><span class="k">${isToday?'오늘 남은 수업':'예정'}</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
-        <div class="hstat"><span class="k">정산 필요</span><span class="v ${unpaidBills.length?'warn':''}">${unpaidBills.length}건</span></div>
+        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
+        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 결석</span><span class="v ${absentN?'warn':''}">${absentN}명</span></div>
       </div>
     </div>
     <div class="actions">
@@ -2111,6 +2111,13 @@ function dayText(s){
   if(!s || !s.days || !s.days.length) return '요일 미설정';
   return s.days.slice().sort((a,b)=>a-b).map(d=>WD[d]).join('·');
 }
+/* ★ 2026-09-02au 이름 옆 (회차/총회차) — 글자를 만드는 곳은 여기 한 곳뿐이다.
+   값은 단일 소스 doneCountOf(이번 클래스 현재 회차) 와 s.plan(계약 회차) 만 읽는다.
+   회차 계약이 비어 있으면 지어내지 않고 아무것도 적지 않는다(코드 기본값 금지). */
+function cycText(s){
+  if(!s || !s.plan) return '';
+  return `(${doneCountOf(s)}/${s.plan})`;
+}
 function schedText(s){
   if(!s.days||!s.days.length) return '요일 미설정';
   return perDayOn(s)
@@ -2462,7 +2469,10 @@ function renderStuPageIfOpen(){
    학생 탭(goStudent)과 설정 > 학생 관리(goManageStudent)가 같은 줄을 쓴다. */
 function nameDayRow(s, fn){
   return `<button onclick="${fn}(${s.id})" style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:7px;font-family:inherit;text-align:left;cursor:pointer${isLeft(s)?';opacity:.72':''}">
-    <span style="font-size:15.5px;font-weight:600;color:var(--ink)">${s.name}</span>
+    <span style="display:flex;align-items:baseline;gap:5px;min-width:0">
+      <span style="font-size:15.5px;font-weight:600;color:var(--ink)">${s.name}</span>
+      <span style="font-size:12.5px;font-weight:600;color:var(--muted);white-space:nowrap">${cycText(s)}</span>
+    </span>
     <span style="font-size:13px;color:var(--muted);white-space:nowrap">${dayText(s)}<span style="color:#C9C2B2;margin-left:6px">›</span></span>
   </button>`;
 }

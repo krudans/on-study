@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-02av-settlename-lrn5 */
+/* ONSTUDY-BUILD: 2026-09-03aw-pastdesc */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2846,8 +2846,10 @@ function saveHistDates(sid, no){
    대신 쓰는 곳 - 지난 수업일을 기록으로 만들기 : 학생 시트의 날짜 칩 목록(makePastRecs).
                  잘못 찍힌 기록 지우기 : 출석부 탭 -> 그 날짜 -> [완료 취소](undoOn). */
 function pastClassesHtml(s){
-  // 1차 → 2차 순(오래된 것부터). 차수 우선, 없으면 종료일 순
-  const all=(packHistory[s.id]||[]).slice().sort((a,b)=>((a.no||0)-(b.no||0)) || ((a.end||0)-(b.end||0)));
+  /* ★ 2026-09-03aw 원장님 지시 — 최근 클래스가 맨 위로. 차수 우선, 없으면 종료일 순(둘 다 내림차순).
+     차례를 정하는 곳은 여기 한 곳뿐이다 — 학생 페이지와 학생 관리 페이지가 같은 차례를 쓴다.
+     접혀 있을 때 보이는 세 개도 이 차례를 따르므로 '가장 최근 세 클래스'가 된다. */
+  const all=(packHistory[s.id]||[]).slice().sort((a,b)=>((b.no||0)-(a.no||0)) || ((b.end||0)-(a.end||0)));
   if(!all.length) return `<div class="mg-line" style="color:var(--muted)">📚 지난 클래스 : 아직 없어요</div>`;
   const openAll=histAllOpen.has(s.id);
   const show=openAll?all:all.slice(0,3);

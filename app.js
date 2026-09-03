@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-02au-herostat */
+/* ONSTUDY-BUILD: 2026-09-02av-settlename-lrn5 */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1507,9 +1507,18 @@ function lsnAccHtml(s, k, key){
       ${rows}</div>`;
 }
 /* ★ 2026-08-15 지난 클래스 [학습도] 판.
-   원장님이 적어 주신 차례 그대로 : 1) 과제 성실도 % 2) 교과 3) 심화 4) 연산.
+   차례 : 1) 과제 성실도 2) 교과 3) 심화 4) 연산 5) 테스트 6) 안내사항 (2026-09-02av 원장님 지시)
    ★ 칸 이름은 LSN_BOXES 에서만 가져온다(여기에 다시 적지 않는다). */
-const LRN_KEYS=['text','deep','calc'];
+const LRN_KEYS=['text','deep','calc','test'];
+/* 안내사항만은 LSN_BOXES 가 아니라 lessons[].info 에 저장된다(학습 시트의 안내사항 칸).
+   그래서 이름을 여기 한 줄로 따로 적는다 — 적는 곳은 이 한 곳뿐이다. */
+const LRN_INFO={k:'info', n:'안내사항'};
+/* [학습도] 판에 그릴 칸 목록을 만드는 유일한 곳 — 차례도 여기서 정해진다 */
+function lrnBlocks(){
+  const a=LRN_KEYS.map(k=>LSN_BOXES.find(x=>x.k===k)).filter(Boolean).map(b=>({k:b.k, n:b.n}));
+  a.push({k:LRN_INFO.k, n:LRN_INFO.n});
+  return a;
+}
 let histLrnOpen=new Set();
 function toggleHistLrn(key){ if(histLrnOpen.has(key))histLrnOpen.delete(key); else histLrnOpen.add(key);
   renderStudents(); if(typeof renderManage==='function' && document.getElementById('v-manage')) renderManage();
@@ -1528,12 +1537,11 @@ function classLearnHtml(s, h){
          r.cnt.filter(x=>x.v).map(x=>`${x.n} ${x.v}번`).join(' · ')} · 과제를 고르신 ${r.n}번 기준</div>`
     : `<div style="font-size:13px;font-weight:700;color:var(--ink)">과제 성실도</div>
        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">과제를 고르신 날이 아직 없어요.</div>`;
-  const boxes = LRN_KEYS.map(k=>{
-    const b=LSN_BOXES.find(x=>x.k===k); if(!b) return '';
-    const mine=ls.filter(l=>lsnBoxVal(l,k));
+  const boxes = lrnBlocks().map(b=>{
+    const mine=ls.filter(l=>lsnBoxVal(l,b.k));
     const rows=mine.map(l=>`<div style="display:flex;gap:7px;padding:2px 0;font-size:12.5px;line-height:1.5">
         <span style="color:var(--muted);white-space:nowrap;font-weight:600">${fmtMD(dayKey(l.date.getTime()))}</span>
-        <span style="color:var(--ink);white-space:pre-line;word-break:break-word">${lsnEsc(lsnBoxVal(l,k))}</span></div>`).join('');
+        <span style="color:var(--ink);white-space:pre-line;word-break:break-word">${lsnEsc(lsnBoxVal(l,b.k))}</span></div>`).join('');
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:7px;background:var(--card)">
         <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:3px">${b.n}${mine.length?` <span style="color:var(--muted);font-weight:600">${mine.length}건</span>`:''}</div>
         ${rows||'<div style="font-size:12.5px;color:var(--muted)">적어 두신 것이 없어요.</div>'}</div>`;
@@ -2959,7 +2967,9 @@ function renderSettle(){
     const oldWay = oldBillIds.has(b.id)
       ? `<div class="mg-line" style="color:var(--clay);font-weight:600">⚠ 아직 선불 기준으로 안 옮긴 정산 건이에요 — 위 <b>설정 &gt; 데이터 점검</b>에서 옮기면 학생 카드와 날짜가 같아집니다</div>`
       : '';
-    const head=`<div class="row-top"><span class="name">${nm}</span><span class="amt">${won(billAmount(b))}</span></div>
+    /* ★ 2026-09-02av 원장님 지시 — 정산탭에서 이름을 누르면 학생 페이지가 열린다.
+       들어가는 문은 출석부와 같은 stuNameBtn(→goStudent) 하나뿐이다. */
+    const head=`<div class="row-top"><span class="name">${s?stuNameBtn(s.id,nm):nm}</span><span class="amt">${won(billAmount(b))}</span></div>
       <div class="mg-line">📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
       ${oldWay}${tgBtn}${tgCal}`;
     if(!b.paid){
@@ -2996,7 +3006,7 @@ function renderSettle(){
     const dTxt = p.days==null ? '' : (p.days===0 ? '<b style="color:var(--clay)">오늘 마지막</b>'
       : p.days>0 ? `<b style="color:${hi?'var(--clay)':'var(--ink)'}">${p.days}일 남음</b>` : '');
     return `<div class="row"${hi?' style="border:1.4px solid var(--amber)"':''}>
-      <div class="row-top"><span class="name">${s.name}</span><span class="contract">${doneCountOf(s)}/${s.plan}회</span></div>
+      <div class="row-top"><span class="name">${stuNameBtn(s.id,s.name)}</span><span class="contract">${doneCountOf(s)}/${s.plan}회</span></div>
       <div class="mg-line">🗓 마지막 수업 <b>${endTxt}</b>${dTxt?' · '+dTxt:''} · ${won(priceOf(s))}</div>
       ${hi?`<div class="row-btns" style="margin-top:8px"><button class="btn pay small" onclick="openSettleMsg(${s.id})">미리 납입 안내</button></div>`:''}
     </div>`;

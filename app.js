@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-03aw-pastdesc */
+/* ONSTUDY-BUILD: 2026-09-07ay-doneword-1line */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1058,6 +1058,33 @@ function progBar(s){
     </div></div>`;
 }
 function setPackView(id,i){packView[id]=i;renderToday();}
+/* ★ 2026-09-07ax 원장님 지시 — "출석체크탭에서 수업예정시간 위치를 이름과 같은 줄 회차 오른쪽으로 옮기고,
+   현재 수업예정시간 써 있는 위치에는 [학생]-[학습]-[안내사항]에 적히는 내용 보여줘."
+
+   ▸ attnStatus — 상태 글(예정 · 보강 · 수업 중 · 완료 · 결석 · 미확정)을 이름 줄에 놓는 유일한 곳.
+     오늘 카드와 지난·앞날 카드가 같은 함수를 쓴다. 글자 크기·굵기를 여기서만 정한다
+     (시각 고치는 단추 tBtn 은 font:inherit 이라 이 span 의 크기를 따라온다).
+   ▸ attnInfoLine — 그 아래 줄에 들어갈 안내사항을 만드는 유일한 곳.
+     값은 학습 기록의 info 키 하나에서만 온다 — 학습 시트 「안내사항」 칸,
+     [학습도] 판의 안내사항과 같은 값이다(LRN_INFO.k). 새 저장 키를 만들지 않았다.
+     안 적으신 날은 줄 자체가 없다 — 빈 값을 대신할 글자를 넣지 않는다(절대규칙 9).
+     부모님께 그대로 나갈 수 있는 화면이라 안에서만 쓰는 말은 넣지 않는다(절대규칙 17). */
+/* ★ 2026-09-07ay 원장님 지시 — "[하원완료] 를 [완료] 로 바꾸고"
+   출석부 카드에서 하원까지 끝난 상태를 적는 글자는 여기 한 곳에서만 정한다.
+   오늘 카드·지난날 카드가 같은 글자를 쓴다(전에는 「하원 완료」·「수업 완료」로 갈려 있었다).
+   ※ 전체 일정 탭의 「하원 완료」는 이번 지시(출석체크탭) 밖이라 그대로 두었다. */
+const ATTN_DONE='완료';
+function attnStatus(txt,color){
+  return txt ? `<span style="font-size:13px;font-weight:500;color:${color}">${txt}</span>` : '';
+}
+/* ★ 2026-09-07ay 원장님 지시 — "한 줄에서 말줄임표 써 주시오"
+   긴 안내사항이 카드를 세 줄로 늘리지 않게 한 줄로 자르고 … 를 붙인다.
+   자르는 것은 화면뿐이고 적어 두신 글은 그대로다 — 전문은 [학습] 시트와 [학습도] 판에서 본다.
+   (사무실은 마우스를 올리면 title 로 전문이 뜬다.) */
+function attnInfoLine(sid,ms){
+  const ls=lessonOn(sid,ms), tx=(ls&&ls[LRN_INFO.k])||'';
+  return tx ? `<div class="plan" title="${lsnAttr(tx)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lsnEsc(tx)}</div>` : '';
+}
 function renderToday(){
   const el=document.getElementById('v-today');
   const aMs=attnBaseMs(); const aDate=new Date(aMs); const dowA=aDate.getDay();
@@ -1087,7 +1114,7 @@ function renderToday(){
       let stx, sc, btns='';
       if(abs){ stx='결석'; sc='var(--clay)';
         btns=`<button class="btn ghost small" onclick="clearAbsentFrom(${s.id},${aMs})">결석 취소</button>`; }
-      else if(done){ stx = done.start ? `하원 완료 · ${rng12(hm(done.start),hm(done.end))}` : '수업 완료'; sc='var(--green)';
+      else if(done){ stx = done.start ? `${ATTN_DONE} · ${rng12(hm(done.start),hm(done.end))}` : ATTN_DONE; sc='var(--green)';
         btns=`<button class="btn ghost small" onclick="undoOn(${s.id},${aMs})">완료 취소</button>`; }
       else if(isPast){ stx = `미확정 · 예정 ${hm12(timeFor(s,dowA))}`; sc='var(--amber)';
         btns=`<button class="btn start small" onclick="openSendConfirm(${s.id},'both',${aMs})">수업함 확정</button>
@@ -1101,9 +1128,9 @@ function renderToday(){
         inlineBtn=`<button class="btn absentbtn small" style="width:auto;flex:none;padding:7px 16px;margin:0" onclick="markAbsentOn(${s.id},${aMs})">결석</button>`; }   // ★ 미래 날짜 사전 결석 — 한 줄 표기 (회차·종료일·전체 일정 자동 반영)
       return `<div class="card" style="${abs?'border:1.6px solid var(--clay)':(!done&&isPast?'border:1.6px solid var(--amber)':'')}">
         <div class="card-top" style="align-items:center">
-          <div class="who" style="${inlineBtn?'display:flex;align-items:baseline;gap:9px;min-width:0':''}">
-            <div class="name" style="${inlineBtn?'white-space:nowrap':''}">${stuNameBtn(s.id, s.name)}${cycBadge(s)}</div>
-            <div class="plan" style="color:${sc};${inlineBtn?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis':''}">${stx}</div>
+          <div class="who" style="min-width:0;flex:1">
+            <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${attnStatus(stx,sc)}</div>
+            ${attnInfoLine(s.id, aMs)}
           </div>${inlineBtn}
         </div>
         ${btns?`<div class="row-btns" style="margin-top:8px">${btns}</div>`:''}
@@ -1119,7 +1146,7 @@ function renderToday(){
     // 헤더 상태 텍스트/색
     let statusText, statusColor;
     const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
-    if(done){ statusText = done.start ? `하원 완료 · ${tBtn(rng12(hm(done.start),hm(done.end)))}` : `하원 완료 · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
+    if(done){ statusText = done.start ? `${ATTN_DONE} · ${tBtn(rng12(hm(done.start),hm(done.end)))}` : `${ATTN_DONE} · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
     else if(isLive){ const outT=endTimeOf(hm(live[s.id]), todayDurOf(s,aMs));   // 뒤 시각 = 하원 예정(등원+수업시간)
       statusText = `수업 중 · ${tBtn(rng12(hm(live[s.id]),outT))}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
@@ -1194,9 +1221,9 @@ function renderToday(){
 
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
-        <div class="who">
-          <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}</div>
-          <div class="plan" style="color:${statusColor}">${statusText}</div>
+        <div class="who" style="min-width:0;flex:1">
+          <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}${attnStatus(statusText,statusColor)}</div>
+          ${attnInfoLine(s.id, aMs)}
         </div>
         ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
         ${toggleBtn}

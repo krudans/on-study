@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-07ba-mkcolor */
+/* ONSTUDY-BUILD: 2026-09-07bb-iconbtn */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1230,7 +1230,11 @@ function renderToday(){
       : isLive ? 'border:1.6px solid var(--amber);box-shadow:0 2px 8px rgba(30,25,15,.07)'
       : (!isAbsent) ? 'border:1.6px solid var(--ink);box-shadow:0 2px 8px rgba(30,25,15,.07)'
       : '';
-    const toggleBtn=`<button onclick="toggleCardExpand(${s.id})" style="background:#F1EFE8;border:none;border-radius:20px;padding:5px 12px;font-size:12px;color:#5F5E5A;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600">${expanded?'접기 ▲':'자세히 ▾'}</button>`;
+    /* ★ 2026-09-07bb 원장님 지시 — "[빼기]텍스트는 지우고 X만 남기고, [자세히]버튼도 ▼만 남기면 되지 않나?"
+       이름 줄이 좁아 상태 글이 접히던 것을 단추 폭으로 푼다. 하는 일은 그대로다.
+       글자를 지우는 대신 `title`·`aria-label` 로 이름을 남겨 무엇인지 알 수 있게 한다
+       (화살표 방향이 지금 펴져 있는지 접혀 있는지를 그대로 알려 준다). */
+    const toggleBtn=`<button onclick="toggleCardExpand(${s.id})" title="${expanded?'접기':'자세히'}" aria-label="${expanded?'접기':'자세히'}" aria-expanded="${expanded?'true':'false'}" style="background:#F1EFE8;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#5F5E5A;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600">${expanded?'▲':'▾'}</button>`;
 
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
@@ -1238,7 +1242,7 @@ function renderToday(){
           <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${attnStatus(statusText,statusColor)}</div>
           ${attnInfoLine(s.id, aMs)}
         </div>
-        ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}
+        ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" aria-label="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 10px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕</button>`:''}
         ${toggleBtn}
       </div>
       ${detail}

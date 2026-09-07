@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-07ay-doneword-1line */
+/* ONSTUDY-BUILD: 2026-09-07ba-mkcolor */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1061,7 +1061,7 @@ function setPackView(id,i){packView[id]=i;renderToday();}
 /* ★ 2026-09-07ax 원장님 지시 — "출석체크탭에서 수업예정시간 위치를 이름과 같은 줄 회차 오른쪽으로 옮기고,
    현재 수업예정시간 써 있는 위치에는 [학생]-[학습]-[안내사항]에 적히는 내용 보여줘."
 
-   ▸ attnStatus — 상태 글(예정 · 보강 · 수업 중 · 완료 · 결석 · 미확정)을 이름 줄에 놓는 유일한 곳.
+   ▸ attnStatus — 상태 글(예정 · 보강 · 수업 · 완료 · 결석 · 미확정)을 이름 줄에 놓는 유일한 곳.
      오늘 카드와 지난·앞날 카드가 같은 함수를 쓴다. 글자 크기·굵기를 여기서만 정한다
      (시각 고치는 단추 tBtn 은 font:inherit 이라 이 span 의 크기를 따라온다).
    ▸ attnInfoLine — 그 아래 줄에 들어갈 안내사항을 만드는 유일한 곳.
@@ -1074,6 +1074,19 @@ function setPackView(id,i){packView[id]=i;renderToday();}
    오늘 카드·지난날 카드가 같은 글자를 쓴다(전에는 「하원 완료」·「수업 완료」로 갈려 있었다).
    ※ 전체 일정 탭의 「하원 완료」는 이번 지시(출석체크탭) 밖이라 그대로 두었다. */
 const ATTN_DONE='완료';
+/* ★ 2026-09-07az 원장님 지시 — "줄여줘"
+   등원했고 아직 하원 안 한 상태의 글자. 「수업 중 · 오후 5:02~6:02」은 390px 이름 줄에서 접혔다.
+   출석부 카드의 이 글자를 적는 곳은 여기 한 곳뿐이다.
+   ※ 머리글 「● n명 수업 중」·정산탭 「📚 수업 중」·전체 일정 탭은 출석체크탭이 아니라 그대로 두었다. */
+const ATTN_LIVE='수업';
+/* ★ 2026-09-07ba 원장님 지시 — "빼고 보강의 경우 수업시간 텍스트 색을 보라색으로 바꿔줘"
+   이름 옆 보라 [보강] 알약을 없애고, 그 대신 상태 글(「보강 오후 5:30~6:30」)을 보라로 적는다.
+   보강임을 알리던 곳이 알약·글자 둘이던 것이 글자 하나로 줄었다.
+   ⚠ 등원·하원·결석 처리된 보강 카드는 상태 글이 그 상태 색(주황·초록·붉은색)으로 바뀌므로
+     보라가 아니다. 그 카드에서 보강임은 카드 머리의 [✕ 빼기] 단추와
+     탭 아래 「오늘 보강」 목록으로 그대로 보인다.
+   보라색을 적는 곳은 여기 한 곳뿐이다(달력·전체 일정 탭은 출석체크탭이 아니라 그대로 두었다). */
+const ATTN_MK='#6B4FBB';
 function attnStatus(txt,color){
   return txt ? `<span style="font-size:13px;font-weight:500;color:${color}">${txt}</span>` : '';
 }
@@ -1148,12 +1161,12 @@ function renderToday(){
     const tBtn=(txt)=>`<button onclick="event.stopPropagation();openTimeEdit(${s.id})" title="시간 수정" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;border-bottom:1px dashed currentColor">${txt}</button>`;
     if(done){ statusText = done.start ? `${ATTN_DONE} · ${tBtn(rng12(hm(done.start),hm(done.end)))}` : `${ATTN_DONE} · ${tBtn('시간 입력')}`; statusColor='var(--green)'; }
     else if(isLive){ const outT=endTimeOf(hm(live[s.id]), todayDurOf(s,aMs));   // 뒤 시각 = 하원 예정(등원+수업시간)
-      statusText = `수업 중 · ${tBtn(rng12(hm(live[s.id]),outT))}`; statusColor='var(--amber)'; }
+      statusText = `${ATTN_LIVE} · ${tBtn(rng12(hm(live[s.id]),outT))}`; statusColor='var(--amber)'; }
     else if(isAbsent){ statusText = '결석 처리됨'; statusColor='var(--clay)'; }
     else { const tt=todayTimeOf(s,aMs);           // 임시 추가 > 보강 > 요일표 (그룹 헤더와 동일)
       const dd=todayDurOf(s,aMs);
       const rng=tt?rng12(tt, endTimeOf(tt,dd)):'';
-      statusText = `${isMk?'보강 '+rng:'예정 '+rng}`; statusColor='var(--muted)'; }
+      statusText = `${isMk?'보강 '+rng:'예정 '+rng}`; statusColor = isMk ? ATTN_MK : 'var(--muted)'; }
 
     /* ★ 2026-07-28p ★ 원장님 지시 — "여기다 넣어주세요"
        오늘 학습내용 단추를 카드 위쪽(자세히 펼침 속)에서 [수정] 오른쪽 네 번째 자리로 옮겼다.
@@ -1222,7 +1235,7 @@ function renderToday(){
     return `<div class="card" style="${cardStyle}">
       <div class="card-top">
         <div class="who" style="min-width:0;flex:1">
-          <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${isMk?' <span style="font-size:11px;font-weight:700;color:#fff;background:#6B4FBB;border-radius:6px;padding:2px 7px;vertical-align:middle">보강</span>':''}${attnStatus(statusText,statusColor)}</div>
+          <div class="name">${stuNameBtn(s.id, s.name)}${cycBadge(s)}${attnStatus(statusText,statusColor)}</div>
           ${attnInfoLine(s.id, aMs)}
         </div>
         ${(isMk&&isToday)?`<button onclick="askRemoveMakeup(${s.id},${aMs})" title="보강 빼기" style="background:#FBEAEA;border:none;border-radius:20px;padding:5px 11px;font-size:12px;color:#A32D2D;cursor:pointer;font-family:inherit;white-space:nowrap;font-weight:600;margin-right:6px">✕ 빼기</button>`:''}

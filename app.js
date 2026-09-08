@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-07bb-iconbtn */
+/* ONSTUDY-BUILD: 2026-09-08bc-prevclass-info */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -1093,10 +1093,30 @@ function attnStatus(txt,color){
 /* ★ 2026-09-07ay 원장님 지시 — "한 줄에서 말줄임표 써 주시오"
    긴 안내사항이 카드를 세 줄로 늘리지 않게 한 줄로 자르고 … 를 붙인다.
    자르는 것은 화면뿐이고 적어 두신 글은 그대로다 — 전문은 [학습] 시트와 [학습도] 판에서 본다.
-   (사무실은 마우스를 올리면 title 로 전문이 뜬다.) */
+   (사무실은 마우스를 올리면 title 로 전문이 뜬다.)
+
+   ★ 2026-09-08bc 원장님 지시 — "오늘 쓴 안내사항은 오늘자가 아니라 다음 수업때 보여져야 해.
+      월,수,금 수업인 경우 월요일에 안내사항을 기록하면 수요일 출석체크란에 보여져야 해"
+   그래서 카드에 보이는 안내사항은 **그 날 것이 아니라 바로 앞 수업일에 적으신 것**이다.
+   · 어느 날을 볼지 정하는 곳은 prevClassDay 한 곳뿐이다.
+   · 바로 앞 수업일 하나만 본다. 그 날 안 적으셨으면 아무것도 안 보인다
+     (더 옛날 것까지 거슬러 올라가 끌어오지 않는다 — 지난 안내가 계속 남아 있으면 안 된다).
+   · 저장 방식은 그대로다 — 적은 날짜에 그대로 저장되고, 화면에서 읽는 날만 옮겼다.
+   · title 에 며칠에 적으신 것인지 함께 적어 둔다. */
+function prevClassDay(s, ms){
+  if(!s) return null;
+  const base=dayKey(ms);
+  for(let i=1;i<=400;i++){
+    const d=new Date(base); d.setDate(d.getDate()-i); const k=dayKey(d.getTime());
+    if(beforeStart(s,k)) return null;      // 첫 수업일 이전으로는 가지 않는다
+    if(isClassDay(s,k)) return k;          // 보강 포함 · 휴일·휴강 제외
+  }
+  return null;
+}
 function attnInfoLine(sid,ms){
-  const ls=lessonOn(sid,ms), tx=(ls&&ls[LRN_INFO.k])||'';
-  return tx ? `<div class="plan" title="${lsnAttr(tx)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lsnEsc(tx)}</div>` : '';
+  const pk=prevClassDay(st(sid), ms);
+  const ls=(pk!=null)?lessonOn(sid,pk):null, tx=(ls&&ls[LRN_INFO.k])||'';
+  return tx ? `<div class="plan" title="${lsnAttr(fmtMD(pk)+' 안내사항 — '+tx)}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lsnEsc(tx)}</div>` : '';
 }
 function renderToday(){
   const el=document.getElementById('v-today');

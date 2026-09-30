@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-10-01bd-holiday-fade */
+/* ONSTUDY-BUILD: 2026-10-01be-holname-css */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -226,6 +226,14 @@ function guardiansOf(s){
       .cal-legend i.tod{background:transparent;box-shadow:inset 0 0 0 2px #E03131}
       .sc-cell.today{outline:2px solid #E03131;outline-offset:-2px}
       .sc-wheel::-webkit-scrollbar{display:none}
+      /* ★ 2026-10-01be 휴일명 — 폰에 옛 styles.css 가 남아 있으면 이 규칙이 없어서
+         칸 글자(13px·휴일 옅은 회색)를 그대로 물려받아 크게 보였다. 여기서도 반드시 넣는다. */
+      .sc-holname{font-size:9px;line-height:1.15;color:var(--clay,#C5543E);max-width:98%;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-weight:400}
+      .sc-holname.long{font-size:8px;letter-spacing:-.4px}
+      .sc-cell.sel .sc-holname{color:#fff}
+      .sc-n{font-size:10px;font-weight:700;color:var(--amber,#E1892A);margin-top:1px}
+      .sc-cell.sel .sc-n{color:#fff}
     `;
     (document.head||document.documentElement).appendChild(st);
   }catch(e){}

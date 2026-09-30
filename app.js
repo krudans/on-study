@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-09-08bc-prevclass-info */
+/* ONSTUDY-BUILD: 2026-10-01bd-holiday-fade */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -464,6 +464,12 @@ const FIXED_HOLIDAYS={'1-1':'신정','3-1':'삼일절','5-5':'어린이날','6-6
 function fixedHolidayName(ms){ const d=new Date(ms); return FIXED_HOLIDAYS[(d.getMonth()+1)+'-'+d.getDate()]||null; }
 function isDefaultHoliday(k){ const d=new Date(k); const dow=d.getDay(); return dow===0||dow===6||!!fixedHolidayName(k); }
 function isHoliday(ms){ const k=dayKey(ms); if(workdaysExtra[k]) return false; if(holidaysExtra[k]) return true; return isDefaultHoliday(k); }
+/* ★ 2026-10-01bd 원장님 지시 — "달력에서 휴일로 정한 날은 옅은색으로"
+   휴일 날짜 글자를 옅게 만드는 곳은 여기 한 곳뿐이다(단일 소스). 모든 달력이 이것만 부른다.
+   휴일인지는 isHoliday 하나로만 가린다(토·일·공휴일 기본 휴일 + 직접 지정 휴일, 수업일로 바꾼 날은 제외).
+   ⚠ 그 날 수업·보강·결석 같은 표시가 있으면 그 표시가 이긴다 — 부르는 쪽에서 표시가 없을 때만 부른다. */
+const HOL_FADE='#C4C0B7';
+function holFade(ms){ return isHoliday(ms) ? `color:${HOL_FADE};font-weight:400;` : ''; }
 function toggleHoliday(ms){
   const k=dayKey(ms);
   if(isHoliday(k)){ delete holidaysExtra[k]; if(isDefaultHoliday(k)) workdaysExtra[k]=true; }
@@ -1346,6 +1352,7 @@ function monthGrid(sid, y, m, sets, opts){
     else if(sets.absent.has(t)) c+=' absent';
     /* ★ 2026-07-27i: 오늘은 [등원]을 눌러야 초록(완료)이 된다 — 출석부 숫자와 달력 초록칸이 항상 같도록 */
     else if(sets.session.has(t)) c+=((t<todayT || (t===todayT && hasRecordOn(sid,t))) ? ' att' : ' up');
+    else style+=holFade(t);          // ★ bd 아무 표시 없는 휴일만 옅게
     if(t===todayT) c+=' tod';       // 오늘은 어떤 상태든 빨간 테두리
     const clickable = !o.readonly && document.body.dataset.mode==='admin' && t>=todayT;
     if(clickable) style+='cursor:pointer;';
@@ -1500,8 +1507,10 @@ function lsnDrawCal(){
     const t=dayKey(new Date(y,m,dd).getTime());
     /* 아직 오지 않은 날은 적어 둘 것이 없으니 고를 수 없다 */
     const off = t>todayT;
-    const c='cal-d lsd-d'+(lessonOn(sid,t)?' has':'')+(t===sel?' sel':'')+(t===todayT?' tod':'')+(off?' off':'');
-    g+=`<div class="${c}" ${off?'':`onclick="lsnPickDate(${t})"`}>${dd}</div>`;
+    const has=!!lessonOn(sid,t);
+    const c='cal-d lsd-d'+(has?' has':'')+(t===sel?' sel':'')+(t===todayT?' tod':'')+(off?' off':'');
+    const fd=has?'':holFade(t);                      // ★ bd 적어 둔 날이 아니면 휴일은 옅게
+    g+=`<div class="${c}"${fd?` style="${fd}"`:''} ${off?'':`onclick="lsnPickDate(${t})"`}>${dd}</div>`;
   }
   /* 다음 달에 오늘까지의 날이 하나도 없으면 앞으로 넘기지 않는다 */
   const canNext = new Date(y,m+1,1).getTime() <= todayT;
@@ -3942,6 +3951,7 @@ function rpRender(){
     if(t===_rp.start) style+='background:var(--amber);color:#fff;font-weight:700;';
     else if(autoEnd && t===autoEnd) style+='box-shadow:inset 0 0 0 2px var(--amber);font-weight:700;';
     else if(isClass) style+='box-shadow:inset 0 0 0 1.5px #C9E4D3;';
+    else if(!(_rp.start && autoEnd && t>_rp.start && t<autoEnd)) style+=holFade(t);   // ★ bd 표시 없는 휴일만 옅게
     if(t===todayK) style+='outline:2px solid #E03131;outline-offset:-2px;';
     grid+=`<div class="cal-d" style="${style}" onclick="rpPick(${t})">${dd}</div>`;
   }
@@ -4601,7 +4611,9 @@ function renderSchedule(){
     const n=studentsOnDate(ms).length;
     const nm=holidayNameOf(ms);                    // 휴일명 — 만드는 곳은 holidayNameOf 하나뿐
     const cls=[ms===todayMs?'today':'', ms===schedSel?'sel':'', n?'has':''].join(' ');
-    cells+=`<div class="sc-cell ${cls}"${pos?` style="${pos}"`:''} onclick="pickSchedDay(${ms})">
+    const fade=(!n && ms!==schedSel) ? holFade(ms) : '';   // ★ bd 수업 없는 휴일만 옅게(고른 날은 흰 글씨 그대로)
+    const cst=pos+(pos&&fade?';':'')+fade;
+    cells+=`<div class="sc-cell ${cls}"${cst?` style="${cst}"`:''} onclick="pickSchedDay(${ms})">
       <span class="sc-d">${dd}</span>${n?`<span class="sc-n">${n}</span>`:''}${
         nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}</div>`;
   }
@@ -4785,9 +4797,9 @@ function renderClassMgmt(){
     const pos = dd===1 && first ? `grid-column-start:${first+1};` : '';
     const hol=isHoliday(k), wk=!!workdaysExtra[k];
     const nm=holidayNameOf(k);                       // 직접 적은 이름 우선, 없으면 공휴일 이름
-    const bg = hol ? 'background:#F6E3DE;' : (wk?'background:#E7F1EA;':'');
+    const bg = wk?'background:#E7F1EA;':'';        // ★ bd 휴일은 분홍 칸 대신 옅은 글자(holFade)
     cells+=`<div class="sc-cell${k===todayK?' today':''}" style="${pos}cursor:pointer;${bg}" onclick="clickHoliday(${ms})">
-      <span class="sc-d" style="${hol?'color:var(--clay);font-weight:700':(wk?'color:var(--green);font-weight:700':'')}">${dd}</span>
+      <span class="sc-d" style="${hol?holFade(k):(wk?'color:var(--green);font-weight:700':'')}">${dd}</span>
       ${nm?`<span class="sc-holname${nm.length>=5?' long':''}" title="${lsnAttr(nm)}">${lsnAttr(nm)}</span>`:''}
       ${wk?`<span style="font-size:9px;line-height:1;color:var(--green)">수업</span>`:''}</div>`;
   }
@@ -4808,7 +4820,7 @@ function renderClassMgmt(){
       <div class="sc-grid">${dows}${cells}</div>
     </div>
     <div class="cal-legend" style="margin-top:12px">
-      <span><i class="lg" style="background:#F6E3DE"></i>휴일</span>
+      <span><b style="color:${HOL_FADE};font-weight:400;font-size:12px">15</b>휴일(옅은 글자)</span>
       <span><i class="lg" style="background:#E7F1EA"></i>수업일 지정(공휴일 해제)</span>
       <span><i class="lg tod"></i>오늘</span></div>
     <div class="cal-foot" style="margin-top:14px">

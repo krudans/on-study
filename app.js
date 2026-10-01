@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-10-01be-holname-css */
+/* ONSTUDY-BUILD: 2026-10-01bf-hero-label */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -949,9 +949,10 @@ function renderHome(){
         <div class="center"><div class="n">${doneN}</div><div class="l">/ ${total} ${ringLabel}</div></div>
       </div>
       <div class="hero-stats">
-        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 총 수업</span><span class="v">${roster.length}명</span></div>
-        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
-        <div class="hstat"><span class="k">${isToday?'오늘':'그날'} 결석</span><span class="v ${absentN?'warn':''}">${absentN}명</span></div>
+        <!-- ★ 2026-10-01bf 원장님 지시 — 작은 폰에서 두 줄로 접혀서 「오늘」·「그날」 머리말을 뺐다 -->
+        <div class="hstat"><span class="k">총 수업</span><span class="v">${roster.length}명</span></div>
+        <div class="hstat"><span class="k">남은 수업</span><span class="v">${remain}명${liveN?` · <span class="live">${liveN} 진행</span>`:''}</span></div>
+        <div class="hstat"><span class="k">결석</span><span class="v ${absentN?'warn':''}">${absentN}명</span></div>
       </div>
     </div>
     <div class="actions">

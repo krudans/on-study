@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-07bi-leave-bill-hide */
+/* ONSTUDY-BUILD: 2026-11-07bj-cal-head-all */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -3051,11 +3051,10 @@ function renderSettle(){
     const tgOpen = tg ? histCalOpen.has(tg.key) : false;
     /* ★ 2026-11-07bh 「이번 클래스 … (예상 종료) · n회」 글자는 여기 한 곳에서 만든다 — 카드 머리와 종료클래스 달력 머리가 같이 쓴다 */
     const clsLine=`📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회`;
-    /* ★ 2026-11-07bh 원장님 지시 — [종료클래스 달력보기] 달력 박스 안 위쪽에 학생 이름 + 이번 클래스 줄, 아래 안내 문구는 뺀다 */
-    const tgEnd = !!(tg && tg.label==='종료클래스');
+    /* ★ 2026-11-07bh·bj 원장님 지시 — 정산 카드에서 여는 달력([지난클래스]·[종료클래스] 둘 다) 박스 안 위쪽에 학생 이름 + 이번 클래스 줄 */
     const tgCal = (s && tg && tgOpen)
       ? histCalendar(s, tg.h, histClassOf(s, tg.h).sessions,
-          tgEnd ? {head:`<b style="font-size:14px">${lsnEsc(nm)}</b><span>${clsLine}</span>`} : null) : '';
+          {head:`<b style="font-size:14px">${lsnEsc(nm)}</b><span>${clsLine}</span>`}) : '';
     const tgBtn = tg
       ? `<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px"
            onclick="toggleHistCal('${tg.key}')">${tgOpen?tg.label+' 달력 닫기 ▲':tg.label+' 달력보기 ▾'}</button></div>`

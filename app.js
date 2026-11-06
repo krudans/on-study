@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-07bj-cal-head-all */
+/* ONSTUDY-BUILD: 2026-11-07bk-kakao-open */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2141,13 +2141,37 @@ function _openExternal(url){
     document.body.appendChild(a); a.click(); setTimeout(()=>{ try{a.remove();}catch(e){} }, 1500); }
   catch(e){ try{ location.href=url; }catch(_){ } }
 }
+/* ★ 2026-11-07bk 카톡 앱 열기 — 여는 곳은 여기 한 곳뿐(openMsgTo 만 부른다).
+     예전엔 400ms 뒤에 kakaotalk:// 를 열었다 → 폰 브라우저가 '누른 순간이 지난' 외부 앱 열기를 막고,
+     안드로이드 크롬은 kakaotalk:// 를 앱으로 넘기지 못했다.
+     · 안드로이드 : intent 주소(카카오톡 패키지 실행)  · 그 밖(아이폰 등) : kakaotalk://
+     · 누른 흐름 안에서 바로 연다(지연 없음). */
+function _openKakao(){
+  const android=/android/i.test(navigator.userAgent);
+  const url = android
+    ? 'intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=com.kakao.talk;end'
+    : 'kakaotalk://';
+  try{ location.href=url; }catch(e){ _openExternal(url); }
+}
+/* ★ 2026-11-07bk 글 복사 — 클립보드 API 가 안 되면 글칸+execCommand 로 한 번 더. 결과는 화면 안내에만 쓴다 */
+function _copyText(text){
+  let done=false;
+  try{
+    const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly','');
+    ta.style.cssText='position:fixed;top:0;left:0;opacity:0;font-size:16px';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    done=document.execCommand('copy'); ta.remove();
+  }catch(e){}
+  try{ if(navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{}); }catch(e){}
+  return done || !!navigator.clipboard;
+}
 function openMsgTo(i){
   const g=_notifyCtx.gs[i], text=_notifyCtx.text;
   const digits=(g.phone||'').replace(/[^0-9]/g,'');
   if(g.kakao){
-    if(navigator.clipboard) navigator.clipboard.writeText(text).catch(()=>{});
-    showToast(`${g.name} 카톡: 메시지를 복사했어요 · 카톡에서 붙여넣기 하세요`);
-    setTimeout(()=>{ _openExternal('kakaotalk://'); }, 400);
+    const ok=_copyText(text);
+    showToast(ok ? `${g.name} 카톡: 메시지를 복사했어요 · 카톡에서 붙여넣기 하세요` : `${g.name} 카톡: 복사가 안 됐어요 · 카톡에서 직접 적어 주세요`);
+    _openKakao();   // ★ bk 지연 없이 바로
   } else {
     if(!digits){ showToast(`${g.name} 연락처가 없어 문자를 열 수 없어요`); return; }
     const sep = /iphone|ipad|ipod|mac/i.test(navigator.userAgent) ? '&' : '?';

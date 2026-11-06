@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-10-01bf-hero-label */
+/* ONSTUDY-BUILD: 2026-11-07bi-leave-bill-hide */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -587,6 +587,13 @@ function histClassOf(s, h){
   return {start, end:en, sessions:(Array.isArray(h.sessions)?h.sessions.slice():[]), confirmed:false};
 }
 /* ★ 정산 건 한 건의 기간·회차 날짜 — 지난 클래스와 똑같은 규칙 */
+/* ★ 2026-11-07bh 원장님 지시 — 퇴원한(예정 포함) 학생의 정산 건 중, 그 클래스가 **퇴원일 다음 날 이후에 시작**하는 건.
+     다니지 않을 클래스라 홈 [챙길 일]에 올리지 않는다. 판정은 여기 한 곳뿐(isLeftOn 과 같은 기준).
+     숨기기만 한다 — 정산 건은 지우지 않는다(절대규칙 20). */
+function billAfterLeave(b){
+  const s=b?st(b.sid):null; if(!s || !hasLeaveSet(s)) return false;
+  const k=billClassOf(b).start; return k!=null && isLeftOn(s, k);
+}
 function billClassOf(b){
   const empty={start:null, end:null, sessions:[], confirmed:false};
   if(!b) return empty;
@@ -920,7 +927,7 @@ function renderHome(){
   const todayRemain=Math.max(0, tTotal-tDone-Object.keys(live).length);
   const monthDone=students.reduce((a,x)=>a+monthCount(x.id),0);
   const needList=students.filter(needSettle);
-  const unpaidBills=bills.filter(b=>!b.paid);
+  const unpaidBills=bills.filter(b=>!b.paid && !billAfterLeave(b));   // ★ 2026-11-07bh 퇴원 뒤에 시작하는 클래스 정산 건은 챙길 일에서 뺀다
   const openList=Object.keys(live).map(id=>st(+id));
 
   const pct=total?doneN/total:0, C=2*Math.PI*42, off=C*(1-pct);
@@ -2771,7 +2778,8 @@ function toggleHistCal(key){ if(histCalOpen.has(key))histCalOpen.delete(key); el
 function redrawSettleIfOpen(){ const sv=document.getElementById('v-settle');
   if(sv && sv.classList.contains('active')) renderSettle(); }
 /* 지난 클래스 달력 — 그 기간이 걸친 달을 모두 표시, 그 회차 날짜를 출석으로 색칠 */
-function histCalendar(s, h, list){
+function histCalendar(s, h, list, opt){
+  opt=opt||{};   // ★ 2026-11-07bh {head:달력 위 머리 줄 HTML} — 종료클래스 달력이 쓴다
   const c_=histClassOf(s,h);                                                   // ★ 카드 기간과 반드시 같은 계산기를 쓴다
   const st_=c_.start||(list&&list[0]), en=c_.end||(list&&list[list.length-1]);
   const inRange=(k)=>st_!=null && en!=null && k>=st_ && k<=en;
@@ -2780,10 +2788,10 @@ function histCalendar(s, h, list){
     skip:new Set((skipLog[s.id]||[]).map(dayKey).filter(inRange)) };
   const ms=monthsBetween(st_, en);
   const grids=ms.map(x=>monthGrid(s.id, x.y, x.m, sets, {readonly:true})).join('<div style="height:10px"></div>');
-  return `<div class="cal" style="margin-top:8px">${grids}
+  return `<div class="cal" style="margin-top:8px">${opt.head?`<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:13px;color:var(--ink);padding:2px 2px 10px;border-bottom:1px solid var(--line);margin-bottom:10px">${opt.head}</div>`:''}${grids}
     <div class="cal-legend"><span><i class="lg att"></i>수업</span><span><i class="lg" style="background:#EAE3F7"></i>보강</span>
       <span><i class="lg ab"></i>결석</span></div>
-    <div style="font-size:11.5px;color:var(--muted);margin-top:4px">${(h&&h.no!=null)?`이 달력은 ${h.no}차 기간만 표시해요. 이번 회차 일정은 카드 아래 [달력 보기]에 있어요.`:'이 달력은 그 클래스 기간만 표시해요.'}</div></div>`;
+    </div>`;   /* ★ 2026-11-07bi 원장님 지시 — 달력 아래 안내 문구는 모든 달력에서 뺐다 */
 }
 /* ★ 2026-08-15 회차별 날짜 목록 — 지난 클래스 카드·정산 카드·확정 시트가 같은 것을 쓴다.
    예전엔 같은 목록을 세 곳에서 따로 그려서 글자 크기·문구가 서로 달랐다. */
@@ -3015,7 +3023,8 @@ function renderSettle(){
   const isThisMonth = (vY===now.getFullYear() && vM===now.getMonth());
   const mL=(vM+1)+'월';
 
-  const unpaid = bills.filter(b=>!b.paid).sort((a,b)=>(a.startDate||a.endDate||0)-(b.startDate||b.endDate||0));
+  const unpaid = bills.filter(b=>!b.paid && !billAfterLeave(b)).sort(   // ★ 2026-11-07bi 퇴원 뒤 클래스 정산 건은 정산탭에서도 숨긴다
+    (a,b)=>(a.startDate||a.endDate||0)-(b.startDate||b.endDate||0));
   const paidMonth = bills.filter(b=>b.paid && b.paidDate &&
     new Date(b.paidDate).getMonth()===vM && new Date(b.paidDate).getFullYear()===vY)
     .sort((a,b)=>b.paidDate-a.paidDate);
@@ -3040,8 +3049,13 @@ function renderSettle(){
          그 달력의 여닫는 상태는 지난 클래스 카드와 같은 것을 쓴다(같은 클래스이므로 열쇠도 같다). */
     const tg = billCalTarget(b);
     const tgOpen = tg ? histCalOpen.has(tg.key) : false;
+    /* ★ 2026-11-07bh 「이번 클래스 … (예상 종료) · n회」 글자는 여기 한 곳에서 만든다 — 카드 머리와 종료클래스 달력 머리가 같이 쓴다 */
+    const clsLine=`📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회`;
+    /* ★ 2026-11-07bh 원장님 지시 — [종료클래스 달력보기] 달력 박스 안 위쪽에 학생 이름 + 이번 클래스 줄, 아래 안내 문구는 뺀다 */
+    const tgEnd = !!(tg && tg.label==='종료클래스');
     const tgCal = (s && tg && tgOpen)
-      ? histCalendar(s, tg.h, histClassOf(s, tg.h).sessions) : '';
+      ? histCalendar(s, tg.h, histClassOf(s, tg.h).sessions,
+          tgEnd ? {head:`<b style="font-size:14px">${lsnEsc(nm)}</b><span>${clsLine}</span>`} : null) : '';
     const tgBtn = tg
       ? `<div class="row-btns" style="margin-top:8px"><button class="btn ghost small" style="width:auto;padding:5px 10px;font-size:12px"
            onclick="toggleHistCal('${tg.key}')">${tgOpen?tg.label+' 달력 닫기 ▲':tg.label+' 달력보기 ▾'}</button></div>`
@@ -3054,7 +3068,7 @@ function renderSettle(){
     /* ★ 2026-09-02av 원장님 지시 — 정산탭에서 이름을 누르면 학생 페이지가 열린다.
        들어가는 문은 출석부와 같은 stuNameBtn(→goStudent) 하나뿐이다. */
     const head=`<div class="row-top"><span class="name">${s?stuNameBtn(s.id,nm):nm}</span><span class="amt">${won(billAmount(b))}</span></div>
-      <div class="mg-line">📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회 ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
+      <div class="mg-line">${clsLine} ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
       ${oldWay}${tgBtn}${tgCal}`;
     if(!b.paid){
       return `<div class="row">${head}
@@ -5226,7 +5240,8 @@ function renderReport(){
   const max=Math.max(1,...months.map(m=>m.sum));
   const thisM=months[months.length-1];
   const monthClasses=students.reduce((a,s)=>a+monthCount(s.id),0);
-  const waiting=bills.filter(b=>!b.paid).reduce((a,b)=>a+(billAmount(b)||0),0);
+  const waiting=bills.filter(b=>!b.paid && !billAfterLeave(b)).reduce(   // ★ 2026-11-07bi 결산 「받을 돈」도 같은 기준
+    (a,b)=>a+(billAmount(b)||0),0);
 
   el.innerHTML=`
     <button class="back" onclick="goTab('home')">‹ 홈</button>

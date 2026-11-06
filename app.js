@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-07bk-kakao-open */
+/* ONSTUDY-BUILD: 2026-11-07bl-yesang */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -2654,7 +2654,7 @@ function studentCard(s, forDay){
   const dayTime=(forDay!=null)?`⏰ ${WD[forDay]} ${hm12(timeFor(s,forDay))}`:'';
   const infoLine = (eduTxt||dayTime) ? `<div class="mg-line">${[eduTxt?'🎓 '+eduTxt:'', dayTime].filter(Boolean).join(' · ')}</div>` : '';
   const schedLine = `<div class="mg-line">📅 정기 수업일 ${schedText(s)} · <b>${durLabel(durOf(s))}</b></div>`;
-  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상 종료)</div>`;
+  const rangeLine = `<div class="mg-line">🔄 이번 클래스 ${ci.start?fmtD(ci.start):'-'} ~ ${ci.end?fmtD(ci.end):'-'} (예상)</div>`;   // ★ 2026-11-07bl 원장님 지시 「(예상 종료)」→「(예상)」 — 폰에서 두 줄로 접혀서
   const pastHtml = pastClassesHtml(s);
   /* ★ 2026-07-29aa 원장님 지시 — "학습메모를 메뉴를 넣어달라는 거고,
      기존에 있던 학습기록은 있어야 할 것 아니냐"
@@ -3074,7 +3074,7 @@ function renderSettle(){
     const tg = billCalTarget(b);
     const tgOpen = tg ? histCalOpen.has(tg.key) : false;
     /* ★ 2026-11-07bh 「이번 클래스 … (예상 종료) · n회」 글자는 여기 한 곳에서 만든다 — 카드 머리와 종료클래스 달력 머리가 같이 쓴다 */
-    const clsLine=`📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상 종료) · ${b.plan}회`;
+    const clsLine=`📅 <b>이번 클래스 ${fmtD(startMs)} ~ ${fmtD(endMs_)}</b> (예상) · ${b.plan}회`;   // ★ 2026-11-07bl 「(예상 종료)」→「(예상)」 학생 카드와 같은 말
     /* ★ 2026-11-07bh·bj 원장님 지시 — 정산 카드에서 여는 달력([지난클래스]·[종료클래스] 둘 다) 박스 안 위쪽에 학생 이름 + 이번 클래스 줄 */
     const tgCal = (s && tg && tgOpen)
       ? histCalendar(s, tg.h, histClassOf(s, tg.h).sessions,
@@ -3091,7 +3091,7 @@ function renderSettle(){
     /* ★ 2026-09-02av 원장님 지시 — 정산탭에서 이름을 누르면 학생 페이지가 열린다.
        들어가는 문은 출석부와 같은 stuNameBtn(→goStudent) 하나뿐이다. */
     const head=`<div class="row-top"><span class="name">${s?stuNameBtn(s.id,nm):nm}</span><span class="amt">${won(billAmount(b))}</span></div>
-      <div class="mg-line">${clsLine} ${b.paid?`· <span style="color:var(--green);font-weight:600">받음</span>`:`· <span style="color:var(--clay);font-weight:600">아직 못 받음</span>`}</div>
+      <div class="mg-line">${clsLine} ${b.paid?`· <span style="color:var(--green);font-weight:600;white-space:nowrap">받음</span>`:`· <span style="color:var(--clay);font-weight:600;white-space:nowrap">아직 못 받음</span>`}</div>
       ${oldWay}${tgBtn}${tgCal}`;
     if(!b.paid){
       return `<div class="row">${head}

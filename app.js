@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-10bq-extra-list */
+/* ONSTUDY-BUILD: 2026-11-11br-bank-by-plan */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -246,9 +246,11 @@ function guardiansOf(s){
    ★ 2026-07-27g: defaultDur() 삭제. 코드가 60분/90분을 미리 골라 주지 않는다.
      원장님이 직접 고르지 않으면 saveStudent 의 필수값 검사에서 저장이 막힌다. */
 const DUR_OPTS=[[60,'1시간'],[90,'1시간 30분']];
+/* ★ 2026-11-11br 보강 시간 고르기에만 30분을 더한다 (학생 정규 수업 시간 고르기에는 넣지 않는다) */
+const MK_DUR_OPTS=[[30,'30분'],...DUR_OPTS];
 /* ★ 학생에게 저장된 수업 시간이 없으면 0(미설정)을 돌려준다. 코드 값으로 채우지 않는다. */
 function durOf(s){ return (s&&+s.dur>0) ? +s.dur : 0; }
-function durLabel(m){ const f=DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분'); }
+function durLabel(m){ const f=MK_DUR_OPTS.find(o=>o[0]===+m); return f?f[1]:(m+'분'); }
 /* 이름 옆 회차 뱃지 — 모든 화면 공통 표기 (2/12 형식, 7/27 지시) */
 function cycBadge(s){ return `<span style="font-size:12.5px;font-weight:600;color:var(--muted);margin-left:7px;vertical-align:1px">${doneCountOf(s)}/${s.plan}</span>`; }
 function endTimeOf(t, dur){ if(!t || !(+dur>0)) return '';   // ★ 시각·수업시간이 없으면 빈값(60분으로 가정하지 않는다)
@@ -467,8 +469,8 @@ function doneCountOf(s){ return doneOfInfo(s, currentClassInfo(s)); }
 /* ★ bn 끝난 회차 = 끝난 수업일 + 끝난 날에 찬 적립 보강. 회차 숫자를 세는 곳은 여기 한 곳뿐 */
 function doneOfInfo(s, info){
   const past=pastSessionsOf(s, info);
-  const ps=new Set(past);
-  return past.length + ((info&&info.banked)||[]).filter(k=>ps.has(k)).length;
+  const todayK=dayKey(now.getTime());
+  return past.length + ((info&&info.banked)||[]).filter(k=> k<todayK || (k===todayK && hasRecordOn(s.id,k))).length;
 }
 /* 2026-07-28l: 회차 숫자로 시작일을 역산하던 startForDone 을 삭제했다.
    같은 답을 주는 시작일이 여러 개라 값이 흔들렸고, 기록 없는 지난 수업일은 회차로 세지 않아
@@ -532,6 +534,14 @@ function classOf(s, startMs, plan, opts){
       if(skipSet.has(k)){ info.skips.push(k); info.windowDates.add(k); continue; }
     }
     if(!isSessionDay(s,k)) continue;               // 수업일 판정도 단일 함수
+    /* ★ br 짧은 보강 날 = 하루 수업으로 세지 않는다. 그 날 모인 시간이 1회 시간을 채웠을 때만 회차 1회. */
+    if(partialMakeupOf(s,k)){
+      if(k < todayK && !hasRecordOn(s.id,k)) continue;
+      info.makeups.push(k); info.windowDates.add(k);
+      for(let u=bankDay[k]||0; u>0 && count<plan; u--){ info.banked.push(k); count++; }
+      if(count===plan) info.end=k;
+      continue;
+    }
     // 지난 수업일인데 등원 기록이 없으면(버튼 미입력) 회차로 세지 않고 종료일이 뒤로 밀림
     if(k < todayK && k >= cutoff && !hasRecordOn(s.id,k)){
       info.missed.push(k); info.windowDates.add(k); continue;
@@ -844,16 +854,31 @@ function isMakeupDay(s, k){ return !!makeupOn(s.id, k); }
    · 세는 곳 : bankUnitsOf(s) 한 곳뿐. 학생의 모든 적립을 날짜 차례로 더해 60분이 찰 때마다 '그 날'에 1회.
      → 클래스가 바뀌어도 남은 분은 그대로 이어진다.
    · 그 날 수업이 회차로 세지는 날일 때만 센다(결석·휴강·휴일·지난날 등원 미입력이면 안 센다). */
-const BANK_MIN=60, EXTRA_OPTS=[[30,'＋30분'],[60,'＋1시간']];   // ★ bo [＋1시간] 추가 — 하루에 둘 중 하나
+const EXTRA_OPTS=[[30,'＋30분'],[60,'＋1시간']];   // ★ bo [＋1시간] 추가 — 하루에 둘 중 하나
+/* ★ 2026-11-11br 원장님 지시 — 「12회차는 보강 시간 합이 1시간일 때, 8회차는 90분이 되면 하루 보강 추가」
+   회차 1회가 되는 보강 시간 = 계약 회차(plan)로 정한다. 여기 없는 회차는 0 = 미설정 → 모으기만 하고 회차로 넣지 않는다. */
+const BANK_MIN_BY_PLAN={12:60, 8:90};
+function bankMinOf(s){ return (s && BANK_MIN_BY_PLAN[s.plan]) || 0; }
+/* ★ br 정규 수업이 아닌 날의 짧은 보강(보강 시간 < 1회 시간) — 하루 수업으로 세지 않고 시간만 모은다 */
+function regularDayOf(s, k){
+  const d=new Date(k);
+  return !!(s && s.days && s.days.includes(d.getDay()) && !(skipLog[s.id]||[]).some(t=>dayKey(t)===k) && !isHoliday(k));
+}
+function partialMakeupOf(s, k){
+  const mk=s && makeupOn(s.id,k), u=bankMinOf(s);
+  if(!mk || !(+mk.dur>0) || !u || +mk.dur>=u) return null;
+  if(regularDayOf(s,k)) return null;
+  return mk;
+}
 function extraOn(sid, k){ return (extraLog[sid]||[]).find(x=>dayKey(x.t)===dayKey(k)) || null; }
 function bankUnitsOf(s){
   const out={byDay:{}, units:[], left:0};
   if(!s) return out;
   const todayK=dayKey(now.getTime());
-  let bank=0;
+  let bank=0; const U=bankMinOf(s);
   validExtrasOf(s).forEach(x=>{
     bank+=x.m;
-    while(bank>=BANK_MIN){ bank-=BANK_MIN; out.units.push(x.k); out.byDay[x.k]=(out.byDay[x.k]||0)+1; }
+    while(U && bank>=U){ bank-=U; out.units.push(x.k); out.byDay[x.k]=(out.byDay[x.k]||0)+1; }
   });
   out.left=bank;
   return out;
@@ -862,9 +887,12 @@ function bankUnitsOf(s){
 function validExtrasOf(s){
   if(!s) return [];
   const todayK=dayKey(now.getTime());
-  return (extraLog[s.id]||[]).map(x=>({k:dayKey(x.t), m:+x.min||0})).filter(x=>x.m>0)
-    .filter(x=>isSessionDay(s,x.k) && !(x.k<todayK && !hasRecordOn(s.id,x.k)))
-    .sort((a,b)=>a.k-b.k);
+  const ok=k=>isSessionDay(s,k) && !(k<todayK && !hasRecordOn(s.id,k));
+  const ex=(extraLog[s.id]||[]).map(x=>({k:dayKey(x.t), m:+x.min||0})).filter(x=>x.m>0 && ok(x.k));
+  /* ★ br 짧은 보강([보강 추가]·[보강일 지정]에서 30분 등)도 같은 통에 모은다 */
+  const mk=(makeupLog[s.id]||[]).map(x=>dayKey(x.t)).filter(k=>partialMakeupOf(s,k) && ok(k))
+    .map(k=>{ const m=makeupOn(s.id,k); return {k, m:+m.dur, mk:true, time:m.time}; });
+  return ex.concat(mk).sort((a,b)=>a.k-b.k || (a.mk?-1:1));
 }
 /* ★ bq 적립 보강 시각 = 그 날 수업이 끝난 시각부터 m분.
    끝난 시각은 그 날 하원 기록이 있으면 그것, 없으면 그 날 예정 시각+수업 시간. 둘 다 없으면 시각 없이 보인다(지어내지 않는다). */
@@ -876,8 +904,9 @@ function extraRangeOf(s, k, m){
 /* 확정(저장된 날짜) 기록용 — 그 날짜 목록 안에서 찬 적립 1시간 (계약 회차를 넘지 않게) */
 function bankedInList(s, list, plan){
   if(!s || !Array.isArray(list)) return [];
-  const set=new Set(list.map(dayKey)), room=Math.max(0,(plan||0)-list.length);
-  return bankUnitsOf(s).units.filter(k=>set.has(k)).slice(0, room);
+  const l=list.map(dayKey).sort((a,b)=>a-b), room=Math.max(0,(plan||0)-l.length);
+  if(!l.length) return [];
+  return bankUnitsOf(s).units.filter(k=>k>=l[0] && k<=l[l.length-1]).slice(0, room);   // ★ br 짧은 보강 날은 목록에 없으니 기간으로 본다
 }
 /* 출석부 카드의 [＋30분][＋1시간] 단추 — 만드는 곳은 여기 한 곳뿐.
    ★ 2026-11-10bo 원장님 지시 — "보강 추가에 [+1시간]도 넣어줘"
@@ -898,8 +927,8 @@ function toggleExtra(sid, k, min){
   saveData(); refreshCurrentView();
   const b=bankUnitsOf(s), lb=min===60?'1시간':'30분';
   if(off) showToast(`${s.name} ${fmtMD(k)} ${lb} 적립 보강을 뺐어요 · 적립 ${b.left}분`);
-  else if(b.units.length>before) showToast(`${s.name} ${fmtMD(k)} ${lb} 적립 · 1시간이 차서 회차 1회로 넣었어요`);
-  else showToast(`${s.name} ${fmtMD(k)} ${lb} 적립 · 지금 ${b.left}분 (1시간이 되면 회차 1회)`);
+  else if(b.units.length>before) showToast(`${s.name} ${fmtMD(k)} ${lb} 적립 · ${durLabel(bankMinOf(s))}이 차서 회차 1회로 넣었어요`);
+  else showToast(`${s.name} ${fmtMD(k)} ${lb} 적립 · 지금 ${b.left}분${bankMinOf(s)?` (${durLabel(bankMinOf(s))}이 되면 회차 1회)`:''}`);
 }
 let seedUntil=null;      // 이 날짜 이전의 지난 수업일은 '확정'으로 인정(과거 기록 일괄 확정 시점)
 let histFixV=0;          // 지난 기록 정리 버전 (1 = 2026-07-27 회차·기간 단일화 정리 완료)
@@ -1460,7 +1489,7 @@ function monthGrid(sid, y, m, sets, opts){
     const used=first+days, tail=(7-used%7)%7;
     const cells=Math.max(tail, tail + Math.ceil(Math.max(0,nb-tail)/7)*7);
     for(let i=0;i<cells;i++) grid += i<nb
-      ? `<div class="cal-d" style="background:#EAE3F7;color:#6B4FBB;font-weight:700;font-size:10px;letter-spacing:-.3px" title="적립 보강 1시간">보강</div>`
+      ? `<div class="cal-d" style="background:#EAE3F7;color:#6B4FBB;font-weight:700;font-size:10px;letter-spacing:-.3px" title="적립 보강 회차">보강</div>`
       : '<div></div>';
   }
   return `<div class="cal-nav" style="justify-content:center"><span>${y}년 ${m+1}월</span></div>
@@ -1525,10 +1554,10 @@ function buildCalendar(s, cal, prevClick, nextClick){
        「보강 7.25(토) 오후 4:00~4:30 · 30분」. 이번 클래스 기간(시작일~종료일)에 든 것만, 날짜순. */
   const _ex=validExtrasOf(s).filter(x=>info.start!=null && x.k>=info.start && (info.end==null || x.k<=info.end));
   const extraList=_ex.length ? `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">${_ex.map(x=>{
-      const r=extraRangeOf(s,x.k,x.m);
-      return `<div style="font-size:12.5px;color:#4A3690"><b>보강</b> ${fmtMD(x.k)}${r?' '+r:''} · ${x.m===60?'1시간':x.m+'분'}</div>`; }).join('')}</div>` : '';
+      const r=x.mk ? (x.time? rng12(x.time, endTimeOf(x.time,x.m)) : '') : extraRangeOf(s,x.k,x.m);
+      return `<div style="font-size:12.5px;color:#4A3690"><b>보강</b> ${fmtMD(x.k)}${r?' '+r:''} · ${durLabel(x.m)}</div>`; }).join('')}</div>` : '';
   const bankLine=(_bk.left>0 || info.banked.length) ? `<div class="cf-row"><span class="cf-k">적립 보강</span>
-    <span class="cf-v">${info.banked.length?`이번 클래스 ${info.banked.length}회 들어감`:''}${info.banked.length&&_bk.left?' · ':''}${_bk.left?`${_bk.left}분 모임 (1시간 되면 1회)`:''}</span></div>` : '';
+    <span class="cf-v">${info.banked.length?`이번 클래스 ${info.banked.length}회 들어감`:''}${info.banked.length&&_bk.left?' · ':''}${_bk.left?`${_bk.left}분 모임${bankMinOf(s)?` (${durLabel(bankMinOf(s))} 되면 1회)`:' (이 회차 계약은 1회 기준 시간이 없어요)'}`:''}</span></div>` : '';
   return `<div class="cal">
     ${grids}
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
@@ -1964,7 +1993,7 @@ function openMakeupSheet(id){
     <div class="fld"><label>시작 시각</label>${timeSel(timeFor(s, new Date().getDay()), {id:'mkTime'})}</div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="mkDurRow">
-        ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${dcur===m?'on':''}" data-dur="${m}" onclick="pickMkDur(${m})">${label}</button>`).join('')}
+        ${MK_DUR_OPTS.map(([m,label])=>`<button type="button" class="${dcur===m?'on':''}" data-dur="${m}" onclick="pickMkDur(${m})">${label}</button>`).join('')}
       </div></div>
     <div class="sheet-btns"><button class="btn start" onclick="saveMakeup(${id})">추가</button>
       <button class="btn sms" onclick="closeSheet()">취소</button></div>`;
@@ -2035,7 +2064,7 @@ function openTempSheet(id, dateMs){
       ${timeSel(defT, {id:'tpTime'})}</div>
     <div class="fld"><label>수업 시간</label>
       <div class="seg2" id="tpDurRow">
-        ${DUR_OPTS.map(([m,label])=>`<button type="button" class="${defD===m?'on':''}" data-dur="${m}" onclick="pickTpDur(${m})">${label}</button>`).join('')}
+        ${MK_DUR_OPTS.map(([m,label])=>`<button type="button" class="${defD===m?'on':''}" data-dur="${m}" onclick="pickTpDur(${m})">${label}</button>`).join('')}
       </div></div>
     <div class="sheet-btns">
       <button class="btn start" onclick="saveTemp(${id})">보강 추가</button>
@@ -2930,10 +2959,13 @@ function classSessionsHtml(list, big, banked){
   const fs=big?'13px':'12.5px', pv=big?'3px':'2px';
   /* ★ bn 적립 보강 1시간은 그 날 수업 바로 뒤 회차로 끼워 보인다 (보라 글자) */
   const bk={}; (banked||[]).forEach(k=>bk[k]=(bk[k]||0)+1);
-  const rows=[]; (list||[]).forEach(t=>{ rows.push({t}); for(let u=bk[t]||0;u>0;u--) rows.push({t, bank:true}); });
+  const rows=[]; (list||[]).forEach(t=>{ rows.push({t}); for(let u=bk[t]||0;u>0;u--) rows.push({t, bank:true}); delete bk[t]; });
+  /* ★ br 짧은 보강 날(목록에 없는 날)에 찬 것도 날짜 자리에 끼운다 */
+  Object.keys(bk).forEach(t=>{ for(let u=bk[t];u>0;u--) rows.push({t:+t, bank:true}); });
+  rows.sort((a,b)=>a.t-b.t || (a.bank?1:0)-(b.bank?1:0));
   return `<div style="background:var(--bg);border-radius:${big?'10px':'9px'};padding:${big?'10px 12px':'9px 11px'};margin-top:${big?'9px':'7px'}">
     ${rows.length ? rows.map((r,i)=>`<div style="display:flex;justify-content:space-between;font-size:${fs};padding:${pv} 0;color:${r.bank?'#6B4FBB':'var(--ink)'}">
-        <span style="color:${r.bank?'#6B4FBB':'var(--muted)'}">${i+1}회차</span><span>${r.bank?'적립 보강 1시간 · ':''}${fmtMD(r.t)}</span></div>`).join('')
+        <span style="color:${r.bank?'#6B4FBB':'var(--muted)'}">${i+1}회차</span><span>${r.bank?'적립 보강 · ':''}${fmtMD(r.t)}</span></div>`).join('')
       : `<div style="font-size:${fs};color:var(--muted)">회차별 날짜 기록이 없어요.</div>`}
   </div>`;
 }

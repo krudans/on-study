@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-10bo-extra60 */
+/* ONSTUDY-BUILD: 2026-11-10bq-extra-list */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -850,16 +850,28 @@ function bankUnitsOf(s){
   const out={byDay:{}, units:[], left:0};
   if(!s) return out;
   const todayK=dayKey(now.getTime());
-  const list=(extraLog[s.id]||[]).map(x=>({k:dayKey(x.t), m:+x.min||0})).filter(x=>x.m>0).sort((a,b)=>a.k-b.k);
   let bank=0;
-  list.forEach(x=>{
-    if(!isSessionDay(s,x.k)) return;
-    if(x.k<todayK && !hasRecordOn(s.id,x.k)) return;
+  validExtrasOf(s).forEach(x=>{
     bank+=x.m;
     while(bank>=BANK_MIN){ bank-=BANK_MIN; out.units.push(x.k); out.byDay[x.k]=(out.byDay[x.k]||0)+1; }
   });
   out.left=bank;
   return out;
+}
+/* ★ bq 회차에 들어가는(세는) 적립 보강만 — 날짜순. bankUnitsOf 와 달력 아래 목록이 같이 쓴다(단일 소스) */
+function validExtrasOf(s){
+  if(!s) return [];
+  const todayK=dayKey(now.getTime());
+  return (extraLog[s.id]||[]).map(x=>({k:dayKey(x.t), m:+x.min||0})).filter(x=>x.m>0)
+    .filter(x=>isSessionDay(s,x.k) && !(x.k<todayK && !hasRecordOn(s.id,x.k)))
+    .sort((a,b)=>a.k-b.k);
+}
+/* ★ bq 적립 보강 시각 = 그 날 수업이 끝난 시각부터 m분.
+   끝난 시각은 그 날 하원 기록이 있으면 그것, 없으면 그 날 예정 시각+수업 시간. 둘 다 없으면 시각 없이 보인다(지어내지 않는다). */
+function extraRangeOf(s, k, m){
+  const rec=sessions.find(x=>x.sid===s.id && dayKey(x.date)===k && x.end);
+  const from = rec ? hm(rec.end) : endTimeOf(todayTimeOf(s,k), todayDurOf(s,k));
+  return from ? rng12(from, endTimeOf(from, m)) : '';
 }
 /* 확정(저장된 날짜) 기록용 — 그 날짜 목록 안에서 찬 적립 1시간 (계약 회차를 넘지 않게) */
 function bankedInList(s, list, plan){
@@ -1509,6 +1521,12 @@ function buildCalendar(s, cal, prevClick, nextClick){
 
   /* ★ bn 적립 보강 현황 — 1시간이 안 찬 분(left)과 이번 클래스에 들어간 회차 */
   const _bk=bankUnitsOf(s);
+  /* ★ 2026-11-10bq 원장님 지시 — 색 설명 줄 바로 아래(구분선 없이) 적립 보강을 한 건씩 :
+       「보강 7.25(토) 오후 4:00~4:30 · 30분」. 이번 클래스 기간(시작일~종료일)에 든 것만, 날짜순. */
+  const _ex=validExtrasOf(s).filter(x=>info.start!=null && x.k>=info.start && (info.end==null || x.k<=info.end));
+  const extraList=_ex.length ? `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">${_ex.map(x=>{
+      const r=extraRangeOf(s,x.k,x.m);
+      return `<div style="font-size:12.5px;color:#4A3690"><b>보강</b> ${fmtMD(x.k)}${r?' '+r:''} · ${x.m===60?'1시간':x.m+'분'}</div>`; }).join('')}</div>` : '';
   const bankLine=(_bk.left>0 || info.banked.length) ? `<div class="cf-row"><span class="cf-k">적립 보강</span>
     <span class="cf-v">${info.banked.length?`이번 클래스 ${info.banked.length}회 들어감`:''}${info.banked.length&&_bk.left?' · ':''}${_bk.left?`${_bk.left}분 모임 (1시간 되면 1회)`:''}</span></div>` : '';
   return `<div class="cal">
@@ -1516,6 +1534,7 @@ function buildCalendar(s, cal, prevClick, nextClick){
     <div class="cal-legend"><span><i class="lg att"></i>출석</span><span><i class="lg up"></i>예정</span>
       <span><i class="lg" style="background:#EAE3F7"></i>보강</span><span><i class="lg" style="background:#EDEDED"></i>휴강</span>
       <span><i class="lg ab"></i>결석</span><span><i class="lg tod"></i>오늘</span></div>
+    ${extraList}
     <div class="cal-foot">${rangeLine}${bankLine}${payLine}${mkLine}</div>
   </div>`;
 }

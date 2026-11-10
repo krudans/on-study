@@ -1,4 +1,4 @@
-/* ONSTUDY-BUILD: 2026-11-11br-bank-by-plan */
+/* ONSTUDY-BUILD: 2026-11-11bs-extra-no-time */
 /* ★ 회차·기간 단일 소스 규칙 (2026-07-27)
      시작일 + 학생정보(요일·휴일·휴강·결석·보강) → classOf() 하나로만 계산한다.
        · 이번 클래스 : currentClassInfo(s) → cycleStartOf / cycleEndOf
@@ -894,13 +894,6 @@ function validExtrasOf(s){
     .map(k=>{ const m=makeupOn(s.id,k); return {k, m:+m.dur, mk:true, time:m.time}; });
   return ex.concat(mk).sort((a,b)=>a.k-b.k || (a.mk?-1:1));
 }
-/* ★ bq 적립 보강 시각 = 그 날 수업이 끝난 시각부터 m분.
-   끝난 시각은 그 날 하원 기록이 있으면 그것, 없으면 그 날 예정 시각+수업 시간. 둘 다 없으면 시각 없이 보인다(지어내지 않는다). */
-function extraRangeOf(s, k, m){
-  const rec=sessions.find(x=>x.sid===s.id && dayKey(x.date)===k && x.end);
-  const from = rec ? hm(rec.end) : endTimeOf(todayTimeOf(s,k), todayDurOf(s,k));
-  return from ? rng12(from, endTimeOf(from, m)) : '';
-}
 /* 확정(저장된 날짜) 기록용 — 그 날짜 목록 안에서 찬 적립 1시간 (계약 회차를 넘지 않게) */
 function bankedInList(s, list, plan){
   if(!s || !Array.isArray(list)) return [];
@@ -1554,8 +1547,8 @@ function buildCalendar(s, cal, prevClick, nextClick){
        「보강 7.25(토) 오후 4:00~4:30 · 30분」. 이번 클래스 기간(시작일~종료일)에 든 것만, 날짜순. */
   const _ex=validExtrasOf(s).filter(x=>info.start!=null && x.k>=info.start && (info.end==null || x.k<=info.end));
   const extraList=_ex.length ? `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">${_ex.map(x=>{
-      const r=x.mk ? (x.time? rng12(x.time, endTimeOf(x.time,x.m)) : '') : extraRangeOf(s,x.k,x.m);
-      return `<div style="font-size:12.5px;color:#4A3690"><b>보강</b> ${fmtMD(x.k)}${r?' '+r:''} · ${durLabel(x.m)}</div>`; }).join('')}</div>` : '';
+      /* ★ 2026-11-11bs 원장님 지시 — 시각은 빼고 날짜·시간만 : 「보강 11.3(화) 30분」 (수업에 이어 하면 시각이 이상해 보여서) */
+      return `<div style="font-size:12.5px;color:#4A3690"><b>보강</b> ${fmtMD(x.k)} ${durLabel(x.m)}</div>`; }).join('')}</div>` : '';
   const bankLine=(_bk.left>0 || info.banked.length) ? `<div class="cf-row"><span class="cf-k">적립 보강</span>
     <span class="cf-v">${info.banked.length?`이번 클래스 ${info.banked.length}회 들어감`:''}${info.banked.length&&_bk.left?' · ':''}${_bk.left?`${_bk.left}분 모임${bankMinOf(s)?` (${durLabel(bankMinOf(s))} 되면 1회)`:' (이 회차 계약은 1회 기준 시간이 없어요)'}`:''}</span></div>` : '';
   return `<div class="cal">
